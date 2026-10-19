@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate api worker web lint fmt test test-all check
+.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -24,8 +24,12 @@ down: ## Stop Postgres + Redis (data kept)
 logs: ## Tail Postgres + Redis logs
 	$(COMPOSE) logs -f
 
-migrate: ## Apply DB migrations (task 1.4)
-	@echo "not yet implemented: alembic arrives in task 1.4"; exit 1
+migrate: ## Apply DB migrations
+	$(UV) alembic upgrade head
+
+migration: ## New migration from model changes: make migration m="add foo"
+	@test -n "$(m)" || { echo 'usage: make migration m="what changed"'; exit 1; }
+	$(UV) alembic revision --autogenerate -m "$(m)"
 
 api: ## Run FastAPI on 127.0.0.1:8000 (reload)
 	$(UV) uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000

@@ -12,7 +12,7 @@ Goal: app runs, DB holds Xero master data, model responds.
 - [x] **1.1 Repo skeleton** — folders per CLAUDE.md, `backend/` uv project, ruff, mypy, pytest, pre-commit, `docker-compose.yml` (Postgres 16 + Redis), `Makefile`, `.env.example`, `README.md`
 - [x] **1.2 Core config** — pydantic-settings, DB session, logging, FastAPI app with `/health`
 - [x] **1.3 Domain** — `Invoice` + `Line` schema, enums, state machine with allowed transitions; unit tests
-- [ ] **1.4 DB models + migration** — `documents`, `extractions`, `corrections`, `outbox`, `audit_log`, `xero_accounts`, `xero_tax_rates`, `xero_contacts`, `vendor_mappings`, `runs`; `client_id` everywhere; unique business key; pg_trgm extension
+- [x] **1.4 DB models + migration** — `documents`, `extractions`, `corrections`, `outbox`, `audit_log`, `xero_accounts`, `xero_tax_rates`, `xero_contacts`, `vendor_mappings`, `runs`; `client_id` everywhere; unique business key; pg_trgm extension
 - [ ] **1.5 Xero adapter: auth** — OAuth2 flow, token storage + refresh, connect to Demo Company
 - [ ] **1.6 Xero adapter: master data sync** — accounts, tax rates, contacts → Postgres; `POST /xero/sync`
 - [ ] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test

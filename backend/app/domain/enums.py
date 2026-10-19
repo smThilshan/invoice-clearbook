@@ -36,6 +36,14 @@ class AmountType(StrEnum):
     NO_TAX = "NO_TAX"
 
 
+class QueueCategory(StrEnum):
+    """Verification result shown in the Workbench."""
+
+    READY = "READY"  # no errors, no warnings
+    CHECK = "CHECK"  # warnings
+    EXCEPTION = "EXCEPTION"  # errors, duplicate or type conflict
+
+
 class DocumentStatus(StrEnum):
     """Lifecycle of a document. Moves only through `state_machine`."""
 
