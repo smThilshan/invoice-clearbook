@@ -48,8 +48,13 @@ CAPTURED → READ → EXTRACTED → VERIFIED → IN_REVIEW → APPROVED → POST
 IN_REVIEW → REJECTED
 POSTING → POST_ERROR → IN_REVIEW
 POSTED/SYNCED → VOIDED  (LATER, via sync)
-Side states: DUPLICATE, NON_POSTABLE, FAILED
+CAPTURED → DUPLICATE                       (same file hash)
+VERIFIED/IN_REVIEW → NON_POSTABLE → IN_REVIEW   (parked; accountant can un-park)
+CAPTURED/READ/EXTRACTED → FAILED → CAPTURED     (re-run)
+Terminal: REJECTED, DUPLICATE, VOIDED
 ```
+- The full table is `ALLOWED_TRANSITIONS` in `domain/state_machine.py`; anything not listed is refused.
+- Business-key duplicates go to `IN_REVIEW` as Exception; the accountant rejects them with reason "duplicate".
 - All transitions go through `domain/state_machine.transition()`, which validates the move and writes `audit_log`.
 - Only `APPROVED` can move to `POSTING` — enforced in code AND by a DB constraint/trigger.
 
@@ -71,7 +76,7 @@ Xero type codes exist ONLY in `adapters/xero/`.
 ## 7. Canonical schema (`app/domain/invoice.py`)
 ```python
 class Line(BaseModel):
-    description: str
+    description: str | None
     qty: Decimal | None
     unit_price: Decimal | None
     amount: Decimal
@@ -81,12 +86,12 @@ class Line(BaseModel):
 class Invoice(BaseModel):
     # always present
     document_type: DocumentType   # BILL, CREDIT_NOTE, DEBIT_NOTE, RECEIPT, SALES_INVOICE, NON_POSTABLE
-    vendor_name: str
-    invoice_number: str
-    invoice_date: date
-    total: Decimal
-    currency: str
-    # nullable: null, never invented
+    # nullable: null, never invented. Required-to-post is a validation rule per type (decision 17)
+    vendor_name: str | None
+    invoice_number: str | None
+    invoice_date: date | None
+    total: Decimal | None
+    currency: str | None
     vendor_trn: str | None
     recipient_name: str | None
     recipient_trn: str | None
@@ -99,7 +104,8 @@ class Invoice(BaseModel):
     lines: list[Line]
     evidence: dict[str, str]           # source text for key values (grounding)
 ```
-Rules: required = only what every real invoice has; enums for fixed choices; money is `Decimal`;
+Rules: required = only what every real invoice has; the schema checks types and enums only, formats
+(TRN, currency code, decimals) are validation rules; extra fields are refused; money is `Decimal`;
 the JSON schema sent to the model is built at runtime so `account_code` is an enum of active accounts;
 schema changes are versioned in Git.
 

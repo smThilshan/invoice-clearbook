@@ -1,0 +1,56 @@
+"""Canonical enums. Accounting-system codes (e.g. Xero's ACCPAY) never appear here."""
+
+from enum import StrEnum
+
+
+class Direction(StrEnum):
+    """Declared by the inbox folder the file was dropped into."""
+
+    PURCHASE = "PURCHASE"
+    SALES = "SALES"
+    UNSORTED = "UNSORTED"
+
+
+class DocumentType(StrEnum):
+    BILL = "BILL"
+    CREDIT_NOTE = "CREDIT_NOTE"
+    DEBIT_NOTE = "DEBIT_NOTE"
+    RECEIPT = "RECEIPT"
+    SALES_INVOICE = "SALES_INVOICE"
+    NON_POSTABLE = "NON_POSTABLE"  # quote, PO, proforma, statement, delivery note, remittance
+
+
+class TaxType(StrEnum):
+    STANDARD_5 = "STANDARD_5"
+    ZERO = "ZERO"
+    EXEMPT = "EXEMPT"
+    REVERSE_CHARGE = "REVERSE_CHARGE"
+    NONE = "NONE"
+
+
+class AmountType(StrEnum):
+    """Whether line amounts include VAT."""
+
+    INCLUSIVE = "INCLUSIVE"
+    EXCLUSIVE = "EXCLUSIVE"
+    NO_TAX = "NO_TAX"
+
+
+class DocumentStatus(StrEnum):
+    """Lifecycle of a document. Moves only through `state_machine`."""
+
+    CAPTURED = "CAPTURED"
+    READ = "READ"
+    EXTRACTED = "EXTRACTED"
+    VERIFIED = "VERIFIED"
+    IN_REVIEW = "IN_REVIEW"
+    APPROVED = "APPROVED"
+    POSTING = "POSTING"
+    POSTED = "POSTED"
+    SYNCED = "SYNCED"
+    REJECTED = "REJECTED"
+    POST_ERROR = "POST_ERROR"
+    VOIDED = "VOIDED"
+    DUPLICATE = "DUPLICATE"
+    NON_POSTABLE = "NON_POSTABLE"
+    FAILED = "FAILED"
