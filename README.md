@@ -21,7 +21,7 @@ make install              # backend deps + git hooks
 ollama serve              # separate terminal, native (not Docker)
 make up                   # Postgres + Redis
 make migrate
-make api                  # FastAPI
+make api                  # FastAPI → curl localhost:8000/health/ready
 make worker               # Celery
 make web                  # Workbench
 ```
@@ -33,6 +33,7 @@ make web                  # Workbench
 
 ## Develop
 ```bash
-make check                # lint + test; run before every commit
+make check                # lint + unit tests; run before every commit
+make test-all             # also integration tests (needs make up)
 make help                 # all targets
 ```

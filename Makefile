@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate api worker web lint fmt test check
+.PHONY: help install up down logs migrate api worker web lint fmt test test-all check
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -27,8 +27,8 @@ logs: ## Tail Postgres + Redis logs
 migrate: ## Apply DB migrations (task 1.4)
 	@echo "not yet implemented: alembic arrives in task 1.4"; exit 1
 
-api: ## Run FastAPI (task 1.2)
-	@echo "not yet implemented: FastAPI app arrives in task 1.2"; exit 1
+api: ## Run FastAPI on 127.0.0.1:8000 (reload)
+	$(UV) uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
 
 worker: ## Run Celery workers (task 2.2)
 	@echo "not yet implemented: Celery arrives in task 2.2"; exit 1
@@ -45,7 +45,10 @@ fmt: ## Auto-fix lint and format
 	$(UV) ruff check --fix .
 	$(UV) ruff format .
 
-test: ## pytest
+test: ## pytest (unit only)
 	$(UV) pytest
+
+test-all: ## pytest incl. integration (needs make up)
+	$(UV) pytest -m ""
 
 check: lint test ## lint + test (run before every commit)
