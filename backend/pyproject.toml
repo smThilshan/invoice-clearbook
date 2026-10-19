@@ -1,0 +1,71 @@
+[project]
+name = "clearbook"
+version = "0.1.0"
+description = "Local invoice automation for Missan: read, extract, verify, review, post to Xero."
+requires-python = ">=3.12,<3.13"
+# Runtime dependencies are added by the task that first uses them (see docs/phases.md).
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# --- ruff -------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "tests"]
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "A",        # shadowing builtins
+    "C4",       # comprehensions
+    "DTZ",      # naive datetimes
+    "T20",      # no print()
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+    "S",        # bandit (security)
+    "PTH",      # pathlib over os.path
+    "ERA",      # commented-out code
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is how pytest works
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# --- mypy -------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["app"]
+warn_unreachable = true
+
+# --- pytest -----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+    "integration: needs Postgres/Redis/Ollama running (make up)",
+]

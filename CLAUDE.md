@@ -40,6 +40,7 @@ backend/app/
 backend/migrations/   Alembic
 backend/tests/
 workbench/            React app
+infra/                Docker/DB init and (later) deployment config
 ```
 
 ## Architecture rules (non-negotiable)

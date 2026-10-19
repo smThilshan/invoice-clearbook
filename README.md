@@ -17,6 +17,7 @@ No client data leaves the local servers.
 ## Run
 ```bash
 cp .env.example .env      # fill in values
+make install              # backend deps + git hooks
 ollama serve              # separate terminal, native (not Docker)
 make up                   # Postgres + Redis
 make migrate
@@ -32,6 +33,6 @@ make web                  # Workbench
 
 ## Develop
 ```bash
-make lint
-make test
+make check                # lint + test; run before every commit
+make help                 # all targets
 ```
