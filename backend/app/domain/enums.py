@@ -28,6 +28,23 @@ class TaxType(StrEnum):
     NONE = "NONE"
 
 
+class AccountClass(StrEnum):
+    """Top-level ledger account class; every accounting system maps its account types to one."""
+
+    ASSET = "ASSET"
+    LIABILITY = "LIABILITY"
+    EQUITY = "EQUITY"
+    REVENUE = "REVENUE"
+    EXPENSE = "EXPENSE"
+
+
+class AccountingProvider(StrEnum):
+    """Which adapter a client's master data and postings go through (decision 20)."""
+
+    MANUAL = "MANUAL"  # no connection: CSV master data in, export file out
+    XERO = "XERO"
+
+
 class AmountType(StrEnum):
     """Whether line amounts include VAT."""
 

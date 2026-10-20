@@ -13,7 +13,7 @@ Goal: app runs, DB holds master data, model responds. No accounting-system conne
 - [x] **1.2 Core config** — pydantic-settings, DB session, logging, FastAPI app with `/health`
 - [x] **1.3 Domain** — `Invoice` + `Line` schema, enums, state machine with allowed transitions; unit tests
 - [x] **1.4 DB models + migration** — `documents`, `extractions`, `corrections`, `outbox`, `audit_log`, master data, `vendor_mappings`, `runs`; `client_id` everywhere; unique business key; pg_trgm extension
-- [ ] **1.4b Accounting-agnostic master data** — neutral `ledger_accounts`, `tax_rates`, `contacts` (`provider` + `external_id`) replace the `xero_*` tables (decision 20)
+- [x] **1.4b Accounting-agnostic master data** — neutral `ledger_accounts`, `tax_rates`, `contacts` (`provider` + `external_id`) replace the `xero_*` tables (decision 20)
 - [ ] **1.5 Master data import** — `AccountingSystem` port (master-data part) + `manual` adapter: CSV import of accounts, tax rates (mapped to canonical `TaxType`), contacts; validate, upsert, report; `POST /master-data/import`
 - [ ] **1.6 Sample master data** — sample CSVs (chart of accounts, UAE VAT rates, suppliers) in `infra/samples/` for dev and tests; `make seed`
 - [ ] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test

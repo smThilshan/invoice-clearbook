@@ -42,13 +42,13 @@ def str_enum(enum_cls: type[StrEnum], name: str) -> Enum:
 
 class UuidPk:
     # Not guessable in URLs; the outbox id doubles as the posting idempotency key.
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4, sort_order=-2)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4, sort_order=-3)
 
 
 class ClientScoped:
     """Every table carries the client (accounting organisation) it belongs to."""
 
-    client_id: Mapped[str] = mapped_column(String(64), sort_order=-1)
+    client_id: Mapped[str] = mapped_column(String(64), sort_order=-2)
 
 
 class Timestamps:

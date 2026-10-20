@@ -1,4 +1,4 @@
-"""Canonical invoice schema. Every part of the app uses it; Xero types never appear here.
+"""Canonical invoice schema. Every part of the app uses it; no accounting-system types.
 
 The schema records what the document says: a value that is not on the document is None, never
 invented. Types and enums only. Whether a document has enough to post, and whether values have

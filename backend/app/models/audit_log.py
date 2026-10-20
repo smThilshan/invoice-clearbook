@@ -14,7 +14,7 @@ class AuditLog(ClientScoped, Base):
 
     __tablename__ = "audit_log"
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True, sort_order=-2)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True, sort_order=-3)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="RESTRICT"))
     from_status: Mapped[DocumentStatus] = mapped_column(str_enum(DocumentStatus, "from_status"))
     to_status: Mapped[DocumentStatus] = mapped_column(str_enum(DocumentStatus, "to_status"))

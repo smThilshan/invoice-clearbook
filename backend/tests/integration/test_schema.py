@@ -8,7 +8,6 @@ from sqlalchemy import Engine, create_engine, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-import app.adapters.xero.models  # noqa: F401 - registers the Xero tables
 from app.core.config import get_settings
 from app.domain.enums import DocumentStatus, DocumentType
 from app.models import Base, Document, Outbox, OutboxStatus
