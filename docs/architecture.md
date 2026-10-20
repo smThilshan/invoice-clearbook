@@ -221,7 +221,7 @@ Daily reconciliation: count + total per day vs the accounting system.
 | Text reading | PaddleOCR 3.0.2 / PaddlePaddle 3.0.0 (pinned, decision 22), PP-OCRv5 mobile models on CPU — text + positions for highlights and grounding |
 | Digital PDFs | PyMuPDF text layer |
 | Understanding | **Qwen3-VL-4B-Instruct** (pinned revision) — the model for the whole system, dev through production |
-| Dev serving | Ollama, native on the 16 GB Mac mini (`qwen3-vl:4b`), JSON schema enforced |
+| Dev serving | Ollama native API, on the 16 GB Mac mini (`qwen3-vl:4b-instruct`, never plain `qwen3-vl:4b` = Thinking), JSON schema enforced |
 | Prod serving | vLLM on the GPU server, BF16, guided JSON, LoRA adapter serving [LATER] |
 
 - Always send OCR text with the image; cap page images ~1500 px long side.

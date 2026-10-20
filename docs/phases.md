@@ -16,7 +16,7 @@ Goal: app runs, DB holds master data, model responds. No accounting-system conne
 - [x] **1.4b Accounting-agnostic master data** — neutral `ledger_accounts`, `tax_rates`, `contacts` (`provider` + `external_id`) replace the `xero_*` tables (decision 20)
 - [x] **1.5 Master data import** — `AccountingSystem` port (master-data part) + `manual` adapter: CSV import of accounts, tax rates (mapped to canonical `TaxType`), contacts; validate, upsert, report; `make import-master-data` (HTTP endpoint moves to 4.2, behind login)
 - [x] **1.6 Sample master data** — fictional F&B sample CSVs (chart of accounts incl. petty cash, UAE VAT rates, suppliers) in `infra/samples/master_data/`; `make seed`
-- [x] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test
+- [x] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b-instruct`), structured JSON output; smoke test
 
 Done when: `make up && make migrate && make api` works, master data is in DB, model returns schema-valid JSON.
 
@@ -27,8 +27,8 @@ Goal: a folder of invoices becomes structured data in Postgres.
 - [x] **2.2 Celery setup** — `pipeline` and `posting` queues; `make worker`
 - [x] **2.3 Run + Ingest** — `POST /runs {folder, date}`; list files, stable-file + type/size check, SHA-256, skip seen, create document (`CAPTURED`), enqueue one job per file
 - [x] **2.4 Read** — PyMuPDF text layer for digital PDFs; render pages + OpenCV + PaddleOCR for scans; save text, word boxes, page images (`READ`)
-- [x] **2.5 Extract** — build runtime JSON schema (active accounts enum); prompt with image(s) + OCR text; call ExtractionClient; save extraction (`EXTRACTED`)
-- [ ] **2.6 Pipeline chaining + errors** — ingest → read → extract chained; failures set `FAILED` with reason; tasks safe to re-run
+- [x] **2.5 Extract** — flat model schema without line coding (account/tax codes are task 3.6); prompt with image(s) + page text; call ExtractionClient; save extraction (`EXTRACTED`)
+- [x] **2.6 Pipeline chaining + errors** — ingest → read → extract chained; failures set `FAILED` with reason; tasks safe to re-run
 - [ ] **2.7 Run status API** — `GET /runs/{id}` with per-document status
 
 Done when: drop invoices in `data/inbox/Purchase/<date>/`, call Run, all reach `EXTRACTED`.

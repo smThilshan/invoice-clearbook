@@ -11,7 +11,7 @@ No client data leaves the local servers.
 
 ## Requirements (dev)
 - macOS, Docker Desktop, uv, Node 20+, Ollama
-- `ollama pull qwen3-vl:4b`
+- `ollama pull qwen3-vl:4b-instruct` (never plain `qwen3-vl:4b`: that tag is the Thinking variant; decision 2)
 - Optional: Xero developer app (Client ID/Secret) + Demo Company, only to test the Xero adapter (Phase 5)
 
 ## Run

@@ -83,7 +83,8 @@ make web       # run Workbench
 make lint      # ruff + mypy
 make test      # pytest
 ```
-Ollama runs natively (not in Docker): `ollama serve`, model `qwen3-vl:4b`.
+Ollama runs natively (not in Docker): `ollama serve`, model `qwen3-vl:4b-instruct`
+(never plain `qwen3-vl:4b`: that tag is the Thinking variant; decision 2).
 
 ## How to work in this repo (Claude Code)
 - Read this file and the relevant part of `docs/` before any non-trivial task.
