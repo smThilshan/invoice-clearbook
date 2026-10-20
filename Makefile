@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check
+.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -39,6 +39,9 @@ worker: ## Run Celery workers (task 2.2)
 
 web: ## Run the Workbench (task 4.1)
 	@echo "not yet implemented: Workbench arrives in task 4.1"; exit 1
+
+smoke-llm: ## Model smoke test on data/samples/, metrics only (ARGS=--show-values)
+	@$(UV) python scripts/smoke_extraction.py $(ARGS) $(FILES)
 
 lint: ## ruff + mypy
 	$(UV) ruff check .

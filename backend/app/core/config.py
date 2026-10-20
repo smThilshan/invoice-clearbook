@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -15,6 +15,7 @@ _PLACEHOLDER_SECRETS = frozenset({"", "change-me"})
 
 AppEnv = Literal["dev", "test", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+LlmProvider = Literal["ollama"]  # "vllm" arrives with its client (Phase 6)
 
 
 class Settings(BaseSettings):
@@ -33,6 +34,14 @@ class Settings(BaseSettings):
     postgres_db: str = "clearbook"
     postgres_host: str = "localhost"
     postgres_port: int = 5432
+
+    # Model server (decision 3): Ollama native API in dev, vLLM in prod; switching is config only.
+    llm_provider: LlmProvider = "ollama"
+    llm_base_url: str = "http://localhost:11434"
+    llm_model: str = "qwen3-vl:4b-instruct"
+    # Image + OCR text + schema must fit, or the server silently truncates the input.
+    llm_context_tokens: int = Field(default=16384, ge=2048)
+    llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow
 
     @property
     def database_url(self) -> URL:

@@ -16,7 +16,7 @@ Goal: app runs, DB holds master data, model responds. No accounting-system conne
 - [x] **1.4b Accounting-agnostic master data** — neutral `ledger_accounts`, `tax_rates`, `contacts` (`provider` + `external_id`) replace the `xero_*` tables (decision 20)
 - [ ] **1.5 Master data import** — `AccountingSystem` port (master-data part) + `manual` adapter: CSV import of accounts, tax rates (mapped to canonical `TaxType`), contacts; validate, upsert, report; `POST /master-data/import`
 - [ ] **1.6 Sample master data** — sample CSVs (chart of accounts, UAE VAT rates, suppliers) in `infra/samples/` for dev and tests; `make seed`
-- [ ] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test
+- [x] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test
 
 Done when: `make up && make migrate && make api` works, master data is in DB, model returns schema-valid JSON.
 
