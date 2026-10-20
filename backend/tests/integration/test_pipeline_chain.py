@@ -1,0 +1,132 @@
+"""The real Celery tasks, run inline (eager) against the test DB with fake OCR and model."""
+
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import Settings
+from app.domain.enums import DocumentStatus as S
+from app.domain.state_machine import StaleStatusError
+from app.models import AuditLog, Document, Run
+from app.workers import tasks
+from app.workers.celery_app import celery_app
+from tests.integration.factories import make_run
+from tests.integration.test_extract import FakeClient
+from tests.read_fixtures import digital_pdf
+from tests.test_read_pages import FakeOcr
+
+pytestmark = pytest.mark.integration
+
+Fakes = dict[str, FakeClient]  # {"llm": the model client the tasks use}
+
+
+@pytest.fixture
+def pipeline(session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Fakes]:
+    """Wire the tasks to the test session, a temp inbox/store and fakes; run jobs inline."""
+    from app.adapters.storage.local import LocalStorage
+
+    settings = Settings(_env_file=None, inbox_dir=tmp_path / "inbox", stable_file_seconds=0)
+    storage = LocalStorage(tmp_path / "store")
+    client = {"llm": FakeClient()}
+
+    @contextmanager
+    def scope() -> Iterator[Session]:
+        with session.begin_nested():
+            yield session
+
+    monkeypatch.setattr(tasks, "session_scope", scope)
+    monkeypatch.setattr(tasks, "get_settings", lambda: settings)
+    monkeypatch.setattr(tasks, "get_storage", lambda _=None: storage)
+    monkeypatch.setattr(tasks, "get_ocr_engine", FakeOcr)
+    monkeypatch.setattr(tasks, "get_extraction_client", lambda _=None: client["llm"])
+    celery_app.conf.task_always_eager = True
+    try:
+        yield client
+    finally:
+        celery_app.conf.task_always_eager = False
+
+
+def drop_invoice(session: Session, tmp_path: Path) -> Run:
+    run = make_run(session)  # PURCHASE, 2026-10-20
+    folder = tmp_path / "inbox/Purchase/2026-10-20"
+    folder.mkdir(parents=True)
+    (folder / "inv.pdf").write_bytes(digital_pdf())
+    return run
+
+
+def moves(session: Session, doc: Document) -> list[tuple[S, S]]:
+    entries = session.scalars(
+        select(AuditLog).where(AuditLog.document_id == doc.id).order_by(AuditLog.id)
+    )
+    return [(e.from_status, e.to_status) for e in entries]
+
+
+def only_document(session: Session) -> Document:
+    return session.scalars(select(Document)).one()
+
+
+def test_run_flows_through_to_extracted(session: Session, tmp_path: Path, pipeline: Fakes) -> None:
+    run = drop_invoice(session, tmp_path)
+
+    tasks.scan_run.delay(str(run.id))
+
+    doc = only_document(session)
+    assert doc.status is S.EXTRACTED
+    assert doc.invoice is not None and doc.page_count == 1
+    assert moves(session, doc) == [(S.CAPTURED, S.READ), (S.READ, S.EXTRACTED)]
+    assert len(pipeline["llm"].requests) == 1
+
+
+def test_crash_in_a_step_fails_the_document_and_stops_the_chain(
+    session: Session, tmp_path: Path, pipeline: Fakes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def crash(*_: object, **__: object) -> None:
+        raise RuntimeError("secret invoice text in the message")
+
+    monkeypatch.setattr(tasks.read, "read_document", crash)
+    run = drop_invoice(session, tmp_path)
+
+    tasks.scan_run.delay(str(run.id))
+
+    doc = only_document(session)
+    assert doc.status is S.FAILED
+    assert doc.failure_reason == "read: unexpected error (RuntimeError)"  # no message content
+    assert pipeline["llm"].requests == []
+
+
+def test_model_down_after_all_retries_fails_the_document(
+    session: Session, tmp_path: Path, pipeline: Fakes
+) -> None:
+    run = drop_invoice(session, tmp_path)
+    pipeline["llm"] = FakeClient(fail=True)
+
+    tasks.scan_run.delay(str(run.id))  # eager mode runs the retries inline, one after another
+
+    doc = only_document(session)
+    assert len(pipeline["llm"].requests) == tasks.MODEL_MAX_RETRIES + 1
+    assert doc.status is S.FAILED
+    assert doc.failure_reason is not None
+    assert doc.failure_reason.startswith("extract: model unavailable after 4 attempts")
+
+
+def test_superseded_step_stops_quietly(
+    session: Session, tmp_path: Path, pipeline: Fakes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def lost_race(*_: object, **__: object) -> None:
+        raise StaleStatusError(S.READ, S.EXTRACTED)
+
+    monkeypatch.setattr(tasks.extract, "extract_document", lost_race)
+    run = drop_invoice(session, tmp_path)
+
+    tasks.scan_run.delay(str(run.id))
+
+    assert only_document(session).status is S.READ  # not FAILED: another worker owns it
+
+
+def test_enqueue_next_knows_what_each_status_needs(pipeline: Fakes) -> None:
+    assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.EXTRACTED)
+    assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.FAILED)

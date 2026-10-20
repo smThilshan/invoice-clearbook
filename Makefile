@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm smoke-read seed import-master-data
+.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm smoke-read seed import-master-data resume retry-document
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -39,6 +39,13 @@ worker: ## Run a Celery worker on both queues (needs make up). Solo pool: prefor
 
 web: ## Run the Workbench (task 4.1)
 	@echo "not yet implemented: Workbench arrives in task 4.1"; exit 1
+
+resume: ## Re-queue documents stranded between pipeline steps (needs make worker)
+	@$(UV) python scripts/pipeline_admin.py resume
+
+retry-document: ## Send a FAILED document back to the start: make retry-document ID=<uuid>
+	@test -n "$(ID)" || { echo 'usage: make retry-document ID=<document uuid>'; exit 1; }
+	@$(UV) python scripts/pipeline_admin.py retry "$(ID)"
 
 seed: ## Load the fictional F&B sample master data for the default client
 	@$(UV) python scripts/import_master_data.py $(CURDIR)/infra/samples/master_data
