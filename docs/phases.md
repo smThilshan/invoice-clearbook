@@ -29,7 +29,7 @@ Goal: a folder of invoices becomes structured data in Postgres.
 - [x] **2.4 Read** — PyMuPDF text layer for digital PDFs; render pages + OpenCV + PaddleOCR for scans; save text, word boxes, page images (`READ`)
 - [x] **2.5 Extract** — flat model schema without line coding (account/tax codes are task 3.6); prompt with image(s) + page text; call ExtractionClient; save extraction (`EXTRACTED`)
 - [x] **2.6 Pipeline chaining + errors** — ingest → read → extract chained; failures set `FAILED` with reason; tasks safe to re-run
-- [ ] **2.7 Run status API** — `GET /runs/{id}` with per-document status
+- [x] **2.7 Run status API** — `GET /runs/{id}` with per-document status
 
 Done when: drop invoices in `data/inbox/Purchase/<date>/`, call Run, all reach `EXTRACTED`.
 

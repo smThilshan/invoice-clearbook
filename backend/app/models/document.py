@@ -63,6 +63,7 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
     __table_args__ = (
         Index(None, "client_id", "status"),
         Index(None, "run_id"),
+        Index(None, "client_id", "source_path"),  # run progress: file -> its document
         # Same file captured twice: the second copy is kept as DUPLICATE.
         Index(
             "uq_documents_client_id_sha256",

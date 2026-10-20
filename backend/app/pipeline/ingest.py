@@ -80,13 +80,14 @@ def list_candidate_files(folder: Path) -> list[Path]:
 
 
 def scan_run(session: Session, run: Run, inbox_dir: Path) -> list[str]:
-    """List the run's files and record how many were found. Returns inbox-relative paths."""
+    """List the run's files and record them on the run. Returns inbox-relative paths."""
     folder = run_folder(inbox_dir, run.direction, run.folder_date)
     if not folder.is_dir():
         raise InboxError(f"inbox folder not found: {folder.relative_to(inbox_dir)}")
-    files = list_candidate_files(folder)
-    run.files_found = len(files)
-    return [path.relative_to(inbox_dir).as_posix() for path in files]
+    paths = [path.relative_to(inbox_dir).as_posix() for path in list_candidate_files(folder)]
+    run.files = paths  # what the accountant dropped; run progress is tracked per file
+    run.files_found = len(paths)
+    return paths
 
 
 def ingest_file(
@@ -109,7 +110,7 @@ def ingest_file(
         return IngestResult(Outcome.NOT_READY)
 
     sha256, head = _fingerprint(path)
-    seen = _classify_existing(session, run.client_id, sha256, relative_path)
+    seen = _classify_existing(session, run, sha256, relative_path)
     if seen is not None:
         return seen
 
@@ -137,7 +138,7 @@ def ingest_file(
     except IntegrityError:
         # Another worker ingested the same content between our check and insert.
         session.expunge(document)
-        return _classify_existing(session, run.client_id, sha256, relative_path) or (
+        return _classify_existing(session, run, sha256, relative_path) or (
             IngestResult(Outcome.ALREADY_SEEN)
         )
 
@@ -149,12 +150,13 @@ def ingest_file(
 
 
 def _classify_existing(
-    session: Session, client_id: str, sha256: str, relative_path: str
+    session: Session, run: Run, sha256: str, relative_path: str
 ) -> IngestResult | None:
-    """None = content never seen. Otherwise: already seen (same path) or a new DUPLICATE."""
+    """None = content never seen. Otherwise: already seen (same path) or a new DUPLICATE,
+    which belongs to the run (and folder) where it was found, not the original's."""
     existing = session.scalars(
         select(Document)
-        .where(Document.client_id == client_id, Document.sha256 == sha256)
+        .where(Document.client_id == run.client_id, Document.sha256 == sha256)
         .order_by(Document.created_at)
     ).all()
     if not existing:
@@ -166,10 +168,10 @@ def _classify_existing(
         (doc for doc in existing if doc.status is not DocumentStatus.DUPLICATE), existing[0]
     )
     duplicate = Document(
-        client_id=client_id,
-        run_id=original.run_id,
-        direction=original.direction,
-        folder_date=original.folder_date,
+        client_id=run.client_id,
+        run_id=run.id,
+        direction=run.direction,
+        folder_date=run.folder_date,
         source_path=relative_path,
         storage_key=original.storage_key,
         sha256=sha256,

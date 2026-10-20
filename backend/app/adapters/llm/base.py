@@ -6,7 +6,17 @@ with `Invoice.model_validate_json` (exact Decimals) and turns schema errors into
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Protocol
+
+
+class ModelStatus(StrEnum):
+    """Is the configured model ready to extract? (decision 2: Instruct, with vision)"""
+
+    OK = "ok"
+    UNREACHABLE = "unreachable"  # model server down or not answering
+    MISSING = "missing"  # server up, configured model not installed
+    INCOMPATIBLE = "incompatible"  # installed, but a Thinking variant or without vision
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,5 +51,9 @@ class ExtractionClient(Protocol):
     def model(self) -> str: ...
 
     def extract(self, request: ExtractionRequest) -> ExtractionResult: ...
+
+    def check(self) -> ModelStatus:
+        """Cheap readiness check: no generation, a few seconds at most."""
+        ...
 
     def close(self) -> None: ...

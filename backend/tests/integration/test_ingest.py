@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.storage.local import LocalStorage
-from app.domain.enums import DocumentStatus
+from app.domain.enums import Direction, DocumentStatus
 from app.models import AuditLog, Document, Run
 from app.pipeline.ingest import InboxError, IngestResult, Outcome, ingest_file, scan_run
 from tests.integration.factories import make_run
@@ -98,6 +99,33 @@ def test_same_content_under_another_name_is_a_duplicate(
     assert duplicate.status is DocumentStatus.DUPLICATE
     assert str(original.document_id) in (duplicate.failure_reason or "")
     assert duplicate.storage_key == session.get_one(Document, original.document_id).storage_key
+
+
+def test_duplicate_belongs_to_the_run_and_folder_where_it_was_found(
+    session: Session, storage: LocalStorage, inbox: Path
+) -> None:
+    first_run = make_run(session)
+    ingest(session, storage, first_run, inbox, drop(inbox, "inv.pdf", PDF))
+    later_run = Run(
+        client_id=first_run.client_id,
+        direction=Direction.UNSORTED,
+        folder_date=date(2026, 10, 21),
+    )
+    session.add(later_run)
+    session.flush()
+    later_folder = inbox / "Unsorted/2026-10-21"
+    later_folder.mkdir(parents=True)
+    (later_folder / "resent.pdf").write_bytes(PDF)
+
+    result = ingest(session, storage, later_run, inbox, "Unsorted/2026-10-21/resent.pdf")
+
+    duplicate = session.get_one(Document, result.document_id)
+    assert result.outcome is Outcome.DUPLICATE
+    assert (duplicate.run_id, duplicate.direction, duplicate.folder_date) == (
+        later_run.id,
+        Direction.UNSORTED,
+        date(2026, 10, 21),
+    )
 
 
 @pytest.mark.parametrize(

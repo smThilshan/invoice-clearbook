@@ -134,3 +134,50 @@ def test_factory_takes_model_and_url_from_settings() -> None:
     assert isinstance(client, OllamaExtractionClient)
     assert client.model == "custom-model:1b"
     client.close()
+
+
+# --- check(): is the configured model ready? ------------------------------------------------
+
+
+def checked(response: httpx.Response | Exception, sent: list[str] | None = None) -> str:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if sent is not None:
+            sent.append(f"{request.url.path} {json.loads(request.content)['model']}")
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    return make_client(handler).check().value
+
+
+def test_check_ok_for_installed_instruct_vision_model() -> None:
+    sent: list[str] = []
+
+    status = checked(httpx.Response(200, json={"capabilities": ["completion", "vision"]}), sent)
+
+    assert status == "ok"
+    assert sent == ["/api/show qwen3-vl:4b-instruct"]  # no generation, just metadata
+
+
+@pytest.mark.parametrize(
+    "capabilities",
+    [["completion", "vision", "thinking"], ["completion", "tools"], []],
+)
+def test_check_flags_thinking_or_text_only_models(capabilities: list[str]) -> None:
+    assert checked(httpx.Response(200, json={"capabilities": capabilities})) == "incompatible"
+
+
+def test_check_missing_model() -> None:
+    assert checked(httpx.Response(404, json={"error": "model not found"})) == "missing"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(500, json={"error": "boom"}),
+        httpx.Response(200, text="not json"),
+        httpx.ConnectError("refused"),
+    ],
+)
+def test_check_unreachable(response: httpx.Response | Exception) -> None:
+    assert checked(response) == "unreachable"

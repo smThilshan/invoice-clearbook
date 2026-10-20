@@ -12,9 +12,16 @@ from typing import Any, Self
 
 import httpx
 
-from app.adapters.llm.base import ExtractionError, ExtractionRequest, ExtractionResult
+from app.adapters.llm.base import (
+    ExtractionError,
+    ExtractionRequest,
+    ExtractionResult,
+    ModelStatus,
+)
 
 logger = logging.getLogger(__name__)
+
+_CHECK_TIMEOUT_SECONDS = 5.0
 
 
 class OllamaExtractionClient:
@@ -37,6 +44,27 @@ class OllamaExtractionClient:
     @property
     def model(self) -> str:
         return self._model
+
+    def check(self) -> ModelStatus:
+        """Installed, and the Instruct vision variant? `/api/show` reports capabilities
+        without generating anything; a Thinking variant lists "thinking" (decision 2)."""
+        try:
+            response = self._http.post(
+                "/api/show", json={"model": self._model}, timeout=_CHECK_TIMEOUT_SECONDS
+            )
+        except httpx.HTTPError:
+            return ModelStatus.UNREACHABLE
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return ModelStatus.MISSING
+        if response.is_error:
+            return ModelStatus.UNREACHABLE
+        try:
+            capabilities = set(response.json().get("capabilities") or ())
+        except ValueError:
+            return ModelStatus.UNREACHABLE
+        if "thinking" in capabilities or "vision" not in capabilities:
+            return ModelStatus.INCOMPATIBLE
+        return ModelStatus.OK
 
     def extract(self, request: ExtractionRequest) -> ExtractionResult:
         started = time.perf_counter()

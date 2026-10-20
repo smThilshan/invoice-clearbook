@@ -6,7 +6,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.llm import ExtractionError, ExtractionRequest, ExtractionResult
+from app.adapters.llm import (
+    ExtractionError,
+    ExtractionRequest,
+    ExtractionResult,
+    ModelStatus,
+)
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus, DocumentType
 from app.models import AuditLog, Document, Extraction
@@ -45,6 +50,9 @@ class FakeClient:
         if self.fail:
             raise ExtractionError("model timed out after 600s")
         return ExtractionResult(self.model, self.raw, False, 1234, 2000, 150, 1000, 200)
+
+    def check(self) -> ModelStatus:
+        return ModelStatus.OK
 
     def close(self) -> None:
         pass

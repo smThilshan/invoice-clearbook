@@ -4,6 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
+from app.adapters.llm import ModelStatus
+from app.api.health import get_model_status
 from app.core.config import Settings
 from app.core.db import get_session
 from app.core.redis import ping_redis
@@ -27,6 +29,17 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
+def ready(
+    client: TestClient, *, db_up: bool = True, redis_up: bool = True, model: str = "ok"
+) -> tuple[int, dict[str, str]]:
+    overrides = client.app.dependency_overrides
+    overrides[get_session] = lambda: _UpSession() if db_up else _DownSession()
+    overrides[ping_redis] = lambda: redis_up
+    overrides[get_model_status] = lambda: ModelStatus(model)
+    response = client.get("/health/ready")
+    return response.status_code, response.json()
+
+
 def test_liveness(client: TestClient) -> None:
     response = client.get("/health")
 
@@ -35,26 +48,37 @@ def test_liveness(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("db_up", "redis_up", "code", "body"),
+    ("db_up", "redis_up", "code", "overall", "database", "redis"),
     [
-        (True, True, 200, {"status": "ok", "database": "ok", "redis": "ok"}),
-        (False, True, 503, {"status": "unavailable", "database": "unavailable", "redis": "ok"}),
-        (True, False, 503, {"status": "unavailable", "database": "ok", "redis": "unavailable"}),
-        (False, False, 503, {"status": "unavailable", "database": "unavailable",
-                             "redis": "unavailable"}),
+        (True, True, 200, "ok", "ok", "ok"),
+        (False, True, 503, "unavailable", "unavailable", "ok"),
+        (True, False, 503, "unavailable", "ok", "unavailable"),
+        (False, False, 503, "unavailable", "unavailable", "unavailable"),
     ],
-)  # fmt: skip
+)
 def test_readiness_reports_each_dependency(
-    client: TestClient, db_up: bool, redis_up: bool, code: int, body: dict[str, str]
+    client: TestClient,
+    db_up: bool,
+    redis_up: bool,
+    code: int,
+    overall: str,
+    database: str,
+    redis: str,
 ) -> None:
-    overrides = client.app.dependency_overrides
-    overrides[get_session] = lambda: _UpSession() if db_up else _DownSession()
-    overrides[ping_redis] = lambda: redis_up
+    status_code, body = ready(client, db_up=db_up, redis_up=redis_up)
 
-    response = client.get("/health/ready")
+    assert status_code == code
+    assert body == {"status": overall, "database": database, "redis": redis, "model": "ok"}
 
-    assert response.status_code == code
-    assert response.json() == body
+
+@pytest.mark.parametrize("model", ["unreachable", "missing", "incompatible"])
+def test_model_problems_are_reported_but_do_not_make_api_unready(
+    client: TestClient, model: str
+) -> None:
+    status_code, body = ready(client, model=model)
+
+    assert status_code == 200
+    assert (body["status"], body["model"]) == ("ok", model)
 
 
 @pytest.mark.integration
@@ -63,4 +87,6 @@ def test_readiness_ok_against_real_services() -> None:
         response = client.get("/health/ready")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": "ok", "redis": "ok"}
+    body = response.json()
+    assert (body["status"], body["database"], body["redis"]) == ("ok", "ok", "ok")
+    assert body["model"] in {status.value for status in ModelStatus}  # Ollama may be off

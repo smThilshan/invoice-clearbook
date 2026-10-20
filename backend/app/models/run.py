@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import Index, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import Direction
@@ -25,6 +27,8 @@ class Run(UuidPk, ClientScoped, Timestamps, Base):
         str_enum(RunStatus, "status"), default=RunStatus.RUNNING
     )
     files_found: Mapped[int] = mapped_column(default=0)
+    # Inbox-relative paths listed by the scan; null = not scanned yet. Progress is per file.
+    files: Mapped[list[Any] | None] = mapped_column(JSONB)
     created_by: Mapped[str | None] = mapped_column(String(128))
     finished_at: Mapped[datetime | None]
 
