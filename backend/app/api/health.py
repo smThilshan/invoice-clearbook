@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.db import get_session, ping
+from app.core.redis import ping_redis
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -20,6 +21,7 @@ class Liveness(BaseModel):
 class Readiness(BaseModel):
     status: CheckStatus
     database: CheckStatus
+    redis: CheckStatus
 
 
 @router.get("")
@@ -32,9 +34,15 @@ def liveness() -> Liveness:
     "/ready",
     responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"model": Readiness}},
 )
-def readiness(session: Annotated[Session, Depends(get_session)], response: Response) -> Readiness:
-    """Dependencies are reachable. Redis is added with Celery (task 2.2)."""
+def readiness(
+    session: Annotated[Session, Depends(get_session)],
+    redis_ok: Annotated[bool, Depends(ping_redis)],
+    response: Response,
+) -> Readiness:
+    """Dependencies are reachable: Postgres and Redis (job queue)."""
     database: CheckStatus = "ok" if ping(session) else "unavailable"
-    if database != "ok":
+    redis: CheckStatus = "ok" if redis_ok else "unavailable"
+    overall: CheckStatus = "ok" if database == redis == "ok" else "unavailable"
+    if overall != "ok":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return Readiness(status=database, database=database)
+    return Readiness(status=overall, database=database, redis=redis)

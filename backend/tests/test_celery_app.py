@@ -1,0 +1,54 @@
+import pytest
+from celery import Celery
+from pydantic import ValidationError
+
+from app.core.config import Settings
+from app.workers.celery_app import PIPELINE_QUEUE, POSTING_QUEUE, create_celery_app
+from app.workers.tasks import ping
+
+
+def make_app(**overrides: object) -> Celery:
+    return create_celery_app(Settings(_env_file=None, **overrides))
+
+
+def test_queues_and_routing() -> None:
+    app = make_app()
+    router = app.amqp.router
+
+    assert {q.name for q in app.conf.task_queues} == {PIPELINE_QUEUE, POSTING_QUEUE}
+    for queue in app.conf.task_queues:  # each queue on its own exchange, never shared
+        assert (queue.exchange.name, queue.routing_key) == (queue.name, queue.name)
+    assert router.route({}, "posting.create_bill")["queue"].name == POSTING_QUEUE
+    assert router.route({}, "pipeline.extract")["queue"].name == PIPELINE_QUEUE
+    assert router.route({}, "system.ping")["queue"].name == PIPELINE_QUEUE
+
+
+def test_reliability_settings() -> None:
+    conf = make_app(job_time_limit_seconds=900, job_visibility_timeout_seconds=1200).conf
+
+    assert conf.task_acks_late is True
+    assert conf.task_reject_on_worker_lost is True
+    assert conf.worker_prefetch_multiplier == 1
+    assert conf.task_ignore_result is True
+    assert conf.task_time_limit == 900
+    assert conf.broker_transport_options == {"visibility_timeout": 1200}
+    assert conf.accept_content == ["json"]
+
+
+def test_broker_url_from_settings() -> None:
+    app = make_app(redis_url="redis://queue-host:6380/2")
+
+    assert app.conf.broker_url == "redis://queue-host:6380/2"
+
+
+@pytest.mark.parametrize("visibility", [1800, 600])
+def test_visibility_timeout_must_exceed_time_limit(visibility: int) -> None:
+    with pytest.raises(ValidationError, match="VISIBILITY_TIMEOUT"):
+        Settings(
+            _env_file=None, job_time_limit_seconds=1800, job_visibility_timeout_seconds=visibility
+        )
+
+
+def test_ping_task_runs() -> None:
+    assert ping.name == "system.ping"
+    assert ping.apply().get() == "pong"

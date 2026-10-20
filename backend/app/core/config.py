@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
 
+    # Background jobs (Celery + Redis).
+    redis_url: str = "redis://localhost:6379/0"
+    # A job running longer than this is killed (the model call has its own, shorter timeout).
+    job_time_limit_seconds: int = Field(default=1800, gt=0)
+    # Redis re-delivers a job that is not acknowledged within this time. Must exceed the time
+    # limit, or a slow job would be handed to a second worker while the first still runs it.
+    job_visibility_timeout_seconds: int = Field(default=3600, gt=0)
+
     # Files: the accountants' inbox (read only) and our own store (via the Storage interface).
     # Relative paths are resolved against the repo root.
     inbox_dir: Path = Field(default=Path("data/inbox"), validate_default=True)
@@ -64,6 +72,14 @@ class Settings(BaseSettings):
             port=self.postgres_port,
             database=self.postgres_db,
         )
+
+    @model_validator(mode="after")
+    def _visibility_timeout_exceeds_time_limit(self) -> Self:
+        if self.job_visibility_timeout_seconds <= self.job_time_limit_seconds:
+            raise ValueError(
+                "JOB_VISIBILITY_TIMEOUT_SECONDS must be greater than JOB_TIME_LIMIT_SECONDS"
+            )
+        return self
 
     @model_validator(mode="after")
     def _no_placeholder_secrets_in_prod(self) -> Self:

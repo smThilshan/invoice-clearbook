@@ -24,7 +24,7 @@ Done when: `make up && make migrate && make api` works, master data is in DB, mo
 Goal: a folder of invoices becomes structured data in Postgres.
 
 - [x] **2.1 Storage interface** — local filesystem implementation
-- [ ] **2.2 Celery setup** — `pipeline` and `posting` queues; `make worker`
+- [x] **2.2 Celery setup** — `pipeline` and `posting` queues; `make worker`
 - [ ] **2.3 Run + Ingest** — `POST /runs {folder, date}`; list files, stable-file + type/size check, SHA-256, skip seen, create document (`CAPTURED`), enqueue one job per file
 - [ ] **2.4 Read** — PyMuPDF text layer for digital PDFs; render pages + OpenCV + PaddleOCR for scans; save text, word boxes, page images (`READ`)
 - [ ] **2.5 Extract** — build runtime JSON schema (active accounts enum); prompt with image(s) + OCR text; call ExtractionClient; save extraction (`EXTRACTED`)

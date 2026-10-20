@@ -34,8 +34,8 @@ migration: ## New migration from model changes: make migration m="add foo"
 api: ## Run FastAPI on 127.0.0.1:8000 (reload)
 	$(UV) uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
 
-worker: ## Run Celery workers (task 2.2)
-	@echo "not yet implemented: Celery arrives in task 2.2"; exit 1
+worker: ## Run a Celery worker on both queues (needs make up). Solo pool: prefork fails on macOS
+	$(UV) celery -A app.workers.celery_app worker -Q pipeline,posting --pool=solo --loglevel=INFO
 
 web: ## Run the Workbench (task 4.1)
 	@echo "not yet implemented: Workbench arrives in task 4.1"; exit 1
