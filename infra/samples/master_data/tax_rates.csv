@@ -1,0 +1,6 @@
+code,name,rate,tax_type,active
+STD5,Standard Rate 5%,5,STANDARD_5,yes
+ZERO,Zero Rated,0,ZERO,yes
+EXEMPT,Exempt,0,EXEMPT,yes
+RCM5,Reverse Charge 5% (imports),5,REVERSE_CHARGE,yes
+NOVAT,No VAT / Out of Scope,0,NONE,yes

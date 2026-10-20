@@ -16,7 +16,9 @@ from app.domain.enums import AccountClass, AccountingProvider, TaxType
 from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
-class _MasterData(UuidPk, ClientScoped, Timestamps):
+class MasterDataRow(UuidPk, ClientScoped, Timestamps):
+    """Columns shared by all master data tables. Row identity: (client, provider, external_id)."""
+
     provider: Mapped[AccountingProvider] = mapped_column(
         str_enum(AccountingProvider, "provider"), sort_order=-1
     )
@@ -25,7 +27,7 @@ class _MasterData(UuidPk, ClientScoped, Timestamps):
     raw: Mapped[dict[str, Any]] = mapped_column(default=dict)
 
 
-class LedgerAccount(_MasterData, Base):
+class LedgerAccount(MasterDataRow, Base):
     __tablename__ = "ledger_accounts"
 
     code: Mapped[str | None] = mapped_column(String(32))  # what invoice lines reference
@@ -46,7 +48,7 @@ class LedgerAccount(_MasterData, Base):
     )
 
 
-class TaxRate(_MasterData, Base):
+class TaxRate(MasterDataRow, Base):
     __tablename__ = "tax_rates"
 
     code: Mapped[str] = mapped_column(String(64))  # the provider's code, sent when posting
@@ -61,7 +63,7 @@ class TaxRate(_MasterData, Base):
     )
 
 
-class Contact(_MasterData, Base):
+class Contact(MasterDataRow, Base):
     __tablename__ = "contacts"
 
     name: Mapped[str] = mapped_column(String(255))

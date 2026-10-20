@@ -1,0 +1,48 @@
+code,name,class,default_tax_code,active,description
+1000,Cash on Hand,ASSET,NOVAT,yes,Main cash till
+1010,Petty Cash,ASSET,NOVAT,yes,Petty cash box used for small purchases
+1020,Bank - Current Account,ASSET,NOVAT,yes,
+1100,Accounts Receivable,ASSET,NOVAT,yes,
+1200,Inventory - Food,ASSET,STD5,yes,
+1210,Inventory - Beverage,ASSET,STD5,yes,
+1300,Prepaid Expenses,ASSET,NOVAT,yes,
+1400,Input VAT Recoverable,ASSET,NOVAT,yes,
+1500,Kitchen Equipment,ASSET,STD5,yes,
+1510,Furniture and Fittings,ASSET,STD5,yes,
+1520,Accumulated Depreciation,ASSET,NOVAT,yes,
+2000,Accounts Payable,LIABILITY,NOVAT,yes,
+2100,Output VAT Payable,LIABILITY,NOVAT,yes,
+2200,Accrued Expenses,LIABILITY,NOVAT,yes,
+2300,End of Service Benefits,LIABILITY,NOVAT,yes,
+3000,Owner's Capital,EQUITY,NOVAT,yes,
+3100,Retained Earnings,EQUITY,NOVAT,yes,
+3200,Owner's Drawings,EQUITY,NOVAT,yes,
+4000,Food Sales,REVENUE,STD5,yes,Dine-in and takeaway food
+4010,Beverage Sales,REVENUE,STD5,yes,
+4020,Delivery Platform Sales,REVENUE,STD5,yes,
+4100,Other Income,REVENUE,STD5,yes,
+5000,Food Cost,EXPENSE,STD5,yes,"Ingredients: meat, vegetables, dairy, dry goods"
+5010,Beverage Cost,EXPENSE,STD5,yes,"Soft drinks, juices, coffee, tea"
+5020,Packaging and Disposables,EXPENSE,STD5,yes,"Takeaway boxes, cups, foil, napkins"
+5030,Kitchen Supplies and Smallwares,EXPENSE,STD5,yes,"Utensils, small equipment"
+5040,Cleaning Supplies,EXPENSE,STD5,yes,"Detergents, sanitiser, tissue"
+5050,Gas - LPG,EXPENSE,STD5,yes,
+6000,Salaries and Wages,EXPENSE,NOVAT,yes,
+6010,Staff Meals,EXPENSE,STD5,yes,
+6020,Staff Accommodation,EXPENSE,EXEMPT,yes,Residential rent is exempt
+6100,Rent - Shop,EXPENSE,STD5,yes,Commercial rent
+6110,Electricity and Water,EXPENSE,STD5,yes,
+6120,Telephone and Internet,EXPENSE,STD5,yes,
+6130,Repairs and Maintenance,EXPENSE,STD5,yes,
+6140,Pest Control,EXPENSE,STD5,yes,
+6150,Licenses and Permits,EXPENSE,NOVAT,yes,Government fees
+6160,Delivery Platform Commissions,EXPENSE,STD5,yes,
+6170,Marketing and Advertising,EXPENSE,STD5,yes,
+6180,Printing and Stationery,EXPENSE,STD5,yes,
+6190,Bank Charges,EXPENSE,STD5,yes,
+6200,Professional Fees,EXPENSE,STD5,yes,
+6210,Transport and Fuel,EXPENSE,STD5,yes,
+6220,Insurance,EXPENSE,EXEMPT,yes,
+6230,Depreciation,EXPENSE,NOVAT,yes,
+6900,General Expenses,EXPENSE,STD5,yes,
+6990,Old Suspense Account,EXPENSE,STD5,no,Archived: kept so old documents still resolve

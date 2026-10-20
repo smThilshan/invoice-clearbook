@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm
+.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm seed import-master-data
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -39,6 +39,13 @@ worker: ## Run Celery workers (task 2.2)
 
 web: ## Run the Workbench (task 4.1)
 	@echo "not yet implemented: Workbench arrives in task 4.1"; exit 1
+
+seed: ## Load the fictional F&B sample master data for the default client
+	@$(UV) python scripts/import_master_data.py $(CURDIR)/infra/samples/master_data
+
+import-master-data: ## Import master data CSVs: make import-master-data DIR=path [CLIENT=id]
+	@test -n "$(DIR)" || { echo 'usage: make import-master-data DIR=path [CLIENT=id]'; exit 1; }
+	@$(UV) python scripts/import_master_data.py "$(abspath $(DIR))" $(if $(CLIENT),--client $(CLIENT))
 
 smoke-llm: ## Model smoke test on data/samples/, metrics only (ARGS=--show-values)
 	@$(UV) python scripts/smoke_extraction.py $(ARGS) $(FILES)

@@ -21,6 +21,7 @@ make install              # backend deps + git hooks
 ollama serve              # separate terminal, native (not Docker)
 make up                   # Postgres + Redis
 make migrate
+make seed                 # fictional F&B master data (or: make import-master-data DIR=...)
 make api                  # FastAPI → curl localhost:8000/health/ready
 make worker               # Celery
 make web                  # Workbench

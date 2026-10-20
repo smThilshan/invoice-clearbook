@@ -14,8 +14,8 @@ Goal: app runs, DB holds master data, model responds. No accounting-system conne
 - [x] **1.3 Domain** — `Invoice` + `Line` schema, enums, state machine with allowed transitions; unit tests
 - [x] **1.4 DB models + migration** — `documents`, `extractions`, `corrections`, `outbox`, `audit_log`, master data, `vendor_mappings`, `runs`; `client_id` everywhere; unique business key; pg_trgm extension
 - [x] **1.4b Accounting-agnostic master data** — neutral `ledger_accounts`, `tax_rates`, `contacts` (`provider` + `external_id`) replace the `xero_*` tables (decision 20)
-- [ ] **1.5 Master data import** — `AccountingSystem` port (master-data part) + `manual` adapter: CSV import of accounts, tax rates (mapped to canonical `TaxType`), contacts; validate, upsert, report; `POST /master-data/import`
-- [ ] **1.6 Sample master data** — sample CSVs (chart of accounts, UAE VAT rates, suppliers) in `infra/samples/` for dev and tests; `make seed`
+- [x] **1.5 Master data import** — `AccountingSystem` port (master-data part) + `manual` adapter: CSV import of accounts, tax rates (mapped to canonical `TaxType`), contacts; validate, upsert, report; `make import-master-data` (HTTP endpoint moves to 4.2, behind login)
+- [x] **1.6 Sample master data** — fictional F&B sample CSVs (chart of accounts incl. petty cash, UAE VAT rates, suppliers) in `infra/samples/master_data/`; `make seed`
 - [x] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test
 
 Done when: `make up && make migrate && make api` works, master data is in DB, model returns schema-valid JSON.
@@ -51,7 +51,7 @@ Done when: every extracted document has issues, codes and a queue category.
 Goal: an accountant reviews and approves without touching the DB.
 
 - [ ] **4.1 Workbench skeleton** — Vite + React + TS, routing, API client, TanStack Query, basic layout, login (JWT)
-- [ ] **4.2 Backend review API** — list queue, get document (data + issues + page images + word boxes), update fields, approve, reject; JWT roles
+- [ ] **4.2 Backend review API** — master data import endpoint (from 1.5); list queue, get document (data + issues + page images + word boxes), update fields, approve, reject; JWT roles
 - [ ] **4.3 Run screen** — pick folder + date, Run, progress
 - [ ] **4.4 Queue screen** — table sorted Exception → Check → Ready, filters
 - [ ] **4.5 Review screen** — PDF/image viewer left, form right (header + lines), flagged fields yellow with reason, code dropdowns with source hint, live totals
