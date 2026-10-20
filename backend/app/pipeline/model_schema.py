@@ -24,23 +24,35 @@ from app.domain.invoice import Invoice, Line
 JsonSchema = dict[str, Any]
 
 
-def build_model_schema(account_codes: Sequence[str] | None = None) -> JsonSchema:
-    """Schema for `Invoice`. With `account_codes`, line account codes are limited to them."""
+# Line coding is assigned by the coding step (task 3.6), not read off the document.
+LINE_CODING_FIELDS = frozenset({(Line, "account_code"), (Line, "tax_type")})
+
+
+def build_model_schema(
+    account_codes: Sequence[str] | None = None, *, line_coding: bool = True
+) -> JsonSchema:
+    """Schema for `Invoice`. With `account_codes`, line account codes are limited to them.
+    `line_coding=False` leaves account/tax codes out (extraction: fewer tokens to write)."""
     overrides: dict[tuple[type[BaseModel], str], JsonSchema] = {}
     if account_codes is not None:
         overrides[(Line, "account_code")] = {
             "type": ["string", "null"],
             "enum": [*account_codes, None],
         }
-    return _object_schema(Invoice, overrides)
+    omit = frozenset() if line_coding else LINE_CODING_FIELDS
+    return _object_schema(Invoice, overrides, omit)
 
 
 def _object_schema(
-    model: type[BaseModel], overrides: dict[tuple[type[BaseModel], str], JsonSchema]
+    model: type[BaseModel],
+    overrides: dict[tuple[type[BaseModel], str], JsonSchema],
+    omit: frozenset[tuple[type[BaseModel], str]] = frozenset(),
 ) -> JsonSchema:
     properties: dict[str, JsonSchema] = {}
     for name, field in model.model_fields.items():
-        schema = overrides.get((model, name)) or _type_schema(field.annotation, overrides)
+        if (model, name) in omit:
+            continue  # nullable in Invoice, so the answer still validates
+        schema = overrides.get((model, name)) or _type_schema(field.annotation, overrides, omit)
         if field.description:
             schema = {**schema, "description": field.description}
         properties[name] = schema
@@ -53,30 +65,32 @@ def _object_schema(
 
 
 def _type_schema(
-    annotation: Any, overrides: dict[tuple[type[BaseModel], str], JsonSchema]
+    annotation: Any,
+    overrides: dict[tuple[type[BaseModel], str], JsonSchema],
+    omit: frozenset[tuple[type[BaseModel], str]] = frozenset(),
 ) -> JsonSchema:
     if get_origin(annotation) is Annotated:
-        return _type_schema(get_args(annotation)[0], overrides)
+        return _type_schema(get_args(annotation)[0], overrides, omit)
 
     if get_origin(annotation) in (Union, types.UnionType):
         members = [a for a in get_args(annotation) if a is not type(None)]
         if len(members) != 1:
             raise TypeError(f"unsupported union in model schema: {annotation}")
-        return _nullable(_type_schema(members[0], overrides))
+        return _nullable(_type_schema(members[0], overrides, omit))
 
     if get_origin(annotation) is list:
         (item,) = get_args(annotation)
-        return {"type": "array", "items": _type_schema(item, overrides)}
+        return {"type": "array", "items": _type_schema(item, overrides, omit)}
 
     if get_origin(annotation) is dict:
         key, value = get_args(annotation)
         if key is not str:
             raise TypeError(f"unsupported dict key in model schema: {annotation}")
-        return {"type": "object", "additionalProperties": _type_schema(value, overrides)}
+        return {"type": "object", "additionalProperties": _type_schema(value, overrides, omit)}
 
     if isinstance(annotation, type):
         if issubclass(annotation, BaseModel):
-            return _object_schema(annotation, overrides)
+            return _object_schema(annotation, overrides, omit)
         if issubclass(annotation, StrEnum):
             return {"type": "string", "enum": [member.value for member in annotation]}
         if issubclass(annotation, Decimal):

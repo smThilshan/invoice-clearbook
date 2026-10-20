@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     # Image + OCR text + schema must fit, or the server silently truncates the input.
     llm_context_tokens: int = Field(default=16384, ge=2048)
     llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow
+    # Page images sent per document (~1.5-2k tokens each); text is sent for every page.
+    extract_max_images: int = Field(default=3, ge=1)
 
     @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
     @classmethod

@@ -104,7 +104,7 @@ def read_document(
         return ReadResult(ReadOutcome.FAILED)
 
     for image, text in pages:
-        storage.put(page_image_key(document.client_id, document.id, text.page), _png(image))
+        storage.put(page_image_key(document.client_id, document.id, text.page), encode_png(image))
         storage.put(ocr_key(document.client_id, document.id, text.page), text.to_json())
 
     ocr_pages = sum(text.source == "ocr" for _, text in pages)
@@ -221,7 +221,7 @@ def _fractions(
     return (clamp(x0 / width), clamp(y0 / height), clamp(x1 / width), clamp(y1 / height))
 
 
-def _png(image: Image) -> bytes:
+def encode_png(image: Image) -> bytes:
     ok, encoded = cv2.imencode(".png", image)
     if not ok:
         raise RuntimeError("PNG encoding failed")

@@ -99,3 +99,13 @@ def test_answer_shaped_by_schema_validates_as_invoice(schema: dict[str, Any]) ->
 
     assert invoice.total == Decimal("1050.10")
     assert invoice.lines[0].amount == Decimal("1000.10")
+
+
+def test_extraction_schema_leaves_line_coding_to_the_coding_step() -> None:
+    schema = build_model_schema(line_coding=False)
+    line = schema["properties"]["lines"]["items"]
+
+    assert "account_code" not in line["properties"]
+    assert "tax_type" not in line["properties"]
+    coding = ("account_code", "tax_type")
+    assert line["required"] == [name for name in Line.model_fields if name not in coding]

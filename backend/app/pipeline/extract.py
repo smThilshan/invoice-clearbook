@@ -1,0 +1,156 @@
+"""Extract (architecture §4, step 4): page images + page text -> canonical Invoice.
+
+The model sees the images (layout) and the text from the Read step (exact characters), and
+answers in the flat model schema (decision 21). Every answer is kept as an `extractions` row,
+never edited. A valid answer becomes the document's working copy (`documents.invoice`); an
+invalid one is kept with its error and the document still moves on, to be flagged in review
+(rule 8: flag, never fix). Model/server failures raise ExtractionError so the task retries.
+
+The prompt does not say which inbox folder the file came from: the type check (task 3.7)
+compares the folder with what the content says, so the model must not be told the answer.
+"""
+
+import json
+import logging
+from dataclasses import dataclass
+from enum import StrEnum
+
+from pydantic import ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.adapters.llm import ExtractionClient, ExtractionRequest, ExtractionResult
+from app.adapters.storage import Storage
+from app.adapters.storage.keys import page_image_key
+from app.domain.enums import DocumentStatus
+from app.domain.invoice import INVOICE_SCHEMA_VERSION, Invoice
+from app.domain.state_machine import transition
+from app.models import Document, Extraction
+from app.pipeline.model_schema import build_model_schema
+from app.pipeline.read import PageText, load_page_texts
+
+logger = logging.getLogger(__name__)
+
+ACTOR = "system:extract"
+
+# Bump when the prompt or the extraction schema changes; stored with every extraction.
+PROMPT_VERSION = "extract-v1"
+
+EXTRACTION_SCHEMA = build_model_schema(line_coding=False)
+
+SYSTEM_PROMPT = """You extract data from one supplier document into JSON that matches the schema.
+Rules:
+- Use only what is printed on the document. If a value is not on it, use null. Never guess.
+- The page text below was read from the document (PDF text layer or OCR). Prefer it for exact
+  characters and numbers; use the images for layout and to correct obvious OCR mistakes.
+- Dates as YYYY-MM-DD. Amounts as plain numbers: no currency symbols, no thousands separators.
+- document_type: BILL = supplier tax invoice or bill; CREDIT_NOTE = supplier credit note;
+  RECEIPT = proof of a payment already made (card/cash); NON_POSTABLE = quote, purchase order,
+  proforma, statement, delivery note or remittance.
+- amount_type: INCLUSIVE if line amounts include VAT, EXCLUSIVE if VAT is added on top, NO_TAX if
+  no VAT applies.
+- original_invoice_ref only for credit or debit notes that refer to an earlier invoice.
+- evidence: for invoice_number, invoice_date, total, vat and vendor_trn, copy the exact text you
+  read each value from."""
+
+
+class ExtractOutcome(StrEnum):
+    EXTRACTED = "extracted"  # valid Invoice
+    INVALID = "invalid"  # answer kept, failed the schema: flagged in review
+    SKIPPED = "skipped"  # not READ
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractResult:
+    outcome: ExtractOutcome
+    attempt: int = 0
+    llm: ExtractionResult | None = None
+
+
+def build_request(pages: list[PageText], images: list[bytes]) -> ExtractionRequest:
+    """The model request for one document (also used by the smoke test)."""
+    texts = [page for page in pages if page.text.strip()]
+    if not texts:
+        prompt = "Extract the document in the image(s)."
+    else:
+        body = "\n".join(f'<page number="{p.page}">\n{p.text}\n</page>' for p in texts)
+        prompt = f"Extract the document. Text of each page, in reading order:\n{body}"
+    if len(images) < len(pages):
+        prompt += f"\n\nImages are attached for the first {len(images)} of {len(pages)} pages."
+    return ExtractionRequest(
+        prompt=prompt, json_schema=EXTRACTION_SCHEMA, images=images, system_prompt=SYSTEM_PROMPT
+    )
+
+
+def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
+    """(invoice, None) or (None, error). Errors name fields and types, never values."""
+    if llm.truncated:
+        return None, "answer cut off at the output token limit"
+    try:
+        return Invoice.model_validate_json(llm.raw_output), None
+    except ValidationError as exc:
+        problems = ", ".join(f"{'.'.join(map(str, e['loc'])) or 'root'}:{e['type']}"
+                             for e in exc.errors())  # fmt: skip
+        return None, f"{exc.error_count()} schema error(s): {problems}"
+
+
+def extract_document(
+    session: Session,
+    storage: Storage,
+    client: ExtractionClient,
+    document: Document,
+    *,
+    max_images: int,
+) -> ExtractResult:
+    if document.status is not DocumentStatus.READ:
+        return ExtractResult(ExtractOutcome.SKIPPED)
+
+    pages = load_page_texts(storage, document)
+    images = [
+        storage.get(page_image_key(document.client_id, document.id, number))
+        for number in range(1, min(len(pages), max_images) + 1)
+    ]
+    llm = client.extract(build_request(pages, images))  # ExtractionError -> task retries
+    invoice, error = validate_answer(llm)
+
+    attempt = (
+        1 + session.scalars(select(func.count()).where(Extraction.document_id == document.id)).one()
+    )
+    data = json.loads(invoice.model_dump_json()) if invoice else None  # money as exact strings
+    session.add(
+        Extraction(
+            client_id=document.client_id,
+            document_id=document.id,
+            attempt=attempt,
+            model=llm.model,
+            prompt_version=PROMPT_VERSION,
+            schema_version=INVOICE_SCHEMA_VERSION,
+            raw_output=llm.raw_output,
+            data=data,
+            error=error,
+            duration_ms=llm.duration_ms,
+        )
+    )
+    document.invoice = data
+    document.document_type = invoice.document_type if invoice else None
+
+    transition(
+        session,
+        document,
+        DocumentStatus.EXTRACTED,
+        actor=ACTOR,
+        reason=error,
+        details={
+            "attempt": attempt,
+            "valid": invoice is not None,
+            "model": llm.model,
+            "prompt_version": PROMPT_VERSION,
+            "images": len(images),
+            "prompt_tokens": llm.prompt_tokens,
+            "output_tokens": llm.output_tokens,
+            "reading_ms": llm.reading_ms,
+            "writing_ms": llm.writing_ms,
+        },
+    )
+    outcome = ExtractOutcome.EXTRACTED if invoice else ExtractOutcome.INVALID
+    return ExtractResult(outcome, attempt, llm)

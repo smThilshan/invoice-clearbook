@@ -25,6 +25,8 @@ class ExtractionResult:
     duration_ms: int
     prompt_tokens: int | None
     output_tokens: int | None
+    reading_ms: int | None = None  # model processing the input (images + text)
+    writing_ms: int | None = None  # model generating the answer
 
 
 class ExtractionError(Exception):

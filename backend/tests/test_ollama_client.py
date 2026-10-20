@@ -16,6 +16,8 @@ OK_BODY = {
     "done_reason": "stop",
     "prompt_eval_count": 1200,
     "eval_count": 40,
+    "prompt_eval_duration": 30_000_000_000,
+    "eval_duration": 8_500_000_000,
 }
 
 
@@ -76,6 +78,7 @@ def test_result_carries_raw_output_and_metrics() -> None:
     assert result.raw_output == '{"total": 1050.10}'  # untouched: parsed later as exact Decimal
     assert result.model == "qwen3-vl:4b-instruct"
     assert (result.prompt_tokens, result.output_tokens) == (1200, 40)
+    assert (result.reading_ms, result.writing_ms) == (30_000, 8_500)
     assert result.truncated is False
     assert result.duration_ms >= 0
 

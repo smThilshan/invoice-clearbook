@@ -64,12 +64,17 @@ class OllamaExtractionClient:
             duration_ms=round((time.perf_counter() - started) * 1000),
             prompt_tokens=body.get("prompt_eval_count"),
             output_tokens=body.get("eval_count"),
+            reading_ms=_ms(body.get("prompt_eval_duration")),
+            writing_ms=_ms(body.get("eval_duration")),
         )
         # Metrics only: never prompt or output text (they contain invoice data).
         logger.info(
-            "extraction done model=%s ms=%d prompt_tokens=%s output_tokens=%s truncated=%s",
+            "extraction done model=%s ms=%d reading_ms=%s writing_ms=%s prompt_tokens=%s "
+            "output_tokens=%s truncated=%s",
             result.model,
             result.duration_ms,
+            result.reading_ms,
+            result.writing_ms,
             result.prompt_tokens,
             result.output_tokens,
             result.truncated,
@@ -100,3 +105,7 @@ class OllamaExtractionClient:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+
+def _ms(nanoseconds: object) -> int | None:
+    return round(nanoseconds / 1_000_000) if isinstance(nanoseconds, int) else None

@@ -7,21 +7,25 @@ strings (JSON). Jobs are enqueued only after the transaction that created their 
 
 import logging
 import uuid
+from contextlib import closing
 
 from celery import Task
 
+from app.adapters.llm import ExtractionError, get_extraction_client
 from app.adapters.ocr import get_ocr_engine
 from app.adapters.storage import get_storage
 from app.core.config import get_settings
 from app.core.db import session_scope
 from app.models import Document, Run
-from app.pipeline import ingest, read
+from app.pipeline import extract, ingest, read
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 NOT_READY_RETRY_SECONDS = 30
 NOT_READY_MAX_RETRIES = 20  # ~10 minutes for a slow copy into the inbox
+MODEL_RETRY_SECONDS = 60
+MODEL_MAX_RETRIES = 3  # model server down or timed out
 
 
 @celery_app.task(name="system.ping")
@@ -99,4 +103,28 @@ def read_document(document_id: str) -> str:
         result.ocr_pages,
         result.seconds,
     )
+    return result.outcome.value
+
+
+@celery_app.task(name="pipeline.extract_document", bind=True, max_retries=MODEL_MAX_RETRIES)
+def extract_document(self: "Task[[str], str]", document_id: str) -> str:
+    """Model extraction for a READ document; retried if the model server fails."""
+    settings = get_settings()
+    try:
+        with session_scope() as session, closing(get_extraction_client(settings)) as client:
+            document = session.get(Document, uuid.UUID(document_id))
+            if document is None:
+                logger.error("extract_document: document %s not found", document_id)
+                return "document_not_found"
+            result = extract.extract_document(
+                session,
+                get_storage(settings),
+                client,
+                document,
+                max_images=settings.extract_max_images,
+            )
+    except ExtractionError as exc:
+        logger.warning("document %s: extraction failed (%s), will retry", document_id, exc)
+        raise self.retry(countdown=MODEL_RETRY_SECONDS, exc=exc) from exc
+    logger.info("document %s: extract %s attempt=%d", document_id, result.outcome, result.attempt)
     return result.outcome.value
