@@ -3,7 +3,8 @@
 ## What this project is
 A fully local system that reads supplier invoices, extracts data with Qwen3-VL-4B,
 validates and codes it, lets accountants review it in the Review Workbench, and posts
-approved documents to Xero.
+approved documents to the client's accounting system (Xero first). The app is fully usable
+with no accounting system connected (CSV master data in, export file out).
 
 **Hard rule: no client data ever leaves Missan's local servers. No third-party LLM APIs. Ever.**
 
@@ -20,7 +21,7 @@ quick-confirm grid, fine-tuning, Kubernetes, extra duplicate checks beyond hash 
 - DB: PostgreSQL 16 with pg_trgm
 - Reading: PyMuPDF (digital PDFs), OpenCV + PaddleOCR (scans/photos)
 - Model: Qwen3-VL-4B via Ollama (dev, native on Mac) / vLLM (prod), OpenAI-compatible API
-- Xero: xero-python SDK
+- Accounting systems: adapters behind one port; Xero via xero-python SDK (Phase 5); none required
 - Frontend (`workbench/`): React + TypeScript + Vite, react-pdf, React Hook Form, TanStack Query
 - Tooling: uv, ruff, mypy, pytest, pre-commit, Docker Compose
 
@@ -32,7 +33,7 @@ backend/app/
   pipeline/    ingest, read, extract, verify, coding
   adapters/
     llm/       ExtractionClient (Ollama now, vLLM later)
-    xero/      ALL Xero-specific code lives here and only here
+    accounting/  AccountingSystem port + one folder per provider (manual/, xero/, later zoho/ ...)
     storage/   Storage interface (local filesystem now, MinIO later)
   workers/     Celery tasks — thin, call pipeline/services
   models/      SQLAlchemy tables
@@ -46,7 +47,8 @@ infra/                Docker/DB init and (later) deployment config
 ## Architecture rules (non-negotiable)
 1. **Money is `Decimal`, never `float`.** Totals tolerance ±0.01.
 2. **One canonical `Invoice` schema** in `app/domain/invoice.py`. Everything uses it.
-3. **Xero-specific types/codes only inside `app/adapters/xero/`.** The rest of the app uses canonical types.
+3. **Accounting-system-specific types/codes only inside `app/adapters/accounting/<provider>/`.**
+   The rest of the app uses canonical types and never knows which system a client uses.
 4. **The model is only called through `ExtractionClient`.** Model name and URL come from settings, never hardcoded.
 5. **Files only through the `Storage` interface.**
 6. **Status changes only through `domain/state_machine.transition()`**, which also writes `audit_log`.
@@ -55,10 +57,11 @@ infra/                Docker/DB init and (later) deployment config
 8. **Flag, never silently fix** extracted values.
 9. **Null over invented values.** Schema fields are nullable unless every real invoice has them.
 10. **Every table has `client_id`.**
-11. **Approve = status update + outbox row in ONE transaction.** Only the Celery posting worker calls Xero.
-12. **Posting is idempotent:** Xero lookup before create, idempotency key, Xero ID saved.
-13. **MVP posts to Xero as `SUBMITTED` only.**
-14. **`account_code` options are built at runtime** from synced active Xero accounts — never hardcoded enums.
+11. **Approve = status update + outbox row in ONE transaction.** Only the Celery posting worker calls the accounting adapter.
+12. **Posting is idempotent:** lookup in the target system before create, idempotency key, external ID saved.
+13. **The Xero adapter posts as `SUBMITTED` only in the MVP.**
+14. **`account_code` options are built at runtime** from the client's active ledger accounts
+    (imported or synced master data) — never hardcoded enums.
 
 ## Coding conventions
 - Type hints everywhere; mypy strict on `app/`.

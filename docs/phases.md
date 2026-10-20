@@ -7,14 +7,15 @@ Mark tasks `[x]` when done so `/phase` always knows what's next.
 ---
 
 ## Phase 1 — Foundation (Day 1–2)
-Goal: app runs, DB holds Xero master data, model responds.
+Goal: app runs, DB holds master data, model responds. No accounting-system connection needed.
 
 - [x] **1.1 Repo skeleton** — folders per CLAUDE.md, `backend/` uv project, ruff, mypy, pytest, pre-commit, `docker-compose.yml` (Postgres 16 + Redis), `Makefile`, `.env.example`, `README.md`
 - [x] **1.2 Core config** — pydantic-settings, DB session, logging, FastAPI app with `/health`
 - [x] **1.3 Domain** — `Invoice` + `Line` schema, enums, state machine with allowed transitions; unit tests
-- [x] **1.4 DB models + migration** — `documents`, `extractions`, `corrections`, `outbox`, `audit_log`, `xero_accounts`, `xero_tax_rates`, `xero_contacts`, `vendor_mappings`, `runs`; `client_id` everywhere; unique business key; pg_trgm extension
-- [ ] **1.5 Xero adapter: auth** — OAuth2 flow, token storage + refresh, connect to Demo Company
-- [ ] **1.6 Xero adapter: master data sync** — accounts, tax rates, contacts → Postgres; `POST /xero/sync`
+- [x] **1.4 DB models + migration** — `documents`, `extractions`, `corrections`, `outbox`, `audit_log`, master data, `vendor_mappings`, `runs`; `client_id` everywhere; unique business key; pg_trgm extension
+- [ ] **1.4b Accounting-agnostic master data** — neutral `ledger_accounts`, `tax_rates`, `contacts` (`provider` + `external_id`) replace the `xero_*` tables (decision 20)
+- [ ] **1.5 Master data import** — `AccountingSystem` port (master-data part) + `manual` adapter: CSV import of accounts, tax rates (mapped to canonical `TaxType`), contacts; validate, upsert, report; `POST /master-data/import`
+- [ ] **1.6 Sample master data** — sample CSVs (chart of accounts, UAE VAT rates, suppliers) in `infra/samples/` for dev and tests; `make seed`
 - [ ] **1.7 ExtractionClient** — interface + Ollama implementation (`qwen3-vl:4b`), structured JSON output; smoke test
 
 Done when: `make up && make migrate && make api` works, master data is in DB, model returns schema-valid JSON.
@@ -39,7 +40,7 @@ Goal: every document has codes and a clear status with reasons.
 - [ ] **3.2 Validation rules** — one function per rule from architecture §8, each returns issues with field + severity + reason; unit tests per rule
 - [ ] **3.3 Grounding** — key values checked against document text
 - [ ] **3.4 Duplicate check** — business key unique constraint; duplicates → Exception
-- [ ] **3.5 Vendor match** — TRN first, then pg_trgm fuzzy name against Xero contacts
+- [ ] **3.5 Vendor match** — TRN first, then pg_trgm fuzzy name against master-data contacts
 - [ ] **3.6 Coding** — vendor mapping → Qwen suggestion; store source + confidence per line
 - [ ] **3.7 Type check** — folder vs content signals; conflict → Exception; non-postables parked
 - [ ] **3.8 Verify step** — run all above, set Ready / Check / Exception, move to `IN_REVIEW`
@@ -60,31 +61,36 @@ Goal: an accountant reviews and approves without touching the DB.
 
 Done when: full review and approval works from the browser.
 
-## Phase 5 — Post to Xero + complete (Day 11–15)
-Goal: folder → review → Xero works for bills, credit notes and receipts. **MVP complete.**
+## Phase 5 — Post to an accounting system + complete (Day 11–15)
+Goal: folder → review → posted works for bills, credit notes and receipts, with no connection (export) and with Xero.
+**MVP complete.**
 
-- [ ] **5.1 Posting worker** — outbox pickup (`FOR UPDATE SKIP LOCKED`), resumable sub-steps, status `POSTING`
-- [ ] **5.2 Bills** — Xero lookup (contact + number), create contact if new, create ACCPAY `SUBMITTED` with idempotency key, history note, save Xero ID → `POSTED`
-- [ ] **5.3 Error handling** — retry/backoff for 429/timeouts, business errors → `POST_ERROR` back to review with Xero message, token expiry pauses posting, rate limiter
-- [ ] **5.4 Credit notes** — ACCPAYCREDIT + allocation to original
-- [ ] **5.5 Receipts** — BankTransaction SPEND
-- [ ] **5.6 Workbench posting status** — posted / error shown with Xero link
-- [ ] **5.7 End-to-end run** — real sample invoices through the full flow; fix what breaks
-- [ ] **5.8 README + demo script**
+- [ ] **5.1 Posting worker + port** — `AccountingSystem` posting methods; outbox pickup (`FOR UPDATE SKIP LOCKED`), resumable sub-steps, status `POSTING`, dispatch to the client's adapter
+- [ ] **5.2 Manual adapter: export** — approved documents → export file (CSV/JSON) in `data/export/`; `POSTED` with export reference
+- [ ] **5.3 Xero adapter: auth** — OAuth2 flow, token storage + refresh, connect to Demo Company
+- [ ] **5.4 Xero adapter: master data sync** — accounts, tax rates, contacts → the same neutral tables; `POST /master-data/sync`
+- [ ] **5.5 Xero bills** — lookup (contact + number), create contact if new, create ACCPAY `SUBMITTED` with idempotency key, history note, save external ID → `POSTED`
+- [ ] **5.6 Xero error handling** — retry/backoff for 429/timeouts, business errors → `POST_ERROR` back to review with Xero message, token expiry pauses posting, rate limiter
+- [ ] **5.7 Xero credit notes** — ACCPAYCREDIT + allocation to original
+- [ ] **5.8 Xero receipts** — BankTransaction SPEND
+- [ ] **5.9 Workbench posting status** — posted / exported / error shown, with link to the document in the accounting system
+- [ ] **5.10 End-to-end run** — real sample invoices through the full flow, manual and Xero; fix what breaks
+- [ ] **5.11 README + demo script**
 
-Done when: approved documents appear in Xero Awaiting Approval, retries never double-post.
+Done when: approved documents export without a connection and appear in Xero Awaiting Approval when connected;
+retries never double-post.
 
 ---
 
 ## After the MVP
 
 ### Phase 6 — Go live on Missan's setup (Week 4)
-GPU server + vLLM serving Qwen3-VL-4B; Missan's real Xero org; users and roles; daily use, all `SUBMITTED`.
+GPU server + vLLM serving Qwen3-VL-4B; Missan's real accounting system connected; users and roles; daily use, all `SUBMITTED`.
 Done when: real invoices flow daily on the production server.
 
 ### Phase 7 — Safety and control (Week 5–6)
 Duplicate checks 2, 4, 7; fraud alerts (bank details changed, same number different amount); four-eyes above limit;
-record locking; full audit log; Xero sync every 15 min + daily reconciliation.
+record locking; full audit log; accounting-system sync every 15 min + daily reconciliation.
 Done when: nothing can double-post, go missing or slip through unchecked.
 
 ### Phase 8 — Accountant speed (Week 6–7)
@@ -103,4 +109,5 @@ once 300–500 approved documents exist; shadow → canary → full release.
 Done when: straight-through rate keeps rising.
 
 ### Phase 11 — Expand (by business need)
-Sales invoices outside Xero, debit notes, email capture, Peppol, more clients (LoRA per client), other accounting systems via adapters.
+Sales invoices outside the accounting system, debit notes, email capture, Peppol, more clients (LoRA per client),
+other accounting systems (e.g. Zoho Books) as adapters.

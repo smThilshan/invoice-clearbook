@@ -1,7 +1,7 @@
 # Invoice Automation — Missan
 
 Local system that reads supplier invoices, extracts data with Qwen3-VL-4B, validates and codes it,
-lets accountants review it in the Workbench, and posts approved documents to Xero.
+lets accountants review it in the Workbench, and posts approved documents to the accounting system (Xero first) — or exports them when none is connected.
 No client data leaves the local servers.
 
 - What we build: `docs/architecture.md`
@@ -12,7 +12,7 @@ No client data leaves the local servers.
 ## Requirements (dev)
 - macOS, Docker Desktop, uv, Node 20+, Ollama
 - `ollama pull qwen3-vl:4b`
-- Xero developer app (Client ID/Secret) connected to the Xero Demo Company
+- Optional: Xero developer app (Client ID/Secret) + Demo Company, only to test the Xero adapter (Phase 5)
 
 ## Run
 ```bash
@@ -29,7 +29,7 @@ make web                  # Workbench
 ## Use
 1. Put files in `data/inbox/Purchase/<YYYY-MM-DD>/`
 2. Open the Workbench → Run → pick folder + date
-3. Review, approve → posted to Xero as Awaiting Approval
+3. Review, approve → exported, or posted to Xero as Awaiting Approval when connected
 
 ## Develop
 ```bash
