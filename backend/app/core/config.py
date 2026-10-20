@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
 
+    # Files: the accountants' inbox (read only) and our own store (via the Storage interface).
+    # Relative paths are resolved against the repo root.
+    inbox_dir: Path = Field(default=Path("data/inbox"), validate_default=True)
+    store_dir: Path = Field(default=Path("data/store"), validate_default=True)
+
     # Model server (decision 3): Ollama native API in dev, vLLM in prod; switching is config only.
     llm_provider: LlmProvider = "ollama"
     llm_base_url: str = "http://localhost:11434"
@@ -42,6 +47,11 @@ class Settings(BaseSettings):
     # Image + OCR text + schema must fit, or the server silently truncates the input.
     llm_context_tokens: int = Field(default=16384, ge=2048)
     llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow
+
+    @field_validator("inbox_dir", "store_dir")
+    @classmethod
+    def _resolve_against_repo_root(cls, path: Path) -> Path:
+        return path if path.is_absolute() else REPO_ROOT / path
 
     @property
     def database_url(self) -> URL:
