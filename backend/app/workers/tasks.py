@@ -10,11 +10,12 @@ import uuid
 
 from celery import Task
 
+from app.adapters.ocr import get_ocr_engine
 from app.adapters.storage import get_storage
 from app.core.config import get_settings
 from app.core.db import session_scope
-from app.models import Run
-from app.pipeline import ingest
+from app.models import Document, Run
+from app.pipeline import ingest, read
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -69,4 +70,33 @@ def ingest_file(self: "Task[[str, str], str]", run_id: str, relative_path: str) 
         raise self.retry(countdown=NOT_READY_RETRY_SECONDS)
     # Document id only: file names can contain vendor names.
     logger.info("run %s: ingest %s document=%s", run_id, result.outcome, result.document_id)
+    return result.outcome.value
+
+
+@celery_app.task(name="pipeline.read_document")
+def read_document(document_id: str) -> str:
+    """Page images + text for a CAPTURED document; skips documents already past that."""
+    settings = get_settings()
+    with session_scope() as session:
+        document = session.get(Document, uuid.UUID(document_id))
+        if document is None:
+            logger.error("read_document: document %s not found", document_id)
+            return "document_not_found"
+        result = read.read_document(
+            session,
+            get_storage(settings),
+            get_ocr_engine,
+            document,
+            max_pages=settings.max_pages,
+            max_side=settings.page_image_max_side,
+            min_text_chars=settings.text_layer_min_chars,
+        )
+    logger.info(
+        "document %s: read %s pages=%d ocr_pages=%d seconds=%.1f",
+        document_id,
+        result.outcome,
+        result.pages,
+        result.ocr_pages,
+        result.seconds,
+    )
     return result.outcome.value

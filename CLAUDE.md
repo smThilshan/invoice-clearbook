@@ -19,7 +19,7 @@ quick-confirm grid, fine-tuning, Kubernetes, extra duplicate checks beyond hash 
 - Backend: Python 3.12, FastAPI, Pydantic v2, pydantic-settings, SQLAlchemy 2.0, Alembic
 - Jobs: Celery + Redis
 - DB: PostgreSQL 16 with pg_trgm
-- Reading: PyMuPDF (digital PDFs), OpenCV + PaddleOCR (scans/photos)
+- Reading: PyMuPDF (digital PDFs), OpenCV + PaddleOCR 3.0.2 pinned (scans/photos; decision 22)
 - Model: Qwen3-VL-4B via Ollama (dev, native on Mac) / vLLM (prod), OpenAI-compatible API
 - Accounting systems: adapters behind one port; Xero via xero-python SDK (Phase 5); none required
 - Frontend (`workbench/`): React + TypeScript + Vite, react-pdf, React Hook Form, TanStack Query

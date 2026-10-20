@@ -40,6 +40,7 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
     sha256: Mapped[str] = mapped_column(String(64))
     mime_type: Mapped[str] = mapped_column(String(100))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
+    page_count: Mapped[int | None]  # set by the Read step
 
     status: Mapped[DocumentStatus] = mapped_column(
         str_enum(DocumentStatus, "status"), default=DocumentStatus.CAPTURED

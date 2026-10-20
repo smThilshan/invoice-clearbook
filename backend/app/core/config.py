@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     # file still being copied into the inbox is never read half-written.
     stable_file_seconds: float = Field(default=2.0, ge=0)
 
+    # Read step (task 2.4): page images for the model and the Workbench, text per page.
+    max_pages: int = Field(default=20, gt=0)  # longer files become FAILED documents
+    page_image_max_side: int = Field(default=1500, ge=500)  # architecture §16
+    # A PDF page with at least this many text-layer characters is digital (no OCR needed).
+    text_layer_min_chars: int = Field(default=20, ge=1)
+    # PaddleOCR (decision 22). Mobile models: ~12x faster than server models on CPU.
+    ocr_models_dir: Path = Field(default=Path("data/models/paddlex"), validate_default=True)
+    ocr_detection_model: str = "PP-OCRv5_mobile_det"
+    ocr_recognition_model: str = "PP-OCRv5_mobile_rec"
+
     # Model server (decision 3): Ollama native API in dev, vLLM in prod; switching is config only.
     llm_provider: LlmProvider = "ollama"
     llm_base_url: str = "http://localhost:11434"
@@ -60,7 +70,7 @@ class Settings(BaseSettings):
     llm_context_tokens: int = Field(default=16384, ge=2048)
     llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow
 
-    @field_validator("inbox_dir", "store_dir")
+    @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
     @classmethod
     def _resolve_against_repo_root(cls, path: Path) -> Path:
         return path if path.is_absolute() else REPO_ROOT / path
