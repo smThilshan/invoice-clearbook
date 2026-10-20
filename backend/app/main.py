@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
-from app.api import health
+from app.api import health, runs
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging
@@ -32,4 +32,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None if is_prod else "/openapi.json",
     )
     app.include_router(health.router)
+    app.include_router(runs.router)
     return app

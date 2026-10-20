@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Relative paths are resolved against the repo root.
     inbox_dir: Path = Field(default=Path("data/inbox"), validate_default=True)
     store_dir: Path = Field(default=Path("data/store"), validate_default=True)
+    max_file_mb: int = Field(default=25, gt=0)  # larger files become FAILED documents
+    # A file is ingested only if its size and mtime are unchanged over this interval, so a
+    # file still being copied into the inbox is never read half-written.
+    stable_file_seconds: float = Field(default=2.0, ge=0)
 
     # Model server (decision 3): Ollama native API in dev, vLLM in prod; switching is config only.
     llm_provider: LlmProvider = "ollama"
