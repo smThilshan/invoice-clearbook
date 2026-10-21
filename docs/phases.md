@@ -36,7 +36,7 @@ Done when: drop invoices in `data/inbox/Purchase/<date>/`, call Run, all reach `
 ## Phase 3 — Verify (Day 6–7)
 Goal: every document has codes and a clear status with reasons.
 
-- [ ] **3.1 Normalizers** — numbers (incl. Arabic-Indic digits, separators), dates, invoice-number normalization
+- [x] **3.1 Normalizers** — numbers (incl. Arabic-Indic digits, separators), dates, invoice-number normalization
 - [ ] **3.2 Validation rules** — one function per rule from architecture §8, each returns issues with field + severity + reason; unit tests per rule
 - [ ] **3.3 Grounding** — key values checked against document text
 - [ ] **3.4 Duplicate check** — business key unique constraint; duplicates → Exception
