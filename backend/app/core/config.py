@@ -9,6 +9,8 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
+from app.domain.enums import AccountingProvider
+
 # backend/app/core/config.py -> repo root. `make` runs from backend/, so a relative path misses it.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -79,6 +81,13 @@ class Settings(BaseSettings):
     period_max_days_before: int = Field(default=90, ge=0)
     # An invoice dated more than this many days after today is an error (misread date).
     future_date_slack_days: int = Field(default=1, ge=0)
+
+    # Accounting system of the (single, for now) client: whose master data is matched against.
+    # Moves to a per-client record when there are several clients (decision 20).
+    accounting_provider: AccountingProvider = AccountingProvider.MANUAL
+    # Supplier name match (pg_trgm similarity 0-1): match at or above, suggest at or above.
+    vendor_match_min_similarity: float = Field(default=0.6, gt=0, le=1)
+    vendor_suggest_min_similarity: float = Field(default=0.35, gt=0, le=1)
 
     @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
     @classmethod

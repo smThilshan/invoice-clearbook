@@ -55,6 +55,10 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
     issues: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     vendor_key: Mapped[str | None] = mapped_column(String(255))
     business_key: Mapped[str | None] = mapped_column(String(255))
+    # The known supplier (master data) this document was matched to; null = new or unmatched.
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL")
+    )
     failure_reason: Mapped[str | None] = mapped_column(Text)
     external_id: Mapped[str | None] = mapped_column(
         String(64), comment="ID of the posted document in the accounting system"
