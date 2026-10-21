@@ -1,15 +1,17 @@
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.core.db import get_session
 from app.domain.enums import Direction
 from app.main import create_app
 from app.models import Run, RunStatus
+from tests.integration.factories import CLIENT, make_client
 
 pytestmark = pytest.mark.integration
 
@@ -23,47 +25,95 @@ def enqueued() -> list[str]:
 def client(session: Session, tmp_path: Path, enqueued: list[str]) -> Iterator[TestClient]:
     from app.api.runs import get_enqueue_scan
 
-    (tmp_path / "inbox/Purchase/2026-10-20").mkdir(parents=True)
-    settings = Settings(_env_file=None, app_env="test", inbox_dir=tmp_path / "inbox")
-    app = create_app(settings)
+    root = tmp_path / "Cafe Al Noor"
+    (root / "October 2026" / "21").mkdir(parents=True)
+    (root / "Supplier bills").mkdir()
+    make_client(session, root)
+    make_client(session, tmp_path / "Other Restaurant", client_id="other-restaurant")
+    app = create_app(Settings(_env_file=None, app_env="test"))
     app.dependency_overrides[get_session] = lambda: session
-    app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_enqueue_scan] = lambda: enqueued.append
     with TestClient(app) as test_client:
         yield test_client
 
 
-def test_create_run_stores_run_and_enqueues_scan(
+def start(client: TestClient, **body: object) -> dict[str, object]:
+    response = client.post("/runs", json={"client_id": CLIENT, **body})
+    assert response.status_code == 202, response.text
+    result: dict[str, object] = response.json()
+    return result
+
+
+def test_run_on_a_day_folder_takes_its_date(
     client: TestClient, session: Session, enqueued: list[str]
 ) -> None:
-    response = client.post("/runs", json={"folder": "Purchase", "date": "2026-10-20"})
+    body = start(client, folder="October 2026/21")
 
-    assert response.status_code == 202
-    body = response.json()
-    assert body["status"] == RunStatus.RUNNING
+    assert (body["folder"], body["folder_date"], body["status"]) == (
+        "October 2026/21", "2026-10-21", RunStatus.RUNNING
+    )  # fmt: skip
     run = session.get_one(Run, body["run_id"])
-    assert (run.direction, run.folder_date.isoformat()) == (Direction.PURCHASE, "2026-10-20")
+    assert (run.client_id, run.direction) == (CLIENT, Direction.PURCHASE)
     assert enqueued == [body["run_id"]]
 
 
-def test_missing_inbox_folder_is_404_and_nothing_enqueued(
-    client: TestClient, enqueued: list[str]
+def test_run_on_a_month_folder_uses_the_month_end(client: TestClient) -> None:
+    assert start(client, folder="October 2026")["folder_date"] == "2026-10-31"
+
+
+def test_folder_without_a_date_has_none(client: TestClient) -> None:
+    assert start(client, folder="Supplier bills")["folder_date"] is None
+
+
+def test_date_confirmed_by_the_user_wins(client: TestClient) -> None:
+    body = start(client, folder="Supplier bills", folder_date="2026-10-15")
+
+    assert body["folder_date"] == str(date(2026, 10, 15))
+
+
+def test_whole_client_folder_can_be_run(client: TestClient) -> None:
+    assert start(client)["folder"] == ""
+
+
+@pytest.mark.parametrize("folder", ["../Other Restaurant", "/etc", "October 2026/../../x"])
+def test_folders_outside_the_restaurant_are_refused(
+    client: TestClient, enqueued: list[str], folder: str
 ) -> None:
-    response = client.post("/runs", json={"folder": "Sales", "date": "2026-10-20"})
+    response = client.post("/runs", json={"client_id": CLIENT, "folder": folder})
 
     assert response.status_code == 404
-    assert "no inbox folder" in response.json()["detail"]
     assert enqueued == []
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        {"folder": "../etc", "date": "2026-10-20"},
-        {"folder": "purchase", "date": "2026-10-20"},
-        {"folder": "Purchase", "date": "20-10-2026"},
-        {"folder": "Purchase"},
-    ],
-)
-def test_invalid_requests_rejected(client: TestClient, body: dict[str, str]) -> None:
-    assert client.post("/runs", json=body).status_code == 422
+def test_missing_folder_or_client_is_404(client: TestClient, enqueued: list[str]) -> None:
+    missing_folder = client.post("/runs", json={"client_id": CLIENT, "folder": "December 2030"})
+    missing_client = client.post("/runs", json={"client_id": "nobody", "folder": ""})
+
+    assert (missing_folder.status_code, missing_client.status_code) == (404, 404)
+    assert "folder not found" in missing_folder.json()["detail"]
+    assert enqueued == []
+
+
+# --- folder picker --------------------------------------------------------------------------
+
+
+def test_clients_are_listed_for_the_picker(client: TestClient) -> None:
+    listed = [(c["client_id"], c["name"]) for c in client.get("/clients").json()]
+
+    assert listed == [("other-restaurant", "Test other-restaurant"), (CLIENT, f"Test {CLIENT}")]
+
+
+def test_folders_are_browsed_level_by_level_with_their_dates(client: TestClient) -> None:
+    top = client.get(f"/clients/{CLIENT}/folders").json()
+    month = client.get(f"/clients/{CLIENT}/folders", params={"path": "October 2026"}).json()
+
+    assert [(f["name"], f["date"]) for f in top["folders"]] == [
+        ("October 2026", "2026-10-31"), ("Supplier bills", None)
+    ]  # fmt: skip
+    assert month["folders"] == [{"name": "21", "path": "October 2026/21", "date": "2026-10-21"}]
+
+
+def test_browsing_outside_the_restaurant_is_refused(client: TestClient) -> None:
+    response = client.get(f"/clients/{CLIENT}/folders", params={"path": "../Other Restaurant"})
+
+    assert response.status_code == 404

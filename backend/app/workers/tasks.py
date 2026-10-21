@@ -14,9 +14,11 @@ the step stops quietly ("superseded") instead of failing it.
 import logging
 import uuid
 from contextlib import closing
+from pathlib import Path
 
 from celery import Task
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.adapters.llm import ExtractionError, get_extraction_client
 from app.adapters.ocr import get_ocr_engine
@@ -25,9 +27,11 @@ from app.core.config import get_settings
 from app.core.db import session_scope
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import StaleStatusError
-from app.models import Document, Run
+from app.models import Document, Run, RunStatus
 from app.pipeline import extract, ingest, read
+from app.pipeline.folders import InboxError
 from app.pipeline.verify import step as verify
+from app.services.clients import client_root, get_client
 from app.services.pipeline import NEXT_STEP, Step, fail_document
 from app.workers.celery_app import celery_app
 
@@ -50,15 +54,20 @@ def ping() -> str:
 
 @celery_app.task(name="pipeline.scan_run")
 def scan_run(run_id: str) -> int:
-    """List the run's files and enqueue one ingest job per file. Re-running re-enqueues every
-    file; ingest recognises files it has already seen."""
-    settings = get_settings()
+    """List the run's files (sub-folders included) and enqueue one ingest job per file.
+    Re-running re-enqueues every file; ingest recognises files it has already seen. If the
+    client's shared folder cannot be read, the run is marked FAILED with the reason."""
     with session_scope() as session:
         run = session.get(Run, uuid.UUID(run_id))
         if run is None:
             logger.error("scan_run: run %s not found", run_id)
             return 0
-        relative_paths = ingest.scan_run(session, run, settings.inbox_dir)
+        try:
+            relative_paths = ingest.scan_run(session, run, _client_root(session, run))
+        except InboxError as exc:
+            run.status, run.failure_reason, run.files = RunStatus.FAILED, str(exc), []
+            logger.warning("run %s: FAILED: %s", run_id, exc)
+            return 0
 
     for relative_path in relative_paths:
         ingest_file.delay(run_id, relative_path)
@@ -74,15 +83,19 @@ def ingest_file(self: "Task[[str, str], str]", run_id: str, relative_path: str) 
         if run is None:
             logger.error("ingest_file: run %s not found", run_id)
             return "run_not_found"
-        result = ingest.ingest_file(
-            session,
-            get_storage(settings),
-            run=run,
-            inbox_dir=settings.inbox_dir,
-            relative_path=relative_path,
-            max_bytes=settings.max_file_mb * 1_048_576,
-            stable_seconds=settings.stable_file_seconds,
-        )
+        try:
+            result = ingest.ingest_file(
+                session,
+                get_storage(settings),
+                run=run,
+                client_root=_client_root(session, run),
+                relative_path=relative_path,
+                max_bytes=settings.max_file_mb * 1_048_576,
+                stable_seconds=settings.stable_file_seconds,
+            )
+        except InboxError as exc:  # removed or unreachable since the scan listed it
+            logger.warning("run %s: file not ingested: %s", run_id, exc)
+            return "unreadable"
 
     if result.outcome is ingest.Outcome.NOT_READY:
         raise self.retry(countdown=NOT_READY_RETRY_SECONDS)
@@ -233,3 +246,10 @@ def _fail(document_id: str, step: Step, reason: str) -> None:
 def _unexpected(exc: Exception) -> str:
     # Type only: exception messages can echo document content. The traceback is logged.
     return f"unexpected error ({type(exc).__name__})"
+
+
+def _client_root(session: Session, run: Run) -> Path:
+    client = get_client(session, run.client_id)
+    if client is None:
+        raise InboxError(f"client {run.client_id!r} not found or inactive")
+    return client_root(client)

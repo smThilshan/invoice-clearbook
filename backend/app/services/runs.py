@@ -1,4 +1,5 @@
-"""Runs: start one (a typed inbox folder for one date) and report its progress.
+"""Runs: start one (a folder the user picked inside a client's folder, decision 25) and report
+its progress.
 
 Progress is computed live from the documents, per file the scan listed, so it can never drift
 from the truth. A file that was already processed in an earlier run (Run clicked twice) shows
@@ -10,14 +11,14 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import Direction, DocumentStatus, DocumentType
-from app.models import Document, Run
-from app.pipeline.ingest import InboxError, run_folder
+from app.models import Client, Document, Run, RunStatus
+from app.pipeline.folders import InboxError, folder_date_from_path, relative_to_root, resolve_inside
+from app.services.clients import client_root
 
 # Statuses that will move on by themselves (a pipeline step is pending or running).
 IN_PROGRESS = frozenset(
@@ -39,7 +40,7 @@ class RunState(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FileProgress:
-    path: str  # inbox-relative
+    path: str  # relative to the client's folder
     document_id: uuid.UUID | None  # None = not ingested yet
     status: DocumentStatus | None
     document_type: DocumentType | None
@@ -62,22 +63,37 @@ class RunProgress:
     def counts(self) -> dict[str, int]:
         return dict(Counter(file.status_label for file in self.files))
 
+    @property
+    def status(self) -> RunStatus:
+        """Derived, never stored twice: FAILED is set when the run could not proceed;
+        otherwise COMPLETED once every file has settled."""
+        if self.run.status is RunStatus.FAILED:
+            return RunStatus.FAILED
+        return RunStatus.COMPLETED if self.state is RunState.FINISHED else RunStatus.RUNNING
+
 
 def start_run(
     session: Session,
     *,
-    client_id: str,
-    direction: Direction,
-    folder_date: date,
-    inbox_dir: Path,
+    client: Client,
+    folder: str = "",
+    folder_date: date | None = None,
     created_by: str | None = None,
 ) -> Run:
-    """Create the run row. The caller commits, then enqueues the scan (never before commit:
-    the worker could start before the row is visible)."""
-    if not run_folder(inbox_dir, direction, folder_date).is_dir():
-        raise InboxError(f"no inbox folder for {direction.value.title()} on {folder_date}")
+    """Create the run row for `folder` (relative to the client's folder; "" = all of it).
+    The date is the user's, else read from the folder name, else none. The caller commits,
+    then enqueues the scan (never before: the worker could start before the row is visible)."""
+    root = client_root(client)
+    path = resolve_inside(root, folder)
+    if not path.is_dir():
+        raise InboxError(f"folder not found: {folder or '(client folder)'}")
+    relative = relative_to_root(root, path) if path != root.resolve() else ""
     run = Run(
-        client_id=client_id, direction=direction, folder_date=folder_date, created_by=created_by
+        client_id=client.client_id,
+        folder=relative,
+        direction=Direction.PURCHASE,  # purchase-side by default (decision 25)
+        folder_date=folder_date or folder_date_from_path(relative),
+        created_by=created_by,
     )
     session.add(run)
     session.flush()

@@ -15,7 +15,7 @@ from tests.integration.factories import make_run
 pytestmark = pytest.mark.integration
 
 PDF = b"%PDF-1.7\nfake invoice content\n%%EOF"
-FOLDER = "Purchase/2026-10-20"  # make_run(): PURCHASE on 2026-10-20
+FOLDER = "October 2026/20"  # a day folder inside a month folder (decision 25)
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def ingest(
         session,
         storage,
         run=run,
-        inbox_dir=inbox,
+        client_root=inbox,
         relative_path=rel,
         max_bytes=1_048_576,
         stable_seconds=0,
@@ -174,18 +174,26 @@ def test_path_outside_inbox_rejected(session: Session, storage: LocalStorage, in
         ingest(session, storage, run, inbox, "../../etc/hosts")
 
 
-def test_scan_lists_files_and_counts_them(session: Session, inbox: Path) -> None:
+def test_scan_lists_files_in_the_picked_folder_and_its_subfolders(
+    session: Session, inbox: Path
+) -> None:
     run = make_run(session)
+    run.folder = "October 2026"  # the whole month
     drop(inbox, "b.pdf", PDF)
-    drop(inbox, "a.jpg", b"\xff\xd8\xff")
     drop(inbox, ".DS_Store", b"")
+    (inbox / "October 2026" / "21").mkdir()
+    (inbox / "October 2026" / "21" / "a.jpg").write_bytes(b"\xff\xd8\xff")
+    (inbox / "Other month.pdf").write_bytes(PDF)  # outside the picked folder
 
     paths = scan_run(session, run, inbox)
 
-    assert paths == [f"{FOLDER}/a.jpg", f"{FOLDER}/b.pdf"]
+    assert paths == ["October 2026/20/b.pdf", "October 2026/21/a.jpg"]
     assert run.files_found == 2
 
 
-def test_scan_missing_folder_raises(session: Session, tmp_path: Path) -> None:
+def test_scan_missing_folder_raises(session: Session, inbox: Path) -> None:
+    run = make_run(session)
+    run.folder = "November 2026"
+
     with pytest.raises(InboxError, match="not found"):
-        scan_run(session, make_run(session), tmp_path / "empty-inbox")
+        scan_run(session, run, inbox)

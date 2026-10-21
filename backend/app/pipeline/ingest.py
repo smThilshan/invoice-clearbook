@@ -1,8 +1,9 @@
 """Run + Ingest (architecture §4, steps 1-2).
 
-A run lists the files in one typed inbox folder for one date; each file is ingested on its own:
-stable-file check, SHA-256 (duplicate check 1), type/size check, copy into Storage, and one
-`documents` row. The inbox belongs to the accountants: it is only read, never changed.
+A run lists the files in the folder the user picked inside a client's folder, sub-folders
+included (decision 25); each file is ingested on its own: stable-file check, SHA-256
+(duplicate check 1), type/size check, copy into Storage, and one `documents` row. The client's
+folder belongs to the accountants: it is only read, never changed. Paths are relative to it.
 
 Outcomes per file:
 - created       new document, CAPTURED
@@ -18,7 +19,6 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
 from enum import StrEnum
 from pathlib import Path
 
@@ -28,20 +28,17 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
 from app.adapters.storage.keys import original_key
-from app.domain.enums import Direction, DocumentStatus
+from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
 from app.models import Document, Run
 from app.pipeline import file_types
+from app.pipeline.folders import InboxError, list_files, relative_to_root, resolve_inside
 
 logger = logging.getLogger(__name__)
 
 ACTOR = "system:ingest"
 
-INBOX_FOLDERS = {
-    Direction.PURCHASE: "Purchase",
-    Direction.SALES: "Sales",
-    Direction.UNSORTED: "Unsorted",
-}
+__all__ = ["InboxError", "IngestResult", "Outcome", "ingest_file", "scan_run"]
 
 _HASH_CHUNK = 1024 * 1024
 _UNKNOWN = file_types.FileType("application/octet-stream", ".bin")
@@ -61,31 +58,14 @@ class IngestResult:
     document_id: uuid.UUID | None = None
 
 
-class InboxError(Exception):
-    pass
-
-
-def run_folder(inbox_dir: Path, direction: Direction, folder_date: date) -> Path:
-    """Built only from an enum and a date, so a request can never point outside the inbox."""
-    return inbox_dir / INBOX_FOLDERS[direction] / folder_date.isoformat()
-
-
-def list_candidate_files(folder: Path) -> list[Path]:
-    """Files directly in `folder`, minus hidden/system/temp files, subfolders and symlinks."""
-    return sorted(
-        path
-        for path in folder.iterdir()
-        if path.is_file() and not path.is_symlink() and not path.name.startswith((".", "~$"))
-    )
-
-
-def scan_run(session: Session, run: Run, inbox_dir: Path) -> list[str]:
-    """List the run's files and record them on the run. Returns inbox-relative paths."""
-    folder = run_folder(inbox_dir, run.direction, run.folder_date)
+def scan_run(session: Session, run: Run, client_root: Path) -> list[str]:
+    """List the run's files (sub-folders included) and record them on the run.
+    Returns paths relative to the client's folder."""
+    folder = resolve_inside(client_root, run.folder)
     if not folder.is_dir():
-        raise InboxError(f"inbox folder not found: {folder.relative_to(inbox_dir)}")
-    paths = [path.relative_to(inbox_dir).as_posix() for path in list_candidate_files(folder)]
-    run.files = paths  # what the accountant dropped; run progress is tracked per file
+        raise InboxError(f"folder not found: {run.folder or '(client folder)'}")
+    paths = [relative_to_root(client_root, path) for path in list_files(folder)]
+    run.files = paths  # what the accountants dropped; run progress is tracked per file
     run.files_found = len(paths)
     return paths
 
@@ -95,13 +75,15 @@ def ingest_file(
     storage: Storage,
     *,
     run: Run,
-    inbox_dir: Path,
+    client_root: Path,
     relative_path: str,
     max_bytes: int,
     stable_seconds: float,
     sleep: Callable[[float], None] = time.sleep,
 ) -> IngestResult:
-    path = _resolve_in_inbox(inbox_dir, relative_path)
+    path = resolve_inside(client_root, relative_path)
+    if not path.is_file():
+        raise InboxError(f"not a file in the client folder: {relative_path!r}")
 
     before = path.stat()
     sleep(stable_seconds)
@@ -184,14 +166,6 @@ def _classify_existing(
     session.add(duplicate)
     session.flush()
     return IngestResult(Outcome.DUPLICATE, duplicate.id)
-
-
-def _resolve_in_inbox(inbox_dir: Path, relative_path: str) -> Path:
-    root = inbox_dir.resolve()
-    path = (root / relative_path).resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        raise InboxError(f"not a file in the inbox: {relative_path!r}")
-    return path
 
 
 def _fingerprint(path: Path) -> tuple[str, bytes]:

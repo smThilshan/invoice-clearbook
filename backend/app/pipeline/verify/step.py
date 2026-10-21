@@ -25,10 +25,10 @@ from sqlalchemy.orm import Session
 from app.adapters.llm import ExtractionClient
 from app.adapters.storage import Storage
 from app.core.config import Settings
-from app.domain.enums import DocumentStatus, QueueCategory
+from app.domain.enums import AccountingProvider, DocumentStatus, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
-from app.models import Document, Extraction
+from app.models import Client, Document, Extraction
 from app.pipeline import coding
 from app.pipeline.read import load_page_texts
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys
@@ -70,6 +70,7 @@ def verify_document(
         return VerifyResult(VerifyOutcome.SKIPPED)
 
     pages = load_page_texts(storage, document)
+    provider = _provider(session, document, settings)
     invoice = _working_copy(document)
     context = RuleContext.from_settings(
         settings,
@@ -100,16 +101,14 @@ def verify_document(
             session,
             invoice,
             client_id=document.client_id,
-            provider=settings.accounting_provider,
+            provider=provider,
             min_similarity=settings.vendor_match_min_similarity,
             suggest_similarity=settings.vendor_suggest_min_similarity,
         )
         document.contact_id = supplier.contact_id
         issues += supplier.issues
 
-        chart = coding.load_chart(
-            session, client_id=document.client_id, provider=settings.accounting_provider
-        )
+        chart = coding.load_chart(session, client_id=document.client_id, provider=provider)
         coded = coding.code_document(
             session,
             invoice,
@@ -172,3 +171,9 @@ def _last_extraction_error(session: Session, document: Document) -> str | None:
         .order_by(Extraction.attempt.desc())
         .limit(1)
     ).first()
+
+
+def _provider(session: Session, document: Document, settings: Settings) -> AccountingProvider:
+    """The client's own accounting system (decision 25); the setting is only a fallback."""
+    client = session.scalars(select(Client).where(Client.client_id == document.client_id)).first()
+    return client.accounting_provider if client else settings.accounting_provider

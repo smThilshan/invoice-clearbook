@@ -1,13 +1,23 @@
 import uuid
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.domain.enums import Direction, DocumentStatus
-from app.models import Document, Run
+from app.models import Client, Document, Run
 
 CLIENT = "test-client"
+
+
+def make_client(session: Session, inbox: Path, client_id: str = CLIENT) -> Client:
+    """A restaurant whose shared-drive folder is `inbox`."""
+    inbox.mkdir(parents=True, exist_ok=True)
+    client = Client(client_id=client_id, name=f"Test {client_id}", inbox_path=str(inbox))
+    session.add(client)
+    session.flush()
+    return client
 
 
 def make_run(session: Session) -> Run:

@@ -21,15 +21,23 @@ make install              # backend deps + git hooks
 ollama serve              # separate terminal, native (not Docker)
 make up                   # Postgres + Redis
 make migrate
-make seed                 # fictional F&B master data (or: make import-master-data DIR=...)
 make api                  # FastAPI → curl localhost:8000/health/ready
 make worker               # Celery
 make web                  # Workbench
 ```
 
+## Set up a restaurant (once each)
+Each restaurant is a client with its own folder on the shared drive (decision 25):
+```bash
+make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX="/Volumes/Shared/Clients/Cafe Al Noor"
+make import-master-data DIR=path/to/its/csvs CLIENT=cafe-al-noor   # chart of accounts, VAT, suppliers
+make list-clients
+```
+For development, `make seed` loads fictional F&B master data for the default client.
+
 ## Use
-1. Put files in `data/inbox/Purchase/<YYYY-MM-DD>/`
-2. Open the Workbench → Run → pick folder + date
+1. Accountants keep files in the restaurant's folder as they do today (e.g. `October 2026/21/`)
+2. Workbench → Run → pick the restaurant → pick a folder (sub-folders included) → confirm the date → Run
 3. Review, approve → exported, or posted to Xero as Awaiting Approval when connected
 
 ## Develop

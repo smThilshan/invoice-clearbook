@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm smoke-read seed import-master-data resume retry-document
+.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm smoke-read seed import-master-data resume retry-document add-client list-clients
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -46,6 +46,13 @@ resume: ## Re-queue documents stranded between pipeline steps (needs make worker
 retry-document: ## Send a FAILED document back to the start: make retry-document ID=<uuid>
 	@test -n "$(ID)" || { echo 'usage: make retry-document ID=<document uuid>'; exit 1; }
 	@$(UV) python scripts/pipeline_admin.py retry "$(ID)"
+
+add-client: ## Register a restaurant: make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX=/path
+	@test -n "$(ID)" -a -n "$(NAME)" -a -n "$(INBOX)" || { echo 'usage: make add-client ID=<id> NAME="<name>" INBOX=<folder>'; exit 1; }
+	@$(UV) python scripts/manage_clients.py add "$(ID)" "$(NAME)" "$(INBOX)" --base "$(CURDIR)"
+
+list-clients: ## List registered restaurants
+	@$(UV) python scripts/manage_clients.py list
 
 seed: ## Load the fictional F&B sample master data for the default client
 	@$(UV) python scripts/import_master_data.py $(CURDIR)/infra/samples/master_data

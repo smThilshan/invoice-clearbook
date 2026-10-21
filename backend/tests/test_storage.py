@@ -102,7 +102,6 @@ def test_relative_dirs_resolve_against_repo_root() -> None:
     settings = Settings(_env_file=None, store_dir="data/store")
 
     assert settings.store_dir == REPO_ROOT / "data/store"
-    assert settings.inbox_dir == REPO_ROOT / "data/inbox"
 
 
 # --- keys ---------------------------------------------------------------------------------

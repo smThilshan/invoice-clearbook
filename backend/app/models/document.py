@@ -34,8 +34,8 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
 
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("runs.id", ondelete="RESTRICT"))
     direction: Mapped[Direction] = mapped_column(str_enum(Direction, "direction"))
-    folder_date: Mapped[date]
-    source_path: Mapped[str] = mapped_column(Text)  # relative to the inbox
+    folder_date: Mapped[date | None]  # the run's folder date; null = none known
+    source_path: Mapped[str] = mapped_column(Text)  # relative to the client's inbox folder
     storage_key: Mapped[str] = mapped_column(Text)
     sha256: Mapped[str] = mapped_column(String(64))
     mime_type: Mapped[str] = mapped_column(String(100))

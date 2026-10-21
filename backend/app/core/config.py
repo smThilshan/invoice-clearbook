@@ -48,9 +48,8 @@ class Settings(BaseSettings):
     # limit, or a slow job would be handed to a second worker while the first still runs it.
     job_visibility_timeout_seconds: int = Field(default=3600, gt=0)
 
-    # Files: the accountants' inbox (read only) and our own store (via the Storage interface).
-    # Relative paths are resolved against the repo root.
-    inbox_dir: Path = Field(default=Path("data/inbox"), validate_default=True)
+    # Our own file store (via the Storage interface). Each client's inbox folder is on its
+    # client record (decision 25). Relative paths are resolved against the repo root.
     store_dir: Path = Field(default=Path("data/store"), validate_default=True)
     max_file_mb: int = Field(default=25, gt=0)  # larger files become FAILED documents
     # A file is ingested only if its size and mtime are unchanged over this interval, so a
@@ -109,7 +108,7 @@ class Settings(BaseSettings):
     def business_today(self) -> date:
         return datetime.now(ZoneInfo(self.business_timezone)).date()
 
-    @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
+    @field_validator("store_dir", "ocr_models_dir")
     @classmethod
     def _resolve_against_repo_root(cls, path: Path) -> Path:
         return path if path.is_absolute() else REPO_ROOT / path

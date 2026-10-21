@@ -1,16 +1,17 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus as S
 from app.main import create_app
-from app.models import Run
+from app.models import Run, RunStatus
 from app.services.runs import QUEUED, RunState, run_progress
-from tests.integration.factories import make_document, make_run
+from tests.integration.factories import make_client, make_document, make_run
 
 pytestmark = pytest.mark.integration
 
@@ -76,24 +77,26 @@ def test_file_processed_in_an_earlier_run_counts_as_settled(session: Session) ->
 
 
 @pytest.fixture
-def client(session: Session) -> Iterator[TestClient]:
-    settings = Settings(_env_file=None, app_env="test", default_client_id="test-client")
-    app = create_app(settings)
+def client(session: Session, tmp_path: Path) -> Iterator[TestClient]:
+    make_client(session, tmp_path / "Cafe Al Noor")
+    app = create_app(Settings(_env_file=None, app_env="test"))
     app.dependency_overrides[get_session] = lambda: session
-    app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as test_client:
         yield test_client
 
 
 def test_get_run_returns_progress_per_file(client: TestClient, session: Session) -> None:
     run = scanned(session, "inv 1.pdf", "inv 2.pdf")
+    run.folder = FOLDER
     doc(session, run, "inv 1.pdf", S.IN_REVIEW, page_count=2)
 
     response = client.get(f"/runs/{run.id}")
 
     assert response.status_code == 200
     body = response.json()
-    assert (body["folder"], body["date"], body["state"]) == ("Purchase", "2026-10-20", "processing")
+    assert (body["folder"], body["folder_date"], body["state"]) == (FOLDER, "2026-10-20",
+                                                                  "processing")  # fmt: skip
+    assert (body["status"], body["failure_reason"]) == ("RUNNING", None)
     assert (body["files_found"], body["counts"]) == (2, {"IN_REVIEW": 1, "QUEUED": 1})
     first, second = body["files"]
     assert (first["file"], first["status"], first["pages"]) == ("inv 1.pdf", "IN_REVIEW", 2)
@@ -121,3 +124,17 @@ def test_extracted_documents_are_still_in_progress(session: Session) -> None:
     doc(session, run, "a.pdf", S.EXTRACTED)  # verify has not run yet
 
     assert run_progress(session, run).state is RunState.PROCESSING
+
+
+def test_run_status_is_derived_from_its_files(session: Session) -> None:
+    run = scanned(session, "a.pdf")
+    doc(session, run, "a.pdf", S.READ)
+    assert run_progress(session, run).status is RunStatus.RUNNING
+
+    doc(session, scanned(session, "b.pdf"), "b.pdf", S.IN_REVIEW)  # another run, settled
+    finished = scanned(session, "c.pdf")
+    doc(session, finished, "c.pdf", S.IN_REVIEW)
+    assert run_progress(session, finished).status is RunStatus.COMPLETED
+
+    finished.status = RunStatus.FAILED  # e.g. the shared folder was unreachable
+    assert run_progress(session, finished).status is RunStatus.FAILED

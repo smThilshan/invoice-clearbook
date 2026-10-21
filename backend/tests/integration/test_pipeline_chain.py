@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.domain.enums import DocumentStatus as S
 from app.domain.state_machine import StaleStatusError
-from app.models import AuditLog, Document, Run
+from app.models import AuditLog, Document, Run, RunStatus
 from app.workers import tasks
 from app.workers.celery_app import celery_app
-from tests.integration.factories import make_run
+from tests.integration.factories import make_client, make_run
 from tests.integration.test_extract import FakeClient
 from tests.read_fixtures import digital_pdf
 from tests.test_read_pages import FakeOcr
@@ -29,7 +29,8 @@ def pipeline(session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     """Wire the tasks to the test session, a temp inbox/store and fakes; run jobs inline."""
     from app.adapters.storage.local import LocalStorage
 
-    settings = Settings(_env_file=None, inbox_dir=tmp_path / "inbox", stable_file_seconds=0)
+    settings = Settings(_env_file=None, stable_file_seconds=0)
+    make_client(session, tmp_path / "inbox")  # the restaurant's shared-drive folder
     storage = LocalStorage(tmp_path / "store")
     client = {"llm": FakeClient()}
 
@@ -51,8 +52,9 @@ def pipeline(session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 
 def drop_invoice(session: Session, tmp_path: Path) -> Run:
-    run = make_run(session)  # PURCHASE, 2026-10-20
-    folder = tmp_path / "inbox/Purchase/2026-10-20"
+    run = make_run(session)
+    run.folder = "October 2026/20"  # the folder the user picked
+    folder = tmp_path / "inbox/October 2026/20"
     folder.mkdir(parents=True)
     (folder / "inv.pdf").write_bytes(digital_pdf())
     return run
@@ -136,3 +138,15 @@ def test_superseded_step_stops_quietly(
 def test_enqueue_next_knows_what_each_status_needs(pipeline: Fakes) -> None:
     assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.IN_REVIEW)
     assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.FAILED)
+
+
+def test_unreachable_folder_fails_the_run_with_a_reason(
+    session: Session, tmp_path: Path, pipeline: Fakes
+) -> None:
+    run = make_run(session)
+    run.folder = "December 2030"  # removed, or the shared drive is not mounted
+
+    assert tasks.scan_run.delay(str(run.id)).get() == 0
+
+    assert (run.status, run.files) == (RunStatus.FAILED, [])
+    assert run.failure_reason is not None and "folder not found" in run.failure_reason

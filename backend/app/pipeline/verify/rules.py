@@ -45,7 +45,7 @@ _REQUIRED = {
 
 @dataclass(frozen=True, slots=True)
 class RuleContext:
-    folder_date: date  # date of the inbox folder the file came from
+    folder_date: date | None  # date of the folder the file came from; None = not known
     today: date
     page_text: str = ""  # all pages, from the Read step
     vat_tolerance_per_line: Decimal = CENT
@@ -54,7 +54,7 @@ class RuleContext:
 
     @classmethod
     def from_settings(
-        cls, settings: Settings, *, folder_date: date, today: date, page_text: str
+        cls, settings: Settings, *, folder_date: date | None, today: date, page_text: str
     ) -> "RuleContext":
         return cls(
             folder_date=folder_date,
@@ -247,26 +247,26 @@ def check_dates(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
 
 
 def check_period(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
-    issued = invoice.invoice_date
-    if issued is None:
-        return []
-    if issued > ctx.folder_date:
+    issued, folder = invoice.invoice_date, ctx.folder_date
+    if issued is None or folder is None:
+        return []  # no folder date (decision 25): nothing to compare with
+    if issued > folder:
         return [
             _warning(
                 "date_after_folder",
                 "invoice_date",
-                f"The document date {issued} is after the folder date {ctx.folder_date}: "
+                f"The document date {issued} is after the folder date {folder}: "
                 "misread date or wrong folder?",
             )
         ]
-    days = (ctx.folder_date - issued).days
+    days = (folder - issued).days
     if days > ctx.period_max_days_before:
         return [
             _warning(
                 "date_long_before_folder",
                 "invoice_date",
                 f"The document date {issued} is {days} days before the folder date "
-                f"{ctx.folder_date}: an old document or a misread year?",
+                f"{folder}: an old document or a misread year?",
             )
         ]
     return []

@@ -44,7 +44,7 @@ Goal: every document has codes and a clear status with reasons.
 - [x] **3.6 Coding** — vendor mapping → Qwen suggestion; store source + confidence per line
 - [x] **3.7 Type check** — model's type vs title-area content signals (purchase-side by default, decision 25); conflict → Exception; non-postables parked
 - [x] **3.8 Verify step** — run all above, set Ready / Check / Exception, move to `IN_REVIEW`
-- [ ] **3.9 Clients & folder selection** (decision 25) — `clients` table (name, shared-drive inbox folder, accounting provider); `POST /runs {client, folder}` for any folder inside the client's folder (sub-folders included, path kept inside it); `GET /clients/{id}/folders` for the picker; folder date read from the folder name when possible, else none (`folder_date` nullable); replaces the fixed `Purchase/<date>` layout
+- [x] **3.9 Clients & folder selection** (decision 25) — `clients` table (name, shared-drive inbox folder, accounting provider); `POST /runs {client, folder}` for any folder inside the client's folder (sub-folders included, path kept inside it); `GET /clients/{id}/folders` for the picker; folder date read from the folder name when possible, else none (`folder_date` nullable); replaces the fixed `Purchase/<date>` layout
 
 Done when: every extracted document has issues, codes and a queue category.
 
