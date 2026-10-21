@@ -25,8 +25,11 @@ runs standalone and Xero, Zoho Books or others plug in per client without touchi
 | PDF, scanned and photo documents | Peppol e-invoices (later lane) |
 
 ## 3. Workflow (accountant's view)
-1. **Sort**: files go into typed date folders: `Purchase/2026-10-20/`, `Sales/2026-10-20/`, `Unsorted/2026-10-20/`.
-2. **Run**: in the Workbench, pick folder + date, click Run.
+1. **Capture**: each restaurant (= client) has its own folder on Missan's shared drive, organised the
+   way the accountants already work (e.g. a folder per month with a folder per day). Almost
+   everything is purchase-side; no sorting by type is needed (decision 25).
+2. **Run**: in the Workbench, pick the restaurant, pick a folder inside it (sub-folders included),
+   click Run.
 3. **Review**: Ready / Check / Exception queues; fix flagged fields; approve or reject.
 4. **Done**: approved data posts to the accounting system (or is exported).
 
@@ -35,7 +38,7 @@ Each file is one job. Each step saves its result and sets a status.
 
 | # | Step | What happens | Status | Scope |
 |---|---|---|---|---|
-| 1 | Run | List new files in the chosen folder/date; skip already-seen | — | MVP |
+| 1 | Run | List new files in the chosen client folder and its sub-folders; skip already-seen | — | MVP |
 | 2 | Ingest | Stable-file check, type/size check, SHA-256 hash (dup check 1), copy via `Storage`, DB row with direction + period | `CAPTURED` | MVP (ClamAV LATER) |
 | 3 | Read | Digital PDF → PyMuPDF text layer. Scan/photo → OpenCV cleanup + PaddleOCR (text + word boxes). Page images saved | `READ` | MVP (multi-invoice split + content fingerprint LATER) |
 | 4 | Extract | Qwen3-VL-4B gets page image(s) + OCR text + prompt + JSON schema → canonical `Invoice`, temperature 0 | `EXTRACTED` | MVP |
@@ -74,7 +77,7 @@ create the entries. Each adapter maps canonical types to its own objects; the Xe
 | `SALES_INVOICE` | Customer owes Missan (made outside the accounting system) | Invoice `ACCREC` | LATER |
 | `NON_POSTABLE` | Quote, PO, proforma, statement, delivery note, remittance | Not posted; archived | MVP (detect + park) |
 
-Type decision: the folder declares direction/type; content signals confirm (English + Arabic titles, reference to an original invoice, paid marks). Disagreement → Exception, never silent posting.
+Type decision: documents are purchase-side by default (decision 25); the model's type is confirmed by content signals in the title area (English + Arabic titles, reference to an original invoice, paid marks). Disagreement → Exception, never silent posting.
 Provider type codes (e.g. Xero's `ACCPAY`) exist ONLY in `adapters/accounting/<provider>/`.
 
 ## 7. Canonical schema (`app/domain/invoice.py`)
@@ -125,7 +128,7 @@ Deterministic Python only. The system flags; it never silently fixes. Errors blo
 | VAT | 5% standard, or valid zero/exempt/reverse-charge case | Error or warning |
 | TRN | 15 digits; matches the vendor contact's TRN in master data if known | Error or warning |
 | Dates | Not in the future; due ≥ invoice date | Error |
-| Period | Invoice date near folder date; not in the accounting system's locked period (when known) | Warning / error |
+| Period | Invoice date near the folder date (read from the folder name when it holds one, confirmed on the Run screen); not in the accounting system's locked period (when known) | Warning / error |
 | Codes | Account + tax codes exist and are active in master data; bills use expense/asset accounts only | Error |
 | Credit notes | Original exists; credit ≤ original | Error |
 | Vendor | Match master-data contact by TRN, then pg_trgm fuzzy name | Warning if new |
@@ -166,7 +169,7 @@ Different vendors may share numbers (vendor in key); credit note may share numbe
 - Side-by-side review: original on the left (zoom, pages), extracted form on the right; flagged fields yellow with reason; click field → highlight source (word boxes from OCR).
 - Dropdowns of the client's real account/tax codes with source hint; live total recalculation.
 - Approve / Reject (reject reasons pick-list); corrections captured at edit time.
-- Run screen: pick folder + date, click Run, see progress.
+- Run screen: pick restaurant, browse and pick a folder, confirm the date read from it, click Run, see progress.
 
 **[LATER]** quick-confirm grid with enforced spot-checks; keyboard shortcuts (Enter, R, Tab, J/K); preload next; four-eyes queue; record locking; create vendor in the accounting system from Workbench; duplicate side-by-side compare.
 
