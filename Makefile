@@ -34,8 +34,8 @@ migration: ## New migration from model changes: make migration m="add foo"
 api: ## Run FastAPI on 127.0.0.1:8000 (reload)
 	$(UV) uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
 
-worker: ## Run a Celery worker on both queues (needs make up). Solo pool: prefork fails on macOS
-	$(UV) celery -A app.workers.celery_app worker -Q pipeline,posting --pool=solo --loglevel=INFO
+worker: ## Run a Celery worker on all queues, quick jobs first (needs make up). Solo pool: prefork fails on macOS
+	$(UV) celery -A app.workers.celery_app worker -Q pipeline,posting,extract --pool=solo --loglevel=INFO
 
 WEB := npm --prefix workbench
 

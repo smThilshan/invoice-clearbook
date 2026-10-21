@@ -75,6 +75,23 @@ def test_user_can_confirm_there_is_no_folder_date(client: TestClient) -> None:
     assert start(client, folder="October 2026/21", folder_date=None)["folder_date"] is None
 
 
+def test_folder_names_without_a_year_get_the_most_recent_date(
+    client: TestClient, tmp_path: Path
+) -> None:
+    from app.core.config import get_settings
+
+    class FixedDay(Settings):
+        def business_today(self) -> date:
+            return date(2026, 10, 21)
+
+    (tmp_path / "Cafe Al Noor" / "May" / "May 1").mkdir(parents=True)
+    client.app.dependency_overrides[get_settings] = lambda: FixedDay(_env_file=None)  # type: ignore[attr-defined]
+
+    assert start(client, folder="May/May 1")["folder_date"] == "2026-05-01"
+    listing = client.get(f"/clients/{CLIENT}/folders", params={"path": "May"}).json()
+    assert listing["folders"] == [{"name": "May 1", "path": "May/May 1", "date": "2026-05-01"}]
+
+
 def test_whole_client_folder_can_be_run(client: TestClient) -> None:
     assert start(client)["folder"] == ""
 

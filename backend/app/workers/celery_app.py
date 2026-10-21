@@ -8,6 +8,10 @@ or run twice in parallel:
 - visibility timeout > time limit (enforced in Settings): Redis never re-delivers a job that
   is still running.
 - no result backend: document status lives in Postgres, the single source of truth.
+- queue order (decision 31): a worker always takes a waiting quick job (read, verify, posting)
+  before the next model extraction, which waits in its own queue. So each document reaches
+  review as soon as its extraction is done, not after the whole run. In production the
+  extract queue can have its own workers, sized to the model server.
 
 Pool: Linux (production) uses the default prefork pool, which enforces the hard time limit.
 macOS dev uses `--pool=solo` (see Makefile): prefork children start without Celery's
@@ -24,8 +28,11 @@ from kombu import Exchange, Queue
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 
-PIPELINE_QUEUE = "pipeline"  # ingest, read, extract, verify
+PIPELINE_QUEUE = "pipeline"  # quick steps: scan, ingest, read, verify
 POSTING_QUEUE = "posting"  # accounting-system calls; never delayed by slow model work
+EXTRACT_QUEUE = "extract"  # model extraction: minutes per document on CPU
+# Workers take from the first non-empty queue in this order (Redis "priority" strategy).
+QUEUE_ORDER = (PIPELINE_QUEUE, POSTING_QUEUE, EXTRACT_QUEUE)
 
 
 def _queue(name: str) -> Queue:
@@ -38,14 +45,20 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
     settings = settings or get_settings()
     app = Celery("clearbook", broker=settings.redis_url, include=["app.workers.tasks"])
     app.conf.update(
-        task_queues=(_queue(PIPELINE_QUEUE), _queue(POSTING_QUEUE)),
+        task_queues=tuple(_queue(name) for name in QUEUE_ORDER),
         task_default_queue=PIPELINE_QUEUE,
-        task_routes={"posting.*": {"queue": POSTING_QUEUE}},
+        task_routes={
+            "posting.*": {"queue": POSTING_QUEUE},
+            "pipeline.extract_document": {"queue": EXTRACT_QUEUE},
+        },
         task_acks_late=True,
         task_reject_on_worker_lost=True,
         worker_prefetch_multiplier=1,
         task_time_limit=settings.job_time_limit_seconds,
-        broker_transport_options={"visibility_timeout": settings.job_visibility_timeout_seconds},
+        broker_transport_options={
+            "visibility_timeout": settings.job_visibility_timeout_seconds,
+            "queue_order_strategy": "priority",  # always QUEUE_ORDER, never round robin
+        },
         task_ignore_result=True,
         task_serializer="json",
         accept_content=["json"],

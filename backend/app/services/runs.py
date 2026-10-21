@@ -82,12 +82,14 @@ def start_run(
     client: Client,
     folder: str = "",
     folder_date: date | Literal["from_folder"] | None = FROM_FOLDER,
+    today: date,
     created_by: str | None = None,
 ) -> Run:
     """Create the run row for `folder` (relative to the client's folder; "" = all of it).
     The date is the user's (None: they confirmed there is none), by default read from the
-    folder name. The caller commits, then enqueues the scan (never before: the worker could
-    start before the row is visible)."""
+    folder name (a name without a year: the most recent such date up to `today`). The caller
+    commits, then enqueues the scan (never before: the worker could start before the row is
+    visible)."""
     root = client_root(client)
     path = resolve_inside(root, folder)
     if not path.is_dir():
@@ -97,7 +99,11 @@ def start_run(
         client_id=client.client_id,
         folder=relative,
         direction=Direction.PURCHASE,  # purchase-side by default (decision 25)
-        folder_date=folder_date_from_path(relative) if folder_date == FROM_FOLDER else folder_date,
+        folder_date=(
+            folder_date_from_path(relative, today=today)
+            if folder_date == FROM_FOLDER
+            else folder_date
+        ),
         created_by=created_by,
     )
     session.add(run)

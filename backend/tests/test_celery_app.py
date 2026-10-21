@@ -3,7 +3,12 @@ from celery import Celery
 from pydantic import ValidationError
 
 from app.core.config import Settings
-from app.workers.celery_app import PIPELINE_QUEUE, POSTING_QUEUE, create_celery_app
+from app.workers.celery_app import (
+    EXTRACT_QUEUE,
+    PIPELINE_QUEUE,
+    POSTING_QUEUE,
+    create_celery_app,
+)
 from app.workers.tasks import ping
 
 
@@ -15,11 +20,14 @@ def test_queues_and_routing() -> None:
     app = make_app()
     router = app.amqp.router
 
-    assert {q.name for q in app.conf.task_queues} == {PIPELINE_QUEUE, POSTING_QUEUE}
+    # quick jobs first, model extraction last (decision 31)
+    assert [q.name for q in app.conf.task_queues] == [PIPELINE_QUEUE, POSTING_QUEUE, EXTRACT_QUEUE]
     for queue in app.conf.task_queues:  # each queue on its own exchange, never shared
         assert (queue.exchange.name, queue.routing_key) == (queue.name, queue.name)
     assert router.route({}, "posting.create_bill")["queue"].name == POSTING_QUEUE
-    assert router.route({}, "pipeline.extract")["queue"].name == PIPELINE_QUEUE
+    assert router.route({}, "pipeline.extract_document")["queue"].name == EXTRACT_QUEUE
+    assert router.route({}, "pipeline.read_document")["queue"].name == PIPELINE_QUEUE
+    assert router.route({}, "pipeline.verify_document")["queue"].name == PIPELINE_QUEUE
     assert router.route({}, "system.ping")["queue"].name == PIPELINE_QUEUE
 
 
@@ -31,7 +39,10 @@ def test_reliability_settings() -> None:
     assert conf.worker_prefetch_multiplier == 1
     assert conf.task_ignore_result is True
     assert conf.task_time_limit == 900
-    assert conf.broker_transport_options == {"visibility_timeout": 1200}
+    assert conf.broker_transport_options == {
+        "visibility_timeout": 1200,
+        "queue_order_strategy": "priority",
+    }
     assert conf.accept_content == ["json"]
 
 
@@ -52,3 +63,11 @@ def test_visibility_timeout_must_exceed_time_limit(visibility: int) -> None:
 def test_ping_task_runs() -> None:
     assert ping.name == "system.ping"
     assert ping.apply().get() == "pong"
+
+
+def test_worker_command_listens_in_queue_order() -> None:
+    from pathlib import Path
+
+    makefile = (Path(__file__).resolve().parents[2] / "Makefile").read_text()
+
+    assert "-Q pipeline,posting,extract " in makefile

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.manual import ManualAccountingSystem
+from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountClass, AccountingProvider, TaxType
 from app.models import Client
@@ -84,6 +85,7 @@ def get_clients(session: Annotated[Session, Depends(get_session)]) -> list[Clien
 def get_folders(
     client_id: str,
     session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     path: Annotated[str, Query(description="Folder inside the client's folder")] = "",
 ) -> FolderListing:
     client = _found(session, client_id)
@@ -92,10 +94,11 @@ def get_folders(
     except InboxError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     base = path.strip("/")
+    today = settings.business_today()
     folders = []
     for name in names:
         relative = f"{base}/{name}" if base else name
-        found = folder_date_from_path(relative)
+        found = folder_date_from_path(relative, today=today)
         folders.append(Folder(name=name, path=relative, date=found.isoformat() if found else None))
     return FolderListing(path=base, folders=folders)
 

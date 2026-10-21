@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import DocumentType
 from app.models import Run, RunStatus
@@ -74,6 +75,7 @@ def get_enqueue_scan() -> Callable[[str], object]:
 def create_run(
     body: RunCreate,
     session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     enqueue_scan: Annotated[Callable[[str], object], Depends(get_enqueue_scan)],
 ) -> RunAccepted:
     client = get_client(session, body.client_id)
@@ -81,7 +83,8 @@ def create_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     try:
         folder_date = body.folder_date if "folder_date" in body.model_fields_set else FROM_FOLDER
-        run = start_run(session, client=client, folder=body.folder, folder_date=folder_date)
+        run = start_run(session, client=client, folder=body.folder, folder_date=folder_date,
+                        today=settings.business_today())  # fmt: skip
         session.commit()
     except InboxError as exc:
         session.rollback()

@@ -117,6 +117,8 @@ def test_unreadable_folder_is_an_inbox_error(tmp_path: Path) -> None:
 
 # --- folder dates (decision 25) -------------------------------------------------------------
 
+TODAY = date(2026, 10, 21)
+
 
 @pytest.mark.parametrize(
     ("relative", "expected"),
@@ -135,9 +137,44 @@ def test_unreadable_folder_is_an_inbox_error(tmp_path: Path) -> None:
     ],
 )
 def test_folder_date_from_path(relative: str, expected: date) -> None:
-    assert folder_date_from_path(relative) == expected
+    assert folder_date_from_path(relative, today=TODAY) == expected
 
 
-@pytest.mark.parametrize("relative", ["", "Bills", "Supplier invoices/Misc", "02-09-2026"])
+@pytest.mark.parametrize(
+    "relative",
+    ["", "Bills", "Supplier invoices/Misc", "02-09-2026", "Marketing", "Marketing 2026",
+     "Mayfair/Invoices", "June 31"],
+)  # fmt: skip
 def test_no_or_ambiguous_date_in_the_name_is_none(relative: str) -> None:
-    assert folder_date_from_path(relative) is None  # 02-09-2026: 2 Sep or 9 Feb? never guessed
+    # 02-09-2026: 2 Sep or 9 Feb? never guessed. "Marketing" is not March.
+    assert folder_date_from_path(relative, today=TODAY) is None
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        ("May/May 1", date(2026, 5, 1)),  # ROAST: month folder, day folders, no year
+        ("May/1", date(2026, 5, 1)),
+        ("May", date(2026, 5, 31)),
+        ("May 1", date(2026, 5, 1)),
+        ("1 May", date(2026, 5, 1)),
+        ("May-01", date(2026, 5, 1)),
+        ("May 1st", date(2026, 5, 1)),
+        ("september/sept 3", date(2026, 9, 3)),
+        ("October", date(2026, 10, 31)),  # this month: its end, like "October 2026"
+        ("December/December 30", date(2025, 12, 30)),  # not reached yet this year: last year's
+        ("November", date(2025, 11, 30)),
+        ("May 2025/May 1", date(2025, 5, 1)),  # a year on the month folder wins
+    ],
+)
+def test_folder_names_without_a_year_take_the_most_recent_one(
+    relative: str, expected: date
+) -> None:
+    assert folder_date_from_path(relative, today=TODAY) == expected
+
+
+def test_most_recent_year_turns_over_at_new_year() -> None:
+    assert folder_date_from_path("December/December 30", today=date(2027, 1, 3)) == date(
+        2026, 12, 30
+    )
+    assert folder_date_from_path("January/January 2", today=date(2027, 1, 3)) == date(2027, 1, 2)

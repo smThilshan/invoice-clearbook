@@ -1,7 +1,8 @@
 """Celery tasks. Thin: they call pipeline/services and are safe to re-run.
 
 Names are explicit ("<area>.<action>") so they stay stable when code moves; "posting.*" tasks
-are routed to the posting queue, everything else to the pipeline queue. Arguments are plain
+are routed to the posting queue, model extraction to the extract queue (taken last, decision
+31), everything else to the pipeline queue. Arguments are plain
 strings (JSON). Jobs are enqueued only after the transaction that created their rows commits.
 
 Chain: scan_run -> ingest_file -> read_document -> extract_document -> verify_document
