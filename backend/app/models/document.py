@@ -56,6 +56,9 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
     # Per line: suggested account/tax code with its source and confidence (task 3.6). The
     # codes themselves are in `invoice.lines`; this says where they came from.
     coding: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    # Invoice fields the accountant typed or confirmed (decision 24): human-verified, so no
+    # longer grounded against the page text.
+    verified_fields: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     vendor_key: Mapped[str | None] = mapped_column(String(255))
     business_key: Mapped[str | None] = mapped_column(String(255))
     # The known supplier (master data) this document was matched to; null = new or unmatched.

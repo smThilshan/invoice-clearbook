@@ -159,3 +159,13 @@ def test_non_postable_documents_are_not_grounded() -> None:
     quote = Invoice(document_type=DocumentType.NON_POSTABLE, total=Decimal("1.00"))
 
     assert check_grounding(quote, [page()]) == []
+
+
+def test_human_verified_fields_are_not_grounded() -> None:
+    typed = invoice(total=Decimal("1060.00"), invoice_number="INV-00292")
+
+    assert fields(typed) == {"total", "invoice_number"}
+    assert check_grounding(typed, [page()], verified={"total", "invoice_number"}) == []
+    assert {i.field for i in check_grounding(typed, [page()], verified={"total"})} == {
+        "invoice_number"
+    }

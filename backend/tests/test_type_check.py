@@ -114,3 +114,18 @@ def test_receipt_without_any_payment_may_be_a_bill() -> None:
 
 def test_shop_slip_titled_tax_invoice_with_cash_payment_is_a_fine_receipt() -> None:
     assert check(T.RECEIPT, "TAX INVOICE", "Total 90.00 CASH 100.00 CHANGE 10.00") == (set(), False)
+
+
+@pytest.mark.parametrize(("model", "park"), [(T.BILL, False), (T.NON_POSTABLE, True)])
+def test_type_confirmed_in_review_is_not_questioned_by_the_title(model: T, park: bool) -> None:
+    title = "QUOTATION" if model is T.BILL else "TAX INVOICE"
+    result = check_document_type(Invoice(document_type=model), [page(title)], confirmed=True)
+
+    assert (result.issues, result.park) == ([], park)
+
+
+def test_confirmed_out_of_scope_type_is_still_an_error() -> None:
+    result = check_document_type(Invoice(document_type=T.SALES_INVOICE), [page("INVOICE")],
+                                 confirmed=True)  # fmt: skip
+
+    assert [issue.code for issue in result.issues] == ["type_out_of_scope"]

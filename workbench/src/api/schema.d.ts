@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{client_id}/coding-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Coding Options */
+        get: operations["get_coding_options_clients__client_id__coding_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{client_id}/folders": {
         parameters: {
             query?: never;
@@ -32,6 +49,122 @@ export interface paths {
         get: operations["get_folders_clients__client_id__folders_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/master-data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Master Data
+         * @description Import any of the three CSVs (template: infra/samples/master_data/). All or nothing:
+         *     422 lists every problem and changes nothing. Re-uploading is safe.
+         */
+        post: operations["upload_master_data_clients__client_id__master_data_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Queue
+         * @description Exception first, then Check, then Ready; oldest first inside each.
+         */
+        get: operations["get_queue_documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document */
+        get: operations["get_document_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Document
+         * @description Save the corrected invoice; every check runs again (no model call).
+         */
+        patch: operations["update_document_documents__document_id__patch"];
+        trace?: never;
+    };
+    "/documents/{document_id}/pages/{page}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Page Image */
+        get: operations["get_page_image_documents__document_id__pages__page__image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{document_id}/pages/{page}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Page Text
+         * @description Text spans with their boxes, for highlighting a value on the page image.
+         */
+        get: operations["get_page_text_documents__document_id__pages__page__text_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{document_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Document */
+        post: operations["reject_document_documents__document_id__reject_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -120,6 +253,35 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccountClass
+         * @description Top-level ledger account class; every accounting system maps its account types to one.
+         * @enum {string}
+         */
+        AccountClass: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE";
+        /** AccountOption */
+        AccountOption: {
+            account_class: components["schemas"]["AccountClass"];
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * AmountType
+         * @description Whether line amounts include VAT.
+         * @enum {string}
+         */
+        AmountType: "INCLUSIVE" | "EXCLUSIVE" | "NO_TAX";
+        /** Body_upload_master_data_clients__client_id__master_data_post */
+        Body_upload_master_data_clients__client_id__master_data_post: {
+            /** Contacts */
+            contacts?: string | null;
+            /** Ledger Accounts */
+            ledger_accounts?: string | null;
+            /** Tax Rates */
+            tax_rates?: string | null;
+        };
         /** ClientOut */
         ClientOut: {
             /** Client Id */
@@ -128,10 +290,140 @@ export interface components {
             name: string;
         };
         /**
+         * CodingOptions
+         * @description What the review form may choose from: built from the client's active master data
+         *     (rule 14), purchase accounts only.
+         */
+        CodingOptions: {
+            /** Accounts */
+            accounts: components["schemas"]["AccountOption"][];
+            /** Tax Types */
+            tax_types: components["schemas"]["TaxOption"][];
+        };
+        /** DocumentDetail */
+        DocumentDetail: {
+            /** Client Id */
+            client_id: string;
+            /** Coding */
+            coding: {
+                [key: string]: unknown;
+            }[];
+            /** Contact Id */
+            contact_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string | null;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            document_type: components["schemas"]["DocumentType"] | null;
+            /** Errors */
+            errors: number;
+            /** Failure Reason */
+            failure_reason: string | null;
+            /** File */
+            file: string;
+            /** Folder Date */
+            folder_date: string | null;
+            invoice: components["schemas"]["Invoice-Output"] | null;
+            /** Invoice Date */
+            invoice_date: string | null;
+            /** Invoice Number */
+            invoice_number: string | null;
+            /** Issues */
+            issues: components["schemas"]["IssueOut"][];
+            /** Mime Type */
+            mime_type: string;
+            /** Page Count */
+            page_count: number | null;
+            queue: components["schemas"]["QueueCategory"] | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Source Path */
+            source_path: string;
+            status: components["schemas"]["DocumentStatus"];
+            /** Total */
+            total: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Vendor Name */
+            vendor_name: string | null;
+            /** Verified Fields */
+            verified_fields: string[];
+            /** Warnings */
+            warnings: number;
+        };
+        /**
+         * DocumentStatus
+         * @description Lifecycle of a document. Moves only through `state_machine`.
+         * @enum {string}
+         */
+        DocumentStatus: "CAPTURED" | "READ" | "EXTRACTED" | "VERIFIED" | "IN_REVIEW" | "APPROVED" | "POSTING" | "POSTED" | "SYNCED" | "REJECTED" | "POST_ERROR" | "VOIDED" | "DUPLICATE" | "NON_POSTABLE" | "FAILED";
+        /** DocumentSummary */
+        DocumentSummary: {
+            /** Client Id */
+            client_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string | null;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            document_type: components["schemas"]["DocumentType"] | null;
+            /** Errors */
+            errors: number;
+            /** File */
+            file: string;
+            /** Invoice Date */
+            invoice_date: string | null;
+            /** Invoice Number */
+            invoice_number: string | null;
+            queue: components["schemas"]["QueueCategory"] | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            status: components["schemas"]["DocumentStatus"];
+            /** Total */
+            total: string | null;
+            /** Vendor Name */
+            vendor_name: string | null;
+            /** Warnings */
+            warnings: number;
+        };
+        /**
          * DocumentType
          * @enum {string}
          */
         DocumentType: "BILL" | "CREDIT_NOTE" | "DEBIT_NOTE" | "RECEIPT" | "SALES_INVOICE" | "NON_POSTABLE";
+        /** DocumentUpdate */
+        DocumentUpdate: {
+            /**
+             * Confirmed
+             * @description Fields checked against the original and left as they are
+             */
+            confirmed?: string[];
+            invoice: components["schemas"]["Invoice-Input"];
+        };
         /** FileStatus */
         FileStatus: {
             /** Document Id */
@@ -169,6 +461,161 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** ImportCounts */
+        ImportCounts: {
+            /** Created */
+            created: number;
+            /** Unchanged */
+            unchanged: number;
+            /** Updated */
+            updated: number;
+        };
+        /** Invoice */
+        "Invoice-Input": {
+            amount_type?: components["schemas"]["AmountType"] | null;
+            /**
+             * Currency
+             * @description ISO 4217 code, e.g. AED.
+             */
+            currency?: string | null;
+            document_type: components["schemas"]["DocumentType"];
+            /** Due Date */
+            due_date?: string | null;
+            /**
+             * Evidence
+             * @description Field name -> exact source text the value was read from.
+             */
+            evidence?: {
+                [key: string]: string;
+            };
+            /** Invoice Date */
+            invoice_date?: string | null;
+            /**
+             * Invoice Number
+             * @description As printed on the document. Null if the document has none.
+             */
+            invoice_number?: string | null;
+            /** Lines */
+            lines?: components["schemas"]["Line-Input"][];
+            /**
+             * Original Invoice Ref
+             * @description Credit/debit notes: number of the invoice being adjusted.
+             */
+            original_invoice_ref?: string | null;
+            /** Po Number */
+            po_number?: string | null;
+            /** Recipient Name */
+            recipient_name?: string | null;
+            /** Recipient Trn */
+            recipient_trn?: string | null;
+            /** Subtotal */
+            subtotal?: number | string | null;
+            /** Total */
+            total?: number | string | null;
+            /** Vat */
+            vat?: number | string | null;
+            /** Vendor Name */
+            vendor_name?: string | null;
+            /** Vendor Trn */
+            vendor_trn?: string | null;
+        };
+        /** Invoice */
+        "Invoice-Output": {
+            amount_type?: components["schemas"]["AmountType"] | null;
+            /**
+             * Currency
+             * @description ISO 4217 code, e.g. AED.
+             */
+            currency?: string | null;
+            document_type: components["schemas"]["DocumentType"];
+            /** Due Date */
+            due_date?: string | null;
+            /**
+             * Evidence
+             * @description Field name -> exact source text the value was read from.
+             */
+            evidence?: {
+                [key: string]: string;
+            };
+            /** Invoice Date */
+            invoice_date?: string | null;
+            /**
+             * Invoice Number
+             * @description As printed on the document. Null if the document has none.
+             */
+            invoice_number?: string | null;
+            /** Lines */
+            lines?: components["schemas"]["Line-Output"][];
+            /**
+             * Original Invoice Ref
+             * @description Credit/debit notes: number of the invoice being adjusted.
+             */
+            original_invoice_ref?: string | null;
+            /** Po Number */
+            po_number?: string | null;
+            /** Recipient Name */
+            recipient_name?: string | null;
+            /** Recipient Trn */
+            recipient_trn?: string | null;
+            /** Subtotal */
+            subtotal?: string | null;
+            /** Total */
+            total?: string | null;
+            /** Vat */
+            vat?: string | null;
+            /** Vendor Name */
+            vendor_name?: string | null;
+            /** Vendor Trn */
+            vendor_trn?: string | null;
+        };
+        /** IssueOut */
+        IssueOut: {
+            /** Code */
+            code: string;
+            /** Field */
+            field: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "ERROR" | "WARNING";
+        };
+        /** Line */
+        "Line-Input": {
+            /**
+             * Account Code
+             * @description Limited at runtime to the client's active accounts.
+             */
+            account_code?: string | null;
+            /** Amount */
+            amount: number | string;
+            /** Description */
+            description?: string | null;
+            /** Qty */
+            qty?: number | string | null;
+            tax_type?: components["schemas"]["TaxType"] | null;
+            /** Unit Price */
+            unit_price?: number | string | null;
+        };
+        /** Line */
+        "Line-Output": {
+            /**
+             * Account Code
+             * @description Limited at runtime to the client's active accounts.
+             */
+            account_code?: string | null;
+            /** Amount */
+            amount: string;
+            /** Description */
+            description?: string | null;
+            /** Qty */
+            qty?: string | null;
+            tax_type?: components["schemas"]["TaxType"] | null;
+            /** Unit Price */
+            unit_price?: string | null;
+        };
         /** Liveness */
         Liveness: {
             /**
@@ -179,11 +626,53 @@ export interface components {
             status: "ok";
         };
         /**
+         * MasterDataImportOut
+         * @description Per table; None = that file was not uploaded.
+         */
+        MasterDataImportOut: {
+            accounts: components["schemas"]["ImportCounts"] | null;
+            contacts: components["schemas"]["ImportCounts"] | null;
+            tax_rates: components["schemas"]["ImportCounts"] | null;
+        };
+        /**
          * ModelStatus
          * @description Is the configured model ready to extract? (decision 2: Instruct, with vision)
          * @enum {string}
          */
         ModelStatus: "ok" | "unreachable" | "missing" | "incompatible";
+        /** PageTextOut */
+        PageTextOut: {
+            /** Height */
+            height: number;
+            /** Page */
+            page: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "text_layer" | "ocr";
+            /** Spans */
+            spans: components["schemas"]["Span"][];
+            /** Width */
+            width: number;
+        };
+        /**
+         * QueueCategory
+         * @description Verification result shown in the Workbench.
+         * @enum {string}
+         */
+        QueueCategory: "READY" | "CHECK" | "EXCEPTION";
+        /** QueuePageOut */
+        QueuePageOut: {
+            /** Documents */
+            documents: components["schemas"]["DocumentSummary"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** Readiness */
         Readiness: {
             /**
@@ -203,6 +692,17 @@ export interface components {
              */
             status: "ok" | "unavailable";
         };
+        /** RejectBody */
+        RejectBody: {
+            /** Note */
+            note?: string | null;
+            reason: components["schemas"]["RejectReason"];
+        };
+        /**
+         * RejectReason
+         * @enum {string}
+         */
+        RejectReason: "DUPLICATE" | "ALREADY_RECORDED" | "WRONG_RESTAURANT" | "UNREADABLE" | "OTHER";
         /** RunAccepted */
         RunAccepted: {
             /** Folder */
@@ -273,6 +773,31 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "RUNNING" | "COMPLETED" | "FAILED";
+        /** Span */
+        Span: {
+            /** Box */
+            box: [
+                number,
+                number,
+                number,
+                number
+            ];
+            /** Confidence */
+            confidence: number | null;
+            /** Text */
+            text: string;
+        };
+        /** TaxOption */
+        TaxOption: {
+            /** Code */
+            code: string;
+            tax_type: components["schemas"]["TaxType"];
+        };
+        /**
+         * TaxType
+         * @enum {string}
+         */
+        TaxType: "STANDARD_5" | "ZERO" | "EXEMPT" | "REVERSE_CHARGE" | "NONE";
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -315,6 +840,37 @@ export interface operations {
             };
         };
     };
+    get_coding_options_clients__client_id__coding_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodingOptions"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_folders_clients__client_id__folders_get: {
         parameters: {
             query?: {
@@ -336,6 +892,242 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FolderListing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_master_data_clients__client_id__master_data_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_master_data_clients__client_id__master_data_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MasterDataImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_queue_documents_get: {
+        parameters: {
+            query: {
+                client_id: string;
+                queue?: components["schemas"]["QueueCategory"] | null;
+                run_id?: string | null;
+                status?: components["schemas"]["DocumentStatus"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuePageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_document_documents__document_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_page_image_documents__document_id__pages__page__image_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                page: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_page_text_documents__document_id__pages__page__text_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                page: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageTextOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_document_documents__document_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
                 };
             };
             /** @description Validation Error */

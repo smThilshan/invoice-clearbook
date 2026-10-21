@@ -75,8 +75,14 @@ def title_signals(pages: Sequence[PageText]) -> set[DocumentType]:
     return {kind for kind, pattern in _TITLES if pattern.search(title)}
 
 
-def check_document_type(invoice: Invoice, pages: Sequence[PageText]) -> TypeCheck:
+def check_document_type(
+    invoice: Invoice, pages: Sequence[PageText], *, confirmed: bool = False
+) -> TypeCheck:
+    """`confirmed`: the accountant chose the type in review (decision 24). Title signals no
+    longer question it, but a type we do not post yet is still reported."""
     model = invoice.document_type
+    if confirmed and model not in _OUT_OF_SCOPE:
+        return TypeCheck([], park=model is DocumentType.NON_POSTABLE)
     titles = title_signals(pages)
     named = _strongest(titles)
 

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
-from app.api import clients, health, runs
+from app.api import clients, documents, health, runs
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging
@@ -34,4 +34,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(runs.router)
     app.include_router(clients.router)
+    app.include_router(documents.router)
     return app

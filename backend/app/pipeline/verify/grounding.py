@@ -10,11 +10,11 @@ gets no such tolerance.
 
 A value not found is an error (architecture §8), except the due date (often printed as terms
 like "Net 30"): a warning. In review, a value the accountant confirms or types counts as
-human-verified and is no longer grounded (Phase 4).
+human-verified (decision 24) and is no longer grounded: pass it in `verified`.
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -61,16 +61,19 @@ class _Witness:
     raw: str
 
 
-def check_grounding(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
+def check_grounding(
+    invoice: Invoice, pages: Sequence[PageText], *, verified: Collection[str] = ()
+) -> list[Issue]:
     if invoice.document_type is DocumentType.NON_POSTABLE:
         return []  # parked, never posted (same as the validation rules)
     witness = _witness(pages)
-    return [
+    issues = [
         *_amounts(invoice, witness),
         *_dates(invoice, witness),
         *_number(invoice, witness),
         *_trn(invoice, witness),
     ]
+    return [issue for issue in issues if issue.field not in verified]
 
 
 def _witness(pages: Sequence[PageText]) -> _Witness:

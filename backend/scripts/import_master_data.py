@@ -4,7 +4,7 @@
     make import-master-data DIR=path [CLIENT=id]      # your own files
 
 Whichever of the three files exist are imported, all-or-nothing, and re-running is safe.
-The HTTP endpoint arrives with the Workbench, behind login (task 4.2).
+The same import over HTTP: POST /clients/{id}/master-data (task 4.2).
 """
 
 import argparse

@@ -52,7 +52,7 @@ Done when: every extracted document has issues, codes and a queue category.
 Goal: an accountant reviews and approves without touching the DB.
 
 - [x] **4.1 Workbench skeleton** — Vite + React + TS (strict), shadcn/ui (Tailwind + Radix), routing, typed API client generated from the backend's OpenAPI, TanStack Query, basic layout, system status; no login yet (decision 26)
-- [ ] **4.2 Backend review API** — master data import endpoint (from 1.5); list queue, get document (data + issues + page images + word boxes), update fields, approve, reject
+- [x] **4.2 Backend review API** — master data CSV upload (from 1.5) and code options per client; queue (Exception → Check → Ready, filters, paging), document detail with page images and word boxes, update fields (edited/confirmed fields become human-verified, decision 24; all checks re-run without the model; type change parks/un-parks), reject with a reason pick-list; approve is 4.8
 - [ ] **4.3 Run screen** — pick restaurant, browse folders, confirm date, Run, progress
 - [ ] **4.4 Queue screen** — table sorted Exception → Check → Ready, filters
 - [ ] **4.5 Review screen** — PDF/image viewer left, form right (header + lines), flagged fields yellow with reason, code dropdowns with source hint, live totals

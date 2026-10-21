@@ -18,6 +18,7 @@ dependencies = [
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.16.0",
     "pymupdf>=1.28.2,<2",  # 2.x bundles onnxruntime + LLM extras (no Intel-Mac wheels, unneeded)
+    "python-multipart>=0.0.32",
     "setuptools>=84.2.0",
     "sqlalchemy>=2.1.5",
     "uvicorn[standard]>=0.54.0",

@@ -1,6 +1,92 @@
 {
   "components": {
     "schemas": {
+      "AccountClass": {
+        "description": "Top-level ledger account class; every accounting system maps its account types to one.",
+        "enum": [
+          "ASSET",
+          "LIABILITY",
+          "EQUITY",
+          "REVENUE",
+          "EXPENSE"
+        ],
+        "title": "AccountClass",
+        "type": "string"
+      },
+      "AccountOption": {
+        "properties": {
+          "account_class": {
+            "$ref": "#/components/schemas/AccountClass"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "account_class"
+        ],
+        "title": "AccountOption",
+        "type": "object"
+      },
+      "AmountType": {
+        "description": "Whether line amounts include VAT.",
+        "enum": [
+          "INCLUSIVE",
+          "EXCLUSIVE",
+          "NO_TAX"
+        ],
+        "title": "AmountType",
+        "type": "string"
+      },
+      "Body_upload_master_data_clients__client_id__master_data_post": {
+        "properties": {
+          "contacts": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contacts"
+          },
+          "ledger_accounts": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger Accounts"
+          },
+          "tax_rates": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rates"
+          }
+        },
+        "title": "Body_upload_master_data_clients__client_id__master_data_post",
+        "type": "object"
+      },
       "ClientOut": {
         "properties": {
           "client_id": {
@@ -19,6 +105,421 @@
         "title": "ClientOut",
         "type": "object"
       },
+      "CodingOptions": {
+        "description": "What the review form may choose from: built from the client's active master data\n(rule 14), purchase accounts only.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountOption"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "tax_types": {
+            "items": {
+              "$ref": "#/components/schemas/TaxOption"
+            },
+            "title": "Tax Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts",
+          "tax_types"
+        ],
+        "title": "CodingOptions",
+        "type": "object"
+      },
+      "DocumentDetail": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "coding": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Coding",
+            "type": "array"
+          },
+          "contact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "folder_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Date"
+          },
+          "invoice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Invoice-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Number"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueOut"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "queue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueueCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_path": {
+            "title": "Source Path",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "verified_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Verified Fields",
+            "type": "array"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "client_id",
+          "run_id",
+          "file",
+          "status",
+          "queue",
+          "document_type",
+          "vendor_name",
+          "invoice_number",
+          "invoice_date",
+          "total",
+          "currency",
+          "errors",
+          "warnings",
+          "created_at",
+          "source_path",
+          "mime_type",
+          "folder_date",
+          "page_count",
+          "invoice",
+          "issues",
+          "coding",
+          "verified_fields",
+          "contact_id",
+          "failure_reason",
+          "updated_at"
+        ],
+        "title": "DocumentDetail",
+        "type": "object"
+      },
+      "DocumentStatus": {
+        "description": "Lifecycle of a document. Moves only through `state_machine`.",
+        "enum": [
+          "CAPTURED",
+          "READ",
+          "EXTRACTED",
+          "VERIFIED",
+          "IN_REVIEW",
+          "APPROVED",
+          "POSTING",
+          "POSTED",
+          "SYNCED",
+          "REJECTED",
+          "POST_ERROR",
+          "VOIDED",
+          "DUPLICATE",
+          "NON_POSTABLE",
+          "FAILED"
+        ],
+        "title": "DocumentStatus",
+        "type": "string"
+      },
+      "DocumentSummary": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "document_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Number"
+          },
+          "queue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueueCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document_id",
+          "client_id",
+          "run_id",
+          "file",
+          "status",
+          "queue",
+          "document_type",
+          "vendor_name",
+          "invoice_number",
+          "invoice_date",
+          "total",
+          "currency",
+          "errors",
+          "warnings",
+          "created_at"
+        ],
+        "title": "DocumentSummary",
+        "type": "object"
+      },
       "DocumentType": {
         "enum": [
           "BILL",
@@ -30,6 +531,26 @@
         ],
         "title": "DocumentType",
         "type": "string"
+      },
+      "DocumentUpdate": {
+        "properties": {
+          "confirmed": {
+            "description": "Fields checked against the original and left as they are",
+            "items": {
+              "type": "string"
+            },
+            "title": "Confirmed",
+            "type": "array"
+          },
+          "invoice": {
+            "$ref": "#/components/schemas/Invoice-Input"
+          }
+        },
+        "required": [
+          "invoice"
+        ],
+        "title": "DocumentUpdate",
+        "type": "object"
       },
       "FileStatus": {
         "properties": {
@@ -166,6 +687,600 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "ImportCounts": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "unchanged"
+        ],
+        "title": "ImportCounts",
+        "type": "object"
+      },
+      "Invoice-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 4217 code, e.g. AED.",
+            "title": "Currency"
+          },
+          "document_type": {
+            "$ref": "#/components/schemas/DocumentType"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "evidence": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Field name -> exact source text the value was read from.",
+            "title": "Evidence",
+            "type": "object"
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As printed on the document. Null if the document has none.",
+            "title": "Invoice Number"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/Line-Input"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "original_invoice_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credit/debit notes: number of the invoice being adjusted.",
+            "title": "Original Invoice Ref"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Number"
+          },
+          "recipient_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Name"
+          },
+          "recipient_trn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Trn"
+          },
+          "subtotal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtotal"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "vat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "vendor_trn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Trn"
+          }
+        },
+        "required": [
+          "document_type"
+        ],
+        "title": "Invoice",
+        "type": "object"
+      },
+      "Invoice-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 4217 code, e.g. AED.",
+            "title": "Currency"
+          },
+          "document_type": {
+            "$ref": "#/components/schemas/DocumentType"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
+          "evidence": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Field name -> exact source text the value was read from.",
+            "title": "Evidence",
+            "type": "object"
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date"
+          },
+          "invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As printed on the document. Null if the document has none.",
+            "title": "Invoice Number"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/Line-Output"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "original_invoice_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credit/debit notes: number of the invoice being adjusted.",
+            "title": "Original Invoice Ref"
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Number"
+          },
+          "recipient_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Name"
+          },
+          "recipient_trn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Trn"
+          },
+          "subtotal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtotal"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "vat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vat"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "vendor_trn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Trn"
+          }
+        },
+        "required": [
+          "document_type"
+        ],
+        "title": "Invoice",
+        "type": "object"
+      },
+      "IssueOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "ERROR",
+              "WARNING"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "field",
+          "message"
+        ],
+        "title": "IssueOut",
+        "type": "object"
+      },
+      "Line-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "account_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limited at runtime to the client's active accounts.",
+            "title": "Account Code"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qty"
+          },
+          "tax_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaxType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "Line",
+        "type": "object"
+      },
+      "Line-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "account_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Limited at runtime to the client's active accounts.",
+            "title": "Account Code"
+          },
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "qty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qty"
+          },
+          "tax_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaxType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "Line",
+        "type": "object"
+      },
       "Liveness": {
         "properties": {
           "status": {
@@ -178,6 +1293,48 @@
         "title": "Liveness",
         "type": "object"
       },
+      "MasterDataImportOut": {
+        "description": "Per table; None = that file was not uploaded.",
+        "properties": {
+          "accounts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contacts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tax_rates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "accounts",
+          "tax_rates",
+          "contacts"
+        ],
+        "title": "MasterDataImportOut",
+        "type": "object"
+      },
       "ModelStatus": {
         "description": "Is the configured model ready to extract? (decision 2: Instruct, with vision)",
         "enum": [
@@ -188,6 +1345,87 @@
         ],
         "title": "ModelStatus",
         "type": "string"
+      },
+      "PageTextOut": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "text_layer",
+              "ocr"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/Span"
+            },
+            "title": "Spans",
+            "type": "array"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "width",
+          "height",
+          "source",
+          "spans"
+        ],
+        "title": "PageTextOut",
+        "type": "object"
+      },
+      "QueueCategory": {
+        "description": "Verification result shown in the Workbench.",
+        "enum": [
+          "READY",
+          "CHECK",
+          "EXCEPTION"
+        ],
+        "title": "QueueCategory",
+        "type": "string"
+      },
+      "QueuePageOut": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "limit",
+          "offset",
+          "documents"
+        ],
+        "title": "QueuePageOut",
+        "type": "object"
       },
       "Readiness": {
         "properties": {
@@ -227,6 +1465,41 @@
         ],
         "title": "Readiness",
         "type": "object"
+      },
+      "RejectBody": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/RejectReason"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectBody",
+        "type": "object"
+      },
+      "RejectReason": {
+        "enum": [
+          "DUPLICATE",
+          "ALREADY_RECORDED",
+          "WRONG_RESTAURANT",
+          "UNREADABLE",
+          "OTHER"
+        ],
+        "title": "RejectReason",
+        "type": "string"
       },
       "RunAccepted": {
         "properties": {
@@ -398,6 +1671,80 @@
         "title": "RunStatus",
         "type": "string"
       },
+      "Span": {
+        "properties": {
+          "box": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Box",
+            "type": "array"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "box",
+          "confidence"
+        ],
+        "title": "Span",
+        "type": "object"
+      },
+      "TaxOption": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "tax_type": {
+            "$ref": "#/components/schemas/TaxType"
+          }
+        },
+        "required": [
+          "tax_type",
+          "code"
+        ],
+        "title": "TaxOption",
+        "type": "object"
+      },
+      "TaxType": {
+        "enum": [
+          "STANDARD_5",
+          "ZERO",
+          "EXEMPT",
+          "REVERSE_CHARGE",
+          "NONE"
+        ],
+        "title": "TaxType",
+        "type": "string"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -471,6 +1818,48 @@
         ]
       }
     },
+    "/clients/{client_id}/coding-options": {
+      "get": {
+        "operationId": "get_coding_options_clients__client_id__coding_options_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodingOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Coding Options",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
     "/clients/{client_id}/folders": {
       "get": {
         "operationId": "get_folders_clients__client_id__folders_get",
@@ -522,6 +1911,415 @@
         "summary": "Get Folders",
         "tags": [
           "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/master-data": {
+      "post": {
+        "description": "Import any of the three CSVs (template: infra/samples/master_data/). All or nothing:\n422 lists every problem and changes nothing. Re-uploading is safe.",
+        "operationId": "upload_master_data_clients__client_id__master_data_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_master_data_clients__client_id__master_data_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MasterDataImportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Master Data",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/documents": {
+      "get": {
+        "description": "Exception first, then Check, then Ready; oldest first inside each.",
+        "operationId": "get_queue_documents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queue",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/QueueCategory"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Queue"
+            }
+          },
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentStatus",
+              "default": "IN_REVIEW"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuePageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Queue",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}": {
+      "get": {
+        "operationId": "get_document_documents__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Document",
+        "tags": [
+          "documents"
+        ]
+      },
+      "patch": {
+        "description": "Save the corrected invoice; every check runs again (no model call).",
+        "operationId": "update_document_documents__document_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/pages/{page}/image": {
+      "get": {
+        "operationId": "get_page_image_documents__document_id__pages__page__image_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Page Image",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/pages/{page}/text": {
+      "get": {
+        "description": "Text spans with their boxes, for highlighting a value on the page image.",
+        "operationId": "get_page_text_documents__document_id__pages__page__text_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageTextOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Page Text",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/reject": {
+      "post": {
+        "operationId": "reject_document_documents__document_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Document",
+        "tags": [
+          "documents"
         ]
       }
     },
