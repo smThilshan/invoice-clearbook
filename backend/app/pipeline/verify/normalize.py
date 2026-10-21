@@ -244,3 +244,61 @@ def normalize_trn(value: str) -> str:
 def is_valid_trn(digits: str) -> bool:
     """UAE TRN: exactly 15 digits."""
     return len(digits) == 15 and digits.isdigit()
+
+
+# --- currencies ----------------------------------------------------------------------------
+
+# Code points, not literals: several of these look alike in an editor.
+DIRHAM_SIGN = chr(0x20C3)  # UAE DIRHAM SIGN, Unicode 18.0 (CBUAE, March 2025): D with two bars
+SAUDI_RIYAL_SIGN = chr(0x20C1)
+OMANI_RIAL_SIGN = chr(0x20C4)
+
+_CERTAIN_SYMBOLS = {
+    DIRHAM_SIGN: "AED",
+    SAUDI_RIYAL_SIGN: "SAR",
+    OMANI_RIAL_SIGN: "OMR",
+    chr(0x20AC): "EUR",  # euro sign
+    chr(0x00A3): "GBP",  # pound sign
+    chr(0x20B9): "INR",  # rupee sign
+}
+_CERTAIN_WORDS = (
+    (re.compile(r"\b(?:DHS?|DIRHAMS?)\b", re.IGNORECASE), "AED"),
+    (re.compile(r"US\$"), "USD"),
+    (re.compile("د\\.?\\s?إ|درهم"), "AED"),  # Arabic: dirham abbreviation, dirham
+    (re.compile("ر\\.?\\s?س"), "SAR"),  # Arabic: Saudi riyal abbreviation
+)
+# ISO 4217 codes seen on UAE purchase documents; uppercase only, to avoid matching words.
+_ISO_CODES = re.compile(
+    r"\b(AED|USD|EUR|GBP|INR|SAR|OMR|QAR|KWD|BHD|PKR|LKR|PHP|CNY|JPY|CHF|CAD|AUD|SGD|EGP|TRY)\b"
+)
+# Weak hints. "$": usually USD, but other dollars use it too. OCR models trained before 2025
+# do not know the dirham sign and print the nearest letter they know: D, D-with-stroke (U+0110)
+# or Eth (U+00D0). Only counted as a standalone letter directly before an amount with
+# decimals ("D 1,050.10"); "ROAD 12" or a name like "Duc" are just letters.
+_LIKELY_DIRHAM = re.compile(
+    "(?<![A-Za-z])[D" + chr(0x0110) + chr(0x00D0) + r"]\s?(?=\d[\d,]*[.,]\d{2}(?!\d))"
+)
+ISO_CURRENCY = re.compile(r"[A-Z]{3}")
+
+
+@dataclass(frozen=True, slots=True)
+class CurrencyMarkers:
+    certain: frozenset[str]  # printed unambiguously: a code, a word or an official sign
+    likely: frozenset[str]  # a hint only: "$", or an OCR reading of the dirham sign
+
+    @property
+    def any(self) -> frozenset[str]:
+        return self.certain | self.likely
+
+
+def find_currencies(text: str) -> CurrencyMarkers:
+    """Currency markers printed in `text`, as ISO codes."""
+    certain = set(_ISO_CODES.findall(text))
+    certain |= {code for symbol, code in _CERTAIN_SYMBOLS.items() if symbol in text}
+    certain |= {code for pattern, code in _CERTAIN_WORDS if pattern.search(text)}
+    likely: set[str] = set()
+    if "$" in text.replace("US$", ""):
+        likely.add("USD")
+    if _LIKELY_DIRHAM.search(text):
+        likely.add("AED")
+    return CurrencyMarkers(frozenset(certain), frozenset(likely - certain))

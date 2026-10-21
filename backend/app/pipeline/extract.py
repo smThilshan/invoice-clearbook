@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 ACTOR = "system:extract"
 
 # Bump when the prompt or the extraction schema changes; stored with every extraction.
-PROMPT_VERSION = "extract-v1"
+# v2: currency signs (UAE dirham sign introduced 2025, after most model training data).
+PROMPT_VERSION = "extract-v2"
 
 EXTRACTION_SCHEMA = build_model_schema(line_coding=False)
 
@@ -49,6 +50,9 @@ Rules:
   proforma, statement, delivery note or remittance.
 - amount_type: INCLUSIVE if line amounts include VAT, EXCLUSIVE if VAT is added on top, NO_TAX if
   no VAT applies.
+- currency as a 3-letter code. The UAE dirham sign (a letter D crossed by two horizontal bars,
+  printed before the amount; OCR may show it as D) means AED. The Saudi riyal sign means SAR.
+  "Dh", "Dhs" and the Arabic dirham abbreviation also mean AED.
 - original_invoice_ref only for credit or debit notes that refer to an earlier invoice.
 - evidence: for invoice_number, invoice_date, total, vat and vendor_trn, copy the exact text you
   read each value from."""

@@ -4,7 +4,11 @@ from decimal import Decimal
 import pytest
 
 from app.pipeline.verify.normalize import (
+    DIRHAM_SIGN,
+    OMANI_RIAL_SIGN,
+    SAUDI_RIYAL_SIGN,
     find_amounts,
+    find_currencies,
     find_dates,
     is_valid_trn,
     normalize_invoice_number,
@@ -189,3 +193,55 @@ def test_trn_normalized_to_digits(printed: str) -> None:
 @pytest.mark.parametrize("digits", ["", "10099900000000", "1009990000000012", "10099900000000A"])
 def test_trn_must_be_exactly_15_digits(digits: str) -> None:
     assert not is_valid_trn(digits)
+
+
+# --- currencies --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "certain"),
+    [
+        ("Total AED 1,050.10", {"AED"}),
+        ("Amount Dhs. 50.00", {"AED"}),
+        ("Fifty dirhams only", {"AED"}),
+        (f"{DIRHAM_SIGN} 1,050.10", {"AED"}),  # the official sign (U+20C3)
+        ("1,050.10 " + "د.إ", {"AED"}),
+        (f"{SAUDI_RIYAL_SIGN} 500.00", {"SAR"}),
+        (f"{OMANI_RIAL_SIGN} 12.500", {"OMR"}),
+        ("US$ 120.00", {"USD"}),
+        ("USD 120.00 / EUR 110.00", {"USD", "EUR"}),
+        (chr(0x20AC) + " 1.050,10", {"EUR"}),
+        (chr(0x00A3) + "50.00", {"GBP"}),
+        ("Thank you for shopping", set()),
+        ("aed in lower case is not a code", set()),
+    ],
+)
+def test_certain_currency_markers(text: str, certain: set[str]) -> None:
+    assert find_currencies(text).certain == certain
+
+
+@pytest.mark.parametrize(
+    ("text", "likely"),
+    [
+        ("$120.00", {"USD"}),  # "$" alone: usually USD, other dollars use it too
+        ("D 1,050.10", {"AED"}),  # OCR reading of the dirham sign
+        ("Total: D235.50", {"AED"}),
+        (chr(0x0110) + " 1,050.10", {"AED"}),  # D with stroke
+        (chr(0x00D0) + "1,050.10", {"AED"}),  # Eth
+        ("DUBAI ROAD 12", set()),  # a word ending in D
+        ("Unit D 12", set()),  # not an amount
+        ("ROAD 1,050.10", set()),
+        ("Nguyen " + chr(0x0110) + "uc Trading", set()),  # a name, not a currency
+    ],
+)
+def test_likely_currency_hints(text: str, likely: set[str]) -> None:
+    markers = find_currencies(text)
+
+    assert markers.likely == likely
+    assert markers.certain == set()
+
+
+def test_certain_marker_wins_over_hint() -> None:
+    markers = find_currencies("AED D 1,050.10")
+
+    assert (markers.certain, markers.likely) == ({"AED"}, set())

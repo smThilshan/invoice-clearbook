@@ -1,5 +1,6 @@
 """Application settings, loaded from environment variables and the repo-root `.env`."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
@@ -71,6 +72,13 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow
     # Page images sent per document (~1.5-2k tokens each); text is sent for every page.
     extract_max_images: int = Field(default=3, ge=1)
+
+    # Validation tolerances (task 3.2). Shops round VAT per item, so allow this much per line.
+    vat_tolerance_per_line: Decimal = Field(default=Decimal("0.01"), ge=0)
+    # Warn if the invoice is older than this compared with its inbox folder date.
+    period_max_days_before: int = Field(default=90, ge=0)
+    # An invoice dated more than this many days after today is an error (misread date).
+    future_date_slack_days: int = Field(default=1, ge=0)
 
     @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
     @classmethod
