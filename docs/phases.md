@@ -51,7 +51,7 @@ Done when: every extracted document has issues, codes and a queue category.
 ## Phase 4 — Review Workbench (Day 8–10)
 Goal: an accountant reviews and approves without touching the DB.
 
-- [ ] **4.1 Workbench skeleton** — Vite + React + TS (strict), shadcn/ui (Tailwind + Radix), routing, typed API client generated from the backend's OpenAPI, TanStack Query, basic layout, system status; no login yet (decision 26)
+- [x] **4.1 Workbench skeleton** — Vite + React + TS (strict), shadcn/ui (Tailwind + Radix), routing, typed API client generated from the backend's OpenAPI, TanStack Query, basic layout, system status; no login yet (decision 26)
 - [ ] **4.2 Backend review API** — master data import endpoint (from 1.5); list queue, get document (data + issues + page images + word boxes), update fields, approve, reject
 - [ ] **4.3 Run screen** — pick restaurant, browse folders, confirm date, Run, progress
 - [ ] **4.4 Queue screen** — table sorted Exception → Check → Ready, filters

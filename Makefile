@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web lint fmt test test-all check smoke-llm smoke-read seed import-master-data resume retry-document add-client list-clients
+.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read seed import-master-data resume retry-document add-client list-clients
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -37,8 +37,24 @@ api: ## Run FastAPI on 127.0.0.1:8000 (reload)
 worker: ## Run a Celery worker on both queues (needs make up). Solo pool: prefork fails on macOS
 	$(UV) celery -A app.workers.celery_app worker -Q pipeline,posting --pool=solo --loglevel=INFO
 
-web: ## Run the Workbench (task 4.1)
-	@echo "not yet implemented: Workbench arrives in task 4.1"; exit 1
+WEB := npm --prefix workbench
+
+web: ## Run the Workbench (http://127.0.0.1:5173; needs make api)
+	$(WEB) run dev
+
+web-install: ## Install Workbench dependencies
+	$(WEB) ci
+
+web-types: ## Regenerate the Workbench's API types from the backend
+	@$(UV) python scripts/export_openapi.py $(CURDIR)/workbench/src/api/openapi.json
+	@cd workbench && npx openapi-typescript src/api/openapi.json -o src/api/schema.d.ts
+
+web-lint: ## Workbench: oxlint + TypeScript
+	$(WEB) run lint
+	$(WEB) run typecheck
+
+web-test: ## Workbench: Vitest
+	$(WEB) run test
 
 resume: ## Re-queue documents stranded between pipeline steps (needs make worker)
 	@$(UV) python scripts/pipeline_admin.py resume
@@ -82,4 +98,4 @@ test: ## pytest (unit only)
 test-all: ## pytest incl. integration (needs make up)
 	$(UV) pytest -m ""
 
-check: lint test ## lint + test (run before every commit)
+check: lint test web-lint web-test ## backend + Workbench lint and tests (run before every commit)

@@ -79,9 +79,11 @@ make down
 make migrate   # alembic upgrade head
 make api       # run FastAPI
 make worker    # run Celery workers
-make web       # run Workbench
+make web       # run Workbench (http://127.0.0.1:5173)
+make web-types # regenerate the Workbench's API types after any backend API change
 make lint      # ruff + mypy
 make test      # pytest
+make check     # backend + Workbench lint and tests (run before every commit)
 ```
 Ollama runs natively (not in Docker): `ollama serve`, model `qwen3-vl:4b-instruct`
 (never plain `qwen3-vl:4b`: that tag is the Thinking variant; decision 2).
