@@ -1,6 +1,6 @@
 """Pipeline control: what runs next, failing, retrying and resuming documents.
 
-Flow: CAPTURED -> read -> READ -> extract -> EXTRACTED (verify follows in Phase 3).
+Flow: CAPTURED -> read -> READ -> extract -> EXTRACTED -> verify -> IN_REVIEW (or parked).
 Each step queues the next only after its own transaction commits. A step that fails
 unexpectedly marks the document FAILED with the reason; FAILED documents can be retried from
 the start. Documents left between steps (a worker crashed after committing, before queuing
@@ -21,12 +21,14 @@ from app.models import Document
 class Step(StrEnum):
     READ = "read"
     EXTRACT = "extract"
+    VERIFY = "verify"
 
 
 # Status a document must be in for each step to do work.
 NEXT_STEP: dict[DocumentStatus, Step] = {
     DocumentStatus.CAPTURED: Step.READ,
     DocumentStatus.READ: Step.EXTRACT,
+    DocumentStatus.EXTRACTED: Step.VERIFY,
 }
 
 _REASON_MAX = 500

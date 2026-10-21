@@ -20,14 +20,21 @@ from app.models import Document, Run
 from app.pipeline.ingest import InboxError, run_folder
 
 # Statuses that will move on by themselves (a pipeline step is pending or running).
-IN_PROGRESS = frozenset({DocumentStatus.CAPTURED, DocumentStatus.READ})
+IN_PROGRESS = frozenset(
+    {
+        DocumentStatus.CAPTURED,
+        DocumentStatus.READ,
+        DocumentStatus.EXTRACTED,
+        DocumentStatus.VERIFIED,
+    }
+)
 QUEUED = "QUEUED"  # listed by the scan, not ingested yet
 
 
 class RunState(StrEnum):
     SCANNING = "scanning"  # folder not listed yet
     PROCESSING = "processing"  # some files are queued or between steps
-    FINISHED = "finished"  # every file has settled (extracted, failed, duplicate, ...)
+    FINISHED = "finished"  # every file settled: in review, parked, failed or duplicate
 
 
 @dataclass(frozen=True, slots=True)

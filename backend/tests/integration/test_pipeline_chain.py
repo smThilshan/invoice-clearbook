@@ -69,15 +69,21 @@ def only_document(session: Session) -> Document:
     return session.scalars(select(Document)).one()
 
 
-def test_run_flows_through_to_extracted(session: Session, tmp_path: Path, pipeline: Fakes) -> None:
+def test_run_flows_through_to_review(session: Session, tmp_path: Path, pipeline: Fakes) -> None:
     run = drop_invoice(session, tmp_path)
 
     tasks.scan_run.delay(str(run.id))
 
     doc = only_document(session)
-    assert doc.status is S.EXTRACTED
+    assert doc.status is S.IN_REVIEW
+    assert doc.queue is not None and doc.issues is not None
     assert doc.invoice is not None and doc.page_count == 1
-    assert moves(session, doc) == [(S.CAPTURED, S.READ), (S.READ, S.EXTRACTED)]
+    assert moves(session, doc) == [
+        (S.CAPTURED, S.READ),
+        (S.READ, S.EXTRACTED),
+        (S.EXTRACTED, S.VERIFIED),
+        (S.VERIFIED, S.IN_REVIEW),
+    ]
     assert len(pipeline["llm"].requests) == 1
 
 
@@ -128,5 +134,5 @@ def test_superseded_step_stops_quietly(
 
 
 def test_enqueue_next_knows_what_each_status_needs(pipeline: Fakes) -> None:
-    assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.EXTRACTED)
+    assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.IN_REVIEW)
     assert not tasks.enqueue_next("00000000-0000-0000-0000-000000000000", S.FAILED)

@@ -56,16 +56,17 @@ def test_retry_refuses_documents_that_did_not_fail(session: Session) -> None:
 def test_stalled_documents_are_old_and_waiting_for_a_step(session: Session) -> None:
     old_captured = make_document(session, status=S.CAPTURED)
     old_read = make_document(session, status=S.READ)
-    old_extracted = make_document(session, status=S.EXTRACTED)  # waits for Phase 3, not stalled
+    old_extracted = make_document(session, status=S.EXTRACTED)  # waiting for verify
+    old_in_review = make_document(session, status=S.IN_REVIEW)  # waits for a person, not stalled
     make_document(session, status=S.CAPTURED)  # recent: may still be running
     long_ago = datetime.now(UTC) - timedelta(hours=2)
     session.execute(
         update(Document)
-        .where(Document.id.in_([old_captured.id, old_read.id, old_extracted.id]))
+        .where(Document.id.in_([old_captured.id, old_read.id, old_extracted.id, old_in_review.id]))
         .values(updated_at=long_ago)
         .execution_options(synchronize_session=False)
     )
 
     stalled = stalled_documents(session, idle_for=timedelta(hours=1), now=datetime.now(UTC))
 
-    assert {doc.id for doc in stalled} == {old_captured.id, old_read.id}
+    assert {doc.id for doc in stalled} == {old_captured.id, old_read.id, old_extracted.id}

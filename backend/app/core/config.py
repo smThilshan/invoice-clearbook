@@ -1,9 +1,11 @@
 """Application settings, loaded from environment variables and the repo-root `.env`."""
 
+from datetime import date, datetime
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -91,6 +93,21 @@ class Settings(BaseSettings):
     # Coding (task 3.6): a supplier's learned account is used after this many consistent
     # approvals; before that the model suggests one (architecture §9).
     coding_min_consistent_approvals: int = Field(default=2, ge=1)
+    # "Today" for date checks is the business date where Missan works, not the server's
+    # (often UTC) clock: otherwise "in the future" is off by a day around midnight.
+    business_timezone: str = "Asia/Dubai"
+
+    @field_validator("business_timezone")
+    @classmethod
+    def _known_timezone(cls, name: str) -> str:
+        try:
+            ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown time zone: {name!r}") from exc
+        return name
+
+    def business_today(self) -> date:
+        return datetime.now(ZoneInfo(self.business_timezone)).date()
 
     @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
     @classmethod

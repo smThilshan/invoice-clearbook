@@ -4,7 +4,8 @@ Names are explicit ("<area>.<action>") so they stay stable when code moves; "pos
 are routed to the posting queue, everything else to the pipeline queue. Arguments are plain
 strings (JSON). Jobs are enqueued only after the transaction that created their rows commits.
 
-Chain: scan_run -> ingest_file -> read_document -> extract_document (services/pipeline.py).
+Chain: scan_run -> ingest_file -> read_document -> extract_document -> verify_document
+(services/pipeline.py).
 A step that fails unexpectedly marks the document FAILED (reason = step + error type, never
 document content; the traceback goes to the log). If another worker moved the document first,
 the step stops quietly ("superseded") instead of failing it.
@@ -26,6 +27,7 @@ from app.domain.enums import DocumentStatus
 from app.domain.state_machine import StaleStatusError
 from app.models import Document, Run
 from app.pipeline import extract, ingest, read
+from app.pipeline.verify import step as verify
 from app.services.pipeline import NEXT_STEP, Step, fail_document
 from app.workers.celery_app import celery_app
 
@@ -169,6 +171,44 @@ def extract_document(self: "Task[[str], str]", document_id: str) -> str:
     return result.outcome.value
 
 
+@celery_app.task(name="pipeline.verify_document")
+def verify_document(document_id: str) -> str:
+    """All Phase 3 checks for an EXTRACTED document, then the review queue. Coding may call
+    the model; if it is down, coding degrades to a warning instead of failing verification."""
+    settings = get_settings()
+    try:
+        with session_scope() as session, closing(get_extraction_client(settings)) as client:
+            document = session.get(Document, uuid.UUID(document_id))
+            if document is None:
+                logger.error("verify_document: document %s not found", document_id)
+                return "document_not_found"
+            result = verify.verify_document(
+                session,
+                get_storage(settings),
+                client,
+                document,
+                settings=settings,
+                today=settings.business_today(),
+            )
+    except SUPERSEDED:
+        logger.info("document %s: verify superseded by another worker", document_id)
+        return "superseded"
+    except Exception as exc:
+        logger.exception("document %s: verify crashed", document_id)
+        _fail(document_id, Step.VERIFY, _unexpected(exc))
+        return "failed"
+
+    logger.info(
+        "document %s: verify %s queue=%s errors=%d warnings=%d",
+        document_id,
+        result.outcome,
+        result.queue,
+        result.errors,
+        result.warnings,
+    )
+    return result.outcome.value
+
+
 def enqueue_next(document_id: str, status: DocumentStatus) -> bool:
     """Queue the step a document in `status` needs. False = nothing to queue (yet)."""
     match NEXT_STEP.get(status):
@@ -176,8 +216,10 @@ def enqueue_next(document_id: str, status: DocumentStatus) -> bool:
             read_document.delay(document_id)
         case Step.EXTRACT:
             extract_document.delay(document_id)
+        case Step.VERIFY:
+            verify_document.delay(document_id)
         case None:
-            return False  # EXTRACTED waits for Verify (Phase 3); end states need nothing
+            return False  # in review, parked or an end state: nothing to queue
     return True
 
 
