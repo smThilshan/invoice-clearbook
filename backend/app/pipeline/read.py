@@ -29,6 +29,7 @@ from app.adapters.storage.keys import ocr_key, page_image_key
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
 from app.models import Document
+from app.pipeline.page_quality import PageQuality, measure, prepare_for_ocr
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class PageText:
     height: int
     source: Literal["text_layer", "ocr"]  # "ocr": ours or a scanner's, may misread characters
     spans: list[TextSpan] = field(default_factory=list)
+    quality: PageQuality | None = None  # pictures only (photo or scan); None = digital page
 
     @property
     def text(self) -> str:
@@ -63,7 +65,8 @@ class PageText:
     def from_json(cls, data: bytes) -> "PageText":
         raw = json.loads(data)
         spans = [TextSpan(s["text"], tuple(s["box"]), s["confidence"]) for s in raw.pop("spans")]
-        return cls(**raw, spans=spans)
+        quality = raw.pop("quality", None)  # pages read before decision 30 have none
+        return cls(**raw, spans=spans, quality=PageQuality(**quality) if quality else None)
 
 
 class ReadOutcome(StrEnum):
@@ -133,13 +136,21 @@ def read_pages(
     max_side: int,
     min_text_chars: int,
 ) -> list[tuple[Image, PageText]]:
-    """File bytes -> (page image, page text) per page. Raises UnreadableError."""
+    """File bytes -> (page image, page text) per page. Raises UnreadableError.
+    Pictures (photos, scans) get a quality measure (decision 30); OCR reads a copy with the
+    light evened out when needed, the returned image stays the original."""
     result = []
     for number, (image, page) in enumerate(
         _render_pages(data, mime_type, max_pages=max_pages, max_side=max_side), start=1
     ):
         text = _text_layer(page, image, number, min_text_chars) if page is not None else None
-        result.append((image, text or _ocr(ocr(), image, number)))
+        if text is None:
+            quality = measure(image)
+            text = _ocr(ocr(), prepare_for_ocr(image, quality), number)
+            text.quality = quality
+        elif text.source == "ocr":  # a scanner's text over the page picture
+            text.quality = measure(image)
+        result.append((image, text))
     return result
 
 

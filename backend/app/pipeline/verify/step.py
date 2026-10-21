@@ -36,6 +36,7 @@ from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
 from app.models import Client, Document, Extraction
 from app.pipeline import coding
+from app.pipeline.page_quality import quality_issues
 from app.pipeline.read import load_page_texts
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_key
 from app.pipeline.verify.grounding import check_grounding
@@ -159,6 +160,7 @@ def assess(
 
     error = _last_extraction_error(session, document) if invoice is None else None
     issues = run_rules(invoice, context, extraction_error=error)
+    issues += quality_issues([(page.page, page.quality) for page in pages])
     park = False
     if invoice is not None:
         issues += check_grounding(invoice, pages, verified=verified)
