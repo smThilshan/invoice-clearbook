@@ -55,7 +55,7 @@ Goal: an accountant reviews and approves without touching the DB.
 - [x] **4.2 Backend review API** — master data CSV upload (from 1.5) and code options per client; queue (Exception → Check → Ready, filters, paging), document detail with page images and word boxes, update fields (edited/confirmed fields become human-verified, decision 24; all checks re-run without the model; type change parks/un-parks), reject with a reason pick-list; approve is 4.8
 - [x] **4.3 Run screen** — pick restaurant, browse folders (sub-folders included), confirm date (from the folder name; cleared = no folder date), Run, live progress per file at `/run/<id>`
 - [x] **4.4 Queue screen** — table sorted Exception → Check → Ready; filters (restaurant, category, in review / parked, one run) kept in the address; paging; last restaurant remembered per computer
-- [ ] **4.5 Review screen** — PDF/image viewer left, form right (header + lines), flagged fields yellow with reason, code dropdowns with source hint, live totals
+- [x] **4.5 Review screen** — page viewer left (page pictures, zoom), form right (header + lines), flagged fields with reason (errors red, warnings yellow), printed-value suggestions, "checked against the original" tick, code dropdowns with source hint, live totals (exact arithmetic), save & re-check, reject with reason, unsaved-changes warning (decision 32)
 - [ ] **4.6 Field highlight** — click field → highlight word box on the page
 - [ ] **4.7 Corrections** — every edit saved (field, model value, final value, vendor, model/prompt version); reject reason pick-list
 - [ ] **4.8 Approve flow** — server re-validates; errors block; `APPROVED` + outbox row in one transaction; vendor mapping updated

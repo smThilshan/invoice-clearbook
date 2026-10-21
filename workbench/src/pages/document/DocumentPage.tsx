@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router'
+import { useCallback, useEffect, useState } from 'react'
+import { useBlocker, useNavigate, useParams } from 'react-router'
 
 import { type DocumentDetail, type DocumentStatus } from '@/api/client'
 import { useCodingOptions, useDocument, useUpdateDocument } from '@/api/queries'
@@ -11,6 +12,7 @@ import { QUEUE_LABELS, statusLabel, TYPE_LABELS } from '@/lib/labels'
 
 import { toInvoiceInput } from './formModel'
 import { PageViewer } from './PageViewer'
+import { RejectDialog } from './RejectDialog'
 import { ReviewForm, type ReviewSubmit } from './ReviewForm'
 
 /** Documents the accountant may still change (the backend enforces the same). */
@@ -23,6 +25,9 @@ export function DocumentPage() {
   const options = useCodingOptions(document.data?.client_id)
   const save = useUpdateDocument()
   const navigate = useNavigate()
+  const [dirty, setDirty] = useState(false)
+  const onDirtyChange = useCallback((next: boolean) => setDirty(next), [])
+  useUnsavedChangesGuard(dirty)
 
   if (document.isPending) return <Skeleton className="h-96 w-full" />
   if (document.isError) {
@@ -69,6 +74,8 @@ export function DocumentPage() {
           editable={editable}
           saving={save.isPending}
           onSave={onSave}
+          onDirtyChange={onDirtyChange}
+          actions={doc.status === 'IN_REVIEW' && <RejectDialog documentId={doc.document_id} />}
         />
       </div>
     </div>
@@ -100,4 +107,22 @@ function BackButton({ onBack }: { onBack: () => void }) {
       Back
     </Button>
   )
+}
+
+const LEAVE_WARNING = 'You have unsaved changes. Leave without saving?'
+
+/** Ask before leaving the page (in the app or closing the tab) with unsaved edits. */
+function useUnsavedChangesGuard(dirty: boolean) {
+  const blocker = useBlocker(dirty)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm(LEAVE_WARNING)) blocker.proceed()
+    else blocker.reset()
+  }, [blocker])
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 }

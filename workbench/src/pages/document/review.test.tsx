@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { CodingOptions, DocumentDetail, Readiness } from '@/api/client'
 import { type FakeApi, mockApi, renderApp, reply } from '@/test/render'
@@ -91,6 +91,7 @@ const OPTIONS: CodingOptions = {
 const realFetch = globalThis.fetch
 afterEach(() => {
   globalThis.fetch = realFetch
+  vi.restoreAllMocks()
 })
 
 function backend(document = detail(), saved = detail({ queue: 'READY', errors: 0, warnings: 0,
@@ -262,5 +263,94 @@ describe('review screen', () => {
 
     expect(await screen.findByText('Not saved')).toBeInTheDocument()
     expect(screen.getByText('status is no longer IN_REVIEW')).toBeInTheDocument()
+  })
+})
+
+describe('reject', () => {
+  function rejectBackend() {
+    return mockApi({
+      '/health/ready': READY,
+      '/clients': [],
+      [`/documents/${ID}`]: detail(),
+      [`POST /documents/${ID}/reject`]: detail({ status: 'REJECTED', updated_at: '2026-10-21T08:03:00Z' }),
+      '/clients/cafe/coding-options': OPTIONS,
+    })
+  }
+
+  it('rejects with a reason from the list', async () => {
+    const api = rejectBackend()
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    await user.click(await screen.findByRole('button', { name: 'Reject…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Reject this document' })
+    expect(within(dialog).getByRole('button', { name: 'Reject document' })).toBeDisabled()
+    await user.click(within(dialog).getByRole('radio', { name: /Duplicate/ }))
+    await user.click(within(dialog).getByRole('button', { name: 'Reject document' }))
+
+    await waitFor(() =>
+      expect(api.bodies[`POST /documents/${ID}/reject`]).toEqual({ reason: 'DUPLICATE', note: null }),
+    )
+    expect(await screen.findByText(/rejected: it can no longer be changed/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('needs a note for the reason Other', async () => {
+    const api = rejectBackend()
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    await user.click(await screen.findByRole('button', { name: 'Reject…' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /Other/ }))
+    const confirm = within(dialog).getByRole('button', { name: 'Reject document' })
+    expect(confirm).toBeDisabled()
+    await user.type(within(dialog).getByLabelText('Note'), '  Personal purchase  ')
+    await user.click(confirm)
+
+    await waitFor(() =>
+      expect(api.bodies[`POST /documents/${ID}/reject`]).toEqual({
+        reason: 'OTHER', note: 'Personal purchase',
+      }),
+    )  // prettier-ignore
+  })
+
+  it('is not offered for a parked document', async () => {
+    await open(backend(detail({ status: 'NON_POSTABLE', document_type: 'NON_POSTABLE' })))
+
+    expect(screen.getByRole('button', { name: 'Save & re-check' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reject…' })).not.toBeInTheDocument()
+  })
+})
+
+describe('unsaved changes', () => {
+  it('asks before leaving with unsaved edits, and stays when told to', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    backend()
+    const router = renderApp(`/documents/${ID}`)
+    await screen.findByRole('form', { name: 'Review' })
+
+    await user.type(screen.getByLabelText('Supplier'), ' X')
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    void router.navigate('/queue')
+
+    await waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith('You have unsaved changes. Leave without saving?'),
+    )
+    expect(router.state.location.pathname).toBe(`/documents/${ID}`)
+    expect(screen.getByLabelText('Supplier')).toHaveValue('Fresh Farms Trading LLC X')
+  })
+
+  it('leaves freely when nothing was changed', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    backend()
+    const router = renderApp(`/documents/${ID}`)
+    await screen.findByRole('form', { name: 'Review' })
+
+    await router.navigate('/queue')
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(router.state.location.pathname).toBe('/queue')
   })
 })
