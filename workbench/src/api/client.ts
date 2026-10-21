@@ -20,6 +20,17 @@ export type DocumentType = Schemas['DocumentType']
 export type QueueCategory = Schemas['QueueCategory']
 export type DocumentSummary = Schemas['DocumentSummary']
 export type QueuePage = Schemas['QueuePageOut']
+export type DocumentDetail = Schemas['DocumentDetail']
+export type Invoice = Schemas['Invoice-Output']
+export type InvoiceInput = Schemas['Invoice-Input']
+export type InvoiceLine = Schemas['Line-Output']
+export type Issue = Schemas['IssueOut']
+export type CodingOptions = Schemas['CodingOptions']
+export type DocumentUpdate = Schemas['DocumentUpdate']
+export type RejectReason = Schemas['RejectReason']
+export type RejectBody = Schemas['RejectBody']
+export type AmountType = Schemas['AmountType']
+export type TaxType = Schemas['TaxType']
 
 export interface QueueQuery {
   client_id: string
@@ -67,12 +78,19 @@ async function errorMessage(response: Response): Promise<string> {
   return `${response.status} ${response.statusText}`.trim()
 }
 
-function postJson<T>(path: string, body: unknown): Promise<T> {
+function sendJson<T>(method: 'POST' | 'PATCH', path: string, body: unknown): Promise<T> {
   return request<T>(path, {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+const documentPath = (id: string) => `/documents/${encodeURIComponent(id)}`
+
+/** The rendered page picture (PNG), for an <img>; pages are numbered from 1. */
+export function pageImageUrl(documentId: string, page: number): string {
+  return `/api${documentPath(documentId)}/pages/${page}/image`
 }
 
 export const api = {
@@ -84,10 +102,19 @@ export const api = {
     request<FolderListing>(
       `/clients/${encodeURIComponent(clientId)}/folders?${new URLSearchParams({ path })}`,
     ),
-  startRun: (body: RunCreate) => postJson<RunAccepted>('/runs', body),
+  startRun: (body: RunCreate) => sendJson<RunAccepted>('POST', '/runs', body),
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
   /** Exception first, then Check, then Ready; oldest first inside each. */
   queue: (query: QueueQuery) => request<QueuePage>(`/documents?${searchParams(query)}`),
+  document: (id: string) => request<DocumentDetail>(documentPath(id)),
+  /** Save the accountant's version; the server runs every check again (no model). */
+  updateDocument: (id: string, body: DocumentUpdate) =>
+    sendJson<DocumentDetail>('PATCH', documentPath(id), body),
+  rejectDocument: (id: string, body: RejectBody) =>
+    sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
+  /** Accounts and tax codes the review form may use (the client's active master data). */
+  codingOptions: (clientId: string) =>
+    request<CodingOptions>(`/clients/${encodeURIComponent(clientId)}/coding-options`),
 }
 
 /** Query string from an object; undefined values are left out. */

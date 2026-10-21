@@ -166,7 +166,7 @@ describe('review queue', () => {
     await user.click(within(table).getAllByRole('row')[3]!.querySelector('td')!)
 
     expect(router.state.location.pathname).toBe('/documents/d3')
-    expect(await screen.findByText(/Document d3/)).toBeInTheDocument()
+    expect(await screen.findByText('This document could not be loaded')).toBeInTheDocument()
   })
 
   it('says when there is nothing to review', async () => {

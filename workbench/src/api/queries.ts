@@ -1,6 +1,14 @@
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, ApiError, type QueueQuery, type RunCreate } from './client'
+import {
+  api,
+  ApiError,
+  type DocumentDetail,
+  type DocumentUpdate,
+  type QueueQuery,
+  type RejectBody,
+  type RunCreate,
+} from './client'
 
 export const queryKeys = {
   readiness: ['readiness'] as const,
@@ -8,6 +16,9 @@ export const queryKeys = {
   folders: (clientId: string, path: string) => ['folders', clientId, path] as const,
   run: (runId: string) => ['run', runId] as const,
   queue: (query: QueueQuery) => ['queue', query] as const,
+  queues: ['queue'] as const,
+  document: (id: string) => ['document', id] as const,
+  codingOptions: (clientId: string) => ['coding-options', clientId] as const,
 }
 
 const READINESS_REFRESH_MS = 30_000
@@ -65,4 +76,38 @@ export function useQueue(query: QueueQuery | undefined) {
     refetchInterval: QUEUE_REFRESH_MS,
     placeholderData: keepPreviousData,
   })
+}
+
+export function useDocument(documentId: string) {
+  return useQuery({ queryKey: queryKeys.document(documentId), queryFn: () => api.document(documentId) })
+}
+
+/** Idle until the document (and so its restaurant) is known. */
+export function useCodingOptions(clientId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.codingOptions(clientId ?? ''),
+    queryFn: () => api.codingOptions(clientId ?? ''),
+    enabled: clientId !== undefined,
+    staleTime: 5 * 60_000, // master data changes rarely
+  })
+}
+
+/** The server's answer replaces the cached document; queue lists are refreshed. */
+function useDocumentChange<T>(change: (id: string, body: T) => Promise<DocumentDetail>) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: T }) => change(id, body),
+    onSuccess: (document) => {
+      client.setQueryData(queryKeys.document(document.document_id), document)
+      void client.invalidateQueries({ queryKey: queryKeys.queues })
+    },
+  })
+}
+
+export function useUpdateDocument() {
+  return useDocumentChange<DocumentUpdate>(api.updateDocument)
+}
+
+export function useRejectDocument() {
+  return useDocumentChange<RejectBody>(api.rejectDocument)
 }
