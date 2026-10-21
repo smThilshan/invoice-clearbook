@@ -13,7 +13,10 @@ compares the folder with what the content says, so the model must not be told th
 import json
 import logging
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from enum import StrEnum
+from typing import Any, get_args
 
 from pydantic import ValidationError
 from sqlalchemy import func, select
@@ -28,6 +31,7 @@ from app.domain.state_machine import transition
 from app.models import Document, Extraction
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.read import PageText, load_page_texts
+from app.pipeline.verify.normalize import parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +39,8 @@ ACTOR = "system:extract"
 
 # Bump when the prompt or the extraction schema changes; stored with every extraction.
 # v2: currency signs (UAE dirham sign introduced 2025, after most model training data).
-PROMPT_VERSION = "extract-v2"
+# v3: dates copied as printed, converted by our parser (decision 28).
+PROMPT_VERSION = "extract-v3"
 
 EXTRACTION_SCHEMA = build_model_schema(line_coding=False)
 
@@ -44,7 +49,8 @@ Rules:
 - Use only what is printed on the document. If a value is not on it, use null. Never guess.
 - The page text below was read from the document (PDF text layer or OCR). Prefer it for exact
   characters and numbers; use the images for layout and to correct obvious OCR mistakes.
-- Dates as YYYY-MM-DD. Amounts as plain numbers: no currency symbols, no thousands separators.
+- Dates exactly as printed (e.g. 4/5/2026): do not reorder or convert them.
+- Amounts as plain numbers: no currency symbols, no thousands separators.
 - document_type: BILL = supplier tax invoice or bill; CREDIT_NOTE = supplier credit note;
   RECEIPT = proof of a payment already made (card/cash); NON_POSTABLE = quote, purchase order,
   proforma, statement, delivery note or remittance.
@@ -86,16 +92,42 @@ def build_request(pages: list[PageText], images: list[bytes]) -> ExtractionReque
     )
 
 
+# Invoice fields holding a date; the model writes them as printed text (decision 28).
+DATE_FIELDS = tuple(
+    name
+    for name, field in Invoice.model_fields.items()
+    if field.annotation is date or date in get_args(field.annotation)
+)
+
+
 def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
     """(invoice, None) or (None, error). Errors name fields and types, never values."""
     if llm.truncated:
         return None, "answer cut off at the output token limit"
     try:
-        return Invoice.model_validate_json(llm.raw_output), None
+        answer = json.loads(llm.raw_output, parse_float=Decimal)  # money stays exact (rule 1)
+    except ValueError:
+        answer = None
+    try:
+        if isinstance(answer, dict):
+            return Invoice.model_validate(parse_answer_dates(answer)), None
+        return Invoice.model_validate_json(llm.raw_output), None  # reports why it is invalid
     except ValidationError as exc:
         problems = ", ".join(f"{'.'.join(map(str, e['loc'])) or 'root'}:{e['type']}"
                              for e in exc.errors())  # fmt: skip
         return None, f"{exc.error_count()} schema error(s): {problems}"
+
+
+def parse_answer_dates(answer: dict[str, Any]) -> dict[str, Any]:
+    """Printed dates -> ISO dates, read day-first as in the UAE ("4/5/2026" = 4 May 2026).
+    Text that holds no date becomes null: missing, flagged by the checks, never guessed."""
+    converted = dict(answer)
+    for field in DATE_FIELDS:
+        value = converted.get(field)
+        if isinstance(value, str):
+            reading = parse_date(value)
+            converted[field] = reading.value.isoformat() if reading else None
+    return converted
 
 
 def extract_document(

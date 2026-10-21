@@ -57,7 +57,9 @@ def test_field_types(schema: dict[str, Any]) -> None:
     }
     assert props["total"] == {"type": ["number", "null"]}
     assert props["invoice_number"]["type"] == ["string", "null"]
-    assert props["invoice_date"] == {"type": ["string", "null"], "format": "date"}
+    assert props["invoice_date"]["type"] == ["string", "null"]
+    assert "format" not in props["invoice_date"]  # copied as printed (decision 28)
+    assert "as printed" in props["invoice_date"]["description"]
     assert props["evidence"]["additionalProperties"] == {"type": "string"}
     assert line["amount"] == {"type": "number"}
     assert line["tax_type"]["enum"] == [*(t.value for t in TaxType), None]

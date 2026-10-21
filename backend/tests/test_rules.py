@@ -42,7 +42,9 @@ def invoice(**changes: Any) -> Invoice:
 
 
 def context(page_text: str = "TAX INVOICE  Total AED 1,050.00", **changes: Any) -> RuleContext:
-    return RuleContext(folder_date=FOLDER_DATE, today=TODAY, page_text=page_text, **changes)
+    return RuleContext(
+        **{"folder_date": FOLDER_DATE, "today": TODAY, "page_text": page_text, **changes}
+    )
 
 
 def issues(inv: Invoice, ctx: RuleContext | None = None) -> list[Issue]:
@@ -235,7 +237,39 @@ def test_bad_customer_trn_is_only_a_warning() -> None:
     assert (issue.severity, issue.field) == (Severity.WARNING, "recipient_trn")
 
 
+def test_supplier_trn_equal_to_customer_trn_is_an_error() -> None:
+    issue = only(invoice(recipient_trn="100-9990-0000-0001"), "trn_is_recipient")
+
+    assert (issue.severity, issue.field) == (Severity.ERROR, "vendor_trn")
+
+
+def test_different_supplier_and_customer_trn_are_fine() -> None:
+    assert "trn_is_recipient" not in codes(invoice(recipient_trn="100222333444555"))
+
+
 # --- dates and period -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("issued", "code", "severity"),
+    [
+        (date(1520, 5, 1), "date_implausible", Severity.ERROR),  # "1/5/2026" copied into the year
+        (date(1999, 12, 31), "date_implausible", Severity.ERROR),
+        (date(2024, 10, 1), "date_very_old", Severity.WARNING),
+    ],
+)
+def test_impossible_or_very_old_dates_are_flagged(
+    issued: date, code: str, severity: Severity
+) -> None:
+    issue = only(invoice(invoice_date=issued, due_date=None), code, context(folder_date=None))
+
+    assert (issue.severity, issue.field) == (severity, "invoice_date")
+
+
+def test_recent_dates_are_not_flagged_as_old() -> None:
+    found = codes(invoice(invoice_date=date(2025, 1, 1), due_date=None), context(folder_date=None))
+
+    assert not found & {"date_implausible", "date_very_old"}
 
 
 def test_tomorrow_is_allowed_but_later_is_an_error() -> None:

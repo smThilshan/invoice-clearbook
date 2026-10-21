@@ -3,8 +3,9 @@
 Pydantic's own schema is for validation (anyOf, regex patterns, defaults, $ref). Turned into a
 decoding grammar it steers a small model to `null` for every field (smoke test, task 1.7). The
 model gets this flat version instead: plain types, inline enums, every field required so each one
-is decided, no patterns (Ollama ignores them)/defaults/refs. Dates use `format: date`, which the
-server does enforce. The answer is still validated with the strict `Invoice`.
+is decided, no patterns (Ollama ignores them)/defaults/refs. Dates are plain text copied as
+printed; our own parser turns them into dates (decision 28). The answer is then validated with the
+strict `Invoice`.
 
 Generated, never hand-written, so it cannot drift from `Invoice`; an unsupported field type
 raises, forcing a decision when the schema grows.
@@ -23,9 +24,15 @@ from app.domain.invoice import Invoice, Line
 
 JsonSchema = dict[str, Any]
 
-
 # Line coding is assigned by the coding step (task 3.6), not read off the document.
 LINE_CODING_FIELDS = frozenset({(Line, "account_code"), (Line, "tax_type")})
+
+# Decision 28: forced to YYYY-MM-DD, the model copied "4/5/2026" digit by digit into the year
+# ("4520-05-04"). It copies the date as printed; `extract.parse_answer_dates` converts it.
+PRINTED_DATE: JsonSchema = {
+    "type": "string",
+    "description": "Exactly as printed, e.g. 4/5/2026 or 02 Sep 2025. Do not reorder or convert.",
+}
 
 
 def build_model_schema(
@@ -96,8 +103,7 @@ def _type_schema(
         if issubclass(annotation, Decimal):
             return {"type": "number"}
         if issubclass(annotation, date):
-            # Enforced by the server: without it the model copies the printed date ("02 Sep 2025").
-            return {"type": "string", "format": "date"}
+            return dict(PRINTED_DATE)
         if issubclass(annotation, str):
             return {"type": "string"}
 

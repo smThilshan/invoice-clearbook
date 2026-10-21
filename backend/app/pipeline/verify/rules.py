@@ -24,6 +24,9 @@ from app.pipeline.verify.normalize import (
 CENT = Decimal("0.01")
 UAE_VAT_RATE = Decimal("0.05")
 HOME_CURRENCY = "AED"
+# A document date before this is a misread, not an old invoice (decision 28).
+EARLIEST_PLAUSIBLE = date(2000, 1, 1)
+OLD_AFTER_DAYS = 2 * 365  # older than this: shown, may be a misread
 
 _TYPE_NAMES = {
     DocumentType.BILL: "bill",
@@ -221,12 +224,38 @@ def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
                     f"{whose} TRN must be 15 digits (found {len(digits)}).",
                 )
             )
+    vendor, recipient = invoice.vendor_trn, invoice.recipient_trn
+    if vendor and recipient and normalize_trn(vendor) == normalize_trn(recipient):
+        issues.append(
+            _error(
+                "trn_is_recipient",
+                "vendor_trn",
+                "The supplier TRN is the same as the customer's (your own) TRN: the supplier's "
+                "TRN was probably misread.",
+            )
+        )
     return issues
 
 
 def check_dates(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     issued, due = invoice.invoice_date, invoice.due_date
     issues = []
+    if issued is not None and issued < EARLIEST_PLAUSIBLE:
+        issues.append(
+            _error(
+                "date_implausible",
+                "invoice_date",
+                f"The document date {issued} cannot be right: misread date?",
+            )
+        )
+    elif issued is not None and issued < ctx.today - timedelta(days=OLD_AFTER_DAYS):
+        issues.append(
+            _warning(
+                "date_very_old",
+                "invoice_date",
+                f"The document date {issued} is more than 2 years ago: check it.",
+            )
+        )
     if issued is not None and issued > ctx.today + timedelta(days=ctx.future_date_slack_days):
         issues.append(
             _error(
