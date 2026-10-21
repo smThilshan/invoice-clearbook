@@ -20,12 +20,11 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.pipeline.read import PageText, TextSpan
-from app.pipeline.verify.normalize import OCR_DIGITS, to_ascii_digits
+from app.pipeline.read import PageText
+from app.pipeline.verify.layout import Line, page_lines
+from app.pipeline.verify.normalize import OCR_DIGITS
 
 TRN_DIGITS = 15
-# Same line: vertical centres closer than this (fraction of the page height).
-_LINE_TOLERANCE = 0.006
 # Customer block: a customer label at most this far above the TRN line, in the same column.
 _BLOCK_HEIGHT = 0.12
 _COLUMN_SLACK = 0.15
@@ -52,23 +51,14 @@ class PrintedTrns:
 
 
 @dataclass(frozen=True, slots=True)
-class _Line:
-    page: int
-    y: float  # vertical centre
-    x: float  # left edge
-    text: str
-    ocr: bool
-
-
-@dataclass(frozen=True, slots=True)
 class _Label:
     digits: str | None  # None: label printed, number unreadable
-    line: _Line
+    line: Line
     customer_block: bool
 
 
 def find_printed_trns(pages: Sequence[PageText]) -> PrintedTrns:
-    lines = [line for page in pages for line in _lines(page)]
+    lines = [line for page in pages for line in page_lines(page)]
     labels: list[_Label] = []
     for index, line in enumerate(lines):
         for match in _LABEL.finditer(line.text):
@@ -102,7 +92,7 @@ def _number_after(text: str, *, ocr: bool) -> str | None:
     return digits if len(digits) == TRN_DIGITS else None
 
 
-def _in_customer_block(lines: Sequence[_Line], index: int, label_at: int) -> bool:
+def _in_customer_block(lines: Sequence[Line], index: int, label_at: int) -> bool:
     line = lines[index]
     if _CUSTOMER.search(line.text[:label_at]):
         return True
@@ -113,23 +103,3 @@ def _in_customer_block(lines: Sequence[_Line], index: int, label_at: int) -> boo
         and 0 < line.y - above.y <= _BLOCK_HEIGHT
         and abs(above.x - line.x) <= _COLUMN_SLACK
     )
-
-
-def _lines(page: PageText) -> list[_Line]:
-    """Words grouped into lines (top to bottom), each line left to right."""
-    rows: list[list[TextSpan]] = []
-    for span in sorted(page.spans, key=_centre):
-        if rows and abs(_centre(span) - _centre(rows[-1][0])) <= _LINE_TOLERANCE:
-            rows[-1].append(span)
-        else:
-            rows.append([span])
-    lines = []
-    for row in rows:
-        row.sort(key=lambda span: span.box[0])
-        text = to_ascii_digits(" ".join(span.text for span in row))
-        lines.append(_Line(page.page, _centre(row[0]), row[0].box[0], text, page.source == "ocr"))
-    return lines
-
-
-def _centre(span: TextSpan) -> float:
-    return (span.box[1] + span.box[3]) / 2

@@ -117,6 +117,27 @@ export interface paths {
         patch: operations["update_document_documents__document_id__patch"];
         trace?: never;
     };
+    "/documents/{document_id}/locate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Locate Value
+         * @description Where `value` is printed on the document, for highlighting a field (task 4.6). The value
+         *     may be what the accountant is typing, so it is compared the way grounding compares.
+         */
+        get: operations["locate_value_documents__document_id__locate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents/{document_id}/pages/{page}/image": {
         parameters: {
             query?: never;
@@ -627,6 +648,11 @@ export interface components {
              */
             status: "ok";
         };
+        /** Located */
+        Located: {
+            /** Places */
+            places: components["schemas"]["Place"][];
+        };
         /**
          * MasterDataImportOut
          * @description Per table; None = that file was not uploaded.
@@ -657,6 +683,20 @@ export interface components {
             spans: components["schemas"]["Span"][];
             /** Width */
             width: number;
+        };
+        /** Place */
+        Place: {
+            /** Box */
+            box: [
+                number,
+                number,
+                number,
+                number
+            ];
+            /** Exact */
+            exact: boolean;
+            /** Page */
+            page: number;
         };
         /**
          * QueueCategory
@@ -813,6 +853,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * ValueKind
+         * @enum {string}
+         */
+        ValueKind: "amount" | "date" | "trn" | "text";
     };
     responses: never;
     parameters: never;
@@ -1031,6 +1076,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    locate_value_documents__document_id__locate_get: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["ValueKind"];
+                value: string;
+            };
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Located"];
                 };
             };
             /** @description Validation Error */

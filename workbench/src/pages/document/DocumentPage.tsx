@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useBlocker, useNavigate, useParams } from 'react-router'
 
 import { type DocumentDetail, type DocumentStatus } from '@/api/client'
-import { useCodingOptions, useDocument, useUpdateDocument } from '@/api/queries'
+import { useCodingOptions, useDocument, useLocate, useUpdateDocument } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,9 +11,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { QUEUE_LABELS, statusLabel, TYPE_LABELS } from '@/lib/labels'
 
 import { toInvoiceInput } from './formModel'
-import { PageViewer } from './PageViewer'
+import { type Highlight, PageViewer } from './PageViewer'
 import { RejectDialog } from './RejectDialog'
-import { ReviewForm, type ReviewSubmit } from './ReviewForm'
+import { type FieldTarget, ReviewForm, type ReviewSubmit } from './ReviewForm'
 
 /** Documents the accountant may still change (the backend enforces the same). */
 const EDITABLE: ReadonlySet<DocumentStatus> = new Set(['IN_REVIEW', 'NON_POSTABLE'])
@@ -28,6 +28,9 @@ export function DocumentPage() {
   const [dirty, setDirty] = useState(false)
   const onDirtyChange = useCallback((next: boolean) => setDirty(next), [])
   useUnsavedChangesGuard(dirty)
+  const [target, setTarget] = useState<FieldTarget | null>(null)
+  const onTarget = useCallback((next: FieldTarget | null) => setTarget(next), [])
+  const located = useLocate(documentId, target)
 
   if (document.isPending) return <Skeleton className="h-96 w-full" />
   if (document.isError) {
@@ -64,7 +67,11 @@ export function DocumentPage() {
       )}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-8rem)]">
-          <PageViewer documentId={doc.document_id} pageCount={doc.page_count ?? 0} />
+          <PageViewer
+            documentId={doc.document_id}
+            pageCount={doc.page_count ?? 0}
+            highlight={highlightFor(target, located.data?.places, located.isFetching)}
+          />
         </div>
         {/* A new server version (after saving) starts a fresh form with its values. */}
         <ReviewForm
@@ -75,11 +82,23 @@ export function DocumentPage() {
           saving={save.isPending}
           onSave={onSave}
           onDirtyChange={onDirtyChange}
+          onTarget={onTarget}
           actions={doc.status === 'IN_REVIEW' && <RejectDialog documentId={doc.document_id} />}
         />
       </div>
     </div>
   )
+}
+
+/** What the viewer shows for the field being looked at; nothing for an empty field. */
+function highlightFor(
+  target: FieldTarget | null,
+  places: Highlight['places'] | undefined,
+  fetching: boolean,
+): Highlight | null {
+  if (!target || target.value.trim() === '') return null
+  if (fetching || places === undefined) return { label: target.label, state: 'searching', places: [] }
+  return { label: target.label, state: places.length ? 'found' : 'not-found', places }
 }
 
 function Header({ document: doc, onBack }: { document: DocumentDetail; onBack: () => void }) {

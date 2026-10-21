@@ -403,3 +403,29 @@ def test_coding_options_are_the_active_purchase_accounts_and_mapped_tax_types(
     assert "5000" in {a["code"] for a in body["accounts"]}
     assert {a["account_class"] for a in body["accounts"]} <= {"EXPENSE", "ASSET"}
     assert "STANDARD_5" in {t["tax_type"] for t in body["tax_types"]}
+
+
+# --- locate (task 4.6) -----------------------------------------------------------------------
+
+
+def test_locate_returns_where_a_value_is_printed(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage)
+
+    def places(kind: str, value: str) -> Any:
+        return ok(api.get(f"/documents/{doc.id}/locate", params={"kind": kind, "value": value}))[
+            "places"
+        ]
+
+    [total] = places("amount", "1050")
+    assert total["page"] == 1 and len(total["box"]) == 4
+    assert places("date", "2026-10-15") != []
+    assert places("trn", "100999000000001") != []
+    assert places("amount", "1060.00") == []  # not printed
+    assert api.get(f"/documents/{doc.id}/locate", params={"kind": "colour", "value": "x"}
+                   ).status_code == 422  # fmt: skip
+    assert api.get(f"/documents/{uuid.uuid4()}/locate",
+                   params={"kind": "text", "value": "x"}).status_code == 404  # fmt: skip

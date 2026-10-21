@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import {
   Controller,
   type Control,
+  type Path,
   type UseFormRegister,
   type UseFormSetValue,
   useFieldArray,
@@ -10,7 +11,7 @@ import {
   useWatch,
 } from 'react-hook-form'
 
-import type { CodingOptions, DocumentDetail, Issue } from '@/api/client'
+import type { CodingOptions, DocumentDetail, Issue, ValueKind } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -24,6 +25,7 @@ import {
 } from '@/components/ui/select'
 import { TYPE_LABELS } from '@/lib/labels'
 import { formatScaled, parseAmount, sumAmounts, withinTolerance } from '@/lib/money'
+import { useDebounced } from '@/lib/useDebounced'
 import { cn } from '@/lib/utils'
 
 import {
@@ -40,6 +42,27 @@ import {
 } from './formModel'
 
 const NONE = '__none' // Radix Select items cannot have '' as their value
+const LOCATE_DELAY_MS = 300 // wait for a pause in typing before looking the value up
+
+/** The field being looked at, for the page viewer to highlight (task 4.6). */
+export interface FieldTarget {
+  label: string
+  kind: ValueKind
+  value: string
+}
+
+interface ActiveField {
+  name: Path<FormValues>
+  label: string
+  kind: ValueKind
+}
+
+function locateKind(spec: FieldSpec): ValueKind {
+  if (spec.name.endsWith('_trn')) return 'trn'
+  if (spec.kind === 'date') return 'date'
+  if (spec.kind === 'amount') return 'amount'
+  return 'text'
+}
 
 interface FieldSpec {
   name: HeaderField
@@ -90,6 +113,7 @@ export function ReviewForm({
   saving,
   onSave,
   onDirtyChange,
+  onTarget,
   actions,
 }: {
   document: DocumentDetail
@@ -98,6 +122,7 @@ export function ReviewForm({
   saving: boolean
   onSave: (submit: ReviewSubmit) => void
   onDirtyChange?: (dirty: boolean) => void
+  onTarget?: (target: FieldTarget | null) => void
   actions?: ReactNode
 }) {
   const { register, control, handleSubmit, setValue, formState } = useForm<FormValues>({
@@ -110,6 +135,13 @@ export function ReviewForm({
 
   const dirty = formState.isDirty || confirmed.size > 0
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
+
+  const [active, setActive] = useState<ActiveField | null>(null)
+  const watched: unknown = useWatch({ control, name: active?.name ?? 'vendor_name' })
+  const activeValue = useDebounced(active ? String(watched ?? '') : '', LOCATE_DELAY_MS)
+  useEffect(() => {
+    onTarget?.(active ? { label: active.label, kind: active.kind, value: activeValue } : null)
+  }, [active, activeValue, onTarget])
 
   function toggleConfirmed(field: string, on: boolean) {
     const next = new Set(confirmed)
@@ -191,6 +223,7 @@ export function ReviewForm({
                   verified={verified.has(spec.name)}
                   confirmed={confirmed.has(spec.name)}
                   onConfirm={(on) => toggleConfirmed(spec.name, on)}
+                  onFocus={() => setActive(headerTarget(spec))}
                   editable={editable}
                 />
               ))}
@@ -203,6 +236,7 @@ export function ReviewForm({
                   verified={verified.has('original_invoice_ref')}
                   confirmed={confirmed.has('original_invoice_ref')}
                   onConfirm={(on) => toggleConfirmed('original_invoice_ref', on)}
+                  onFocus={() => setActive(headerTarget({ name: 'original_invoice_ref' }))}
                   editable={editable}
                 />
               )}
@@ -219,6 +253,7 @@ export function ReviewForm({
           options={options}
           coding={document.coding}
           editable={editable}
+          onFocusField={setActive}
         />
       </fieldset>
 
@@ -238,6 +273,10 @@ export function ReviewForm({
   )
 }
 
+function headerTarget(spec: FieldSpec): ActiveField {
+  return { name: spec.name, label: FIELD_LABELS[spec.name] ?? spec.name, kind: locateKind(spec) }
+}
+
 function HeaderInput({
   spec,
   register,
@@ -246,6 +285,7 @@ function HeaderInput({
   verified,
   confirmed,
   onConfirm,
+  onFocus,
   editable,
 }: {
   spec: FieldSpec
@@ -255,6 +295,7 @@ function HeaderInput({
   verified: boolean
   confirmed: boolean
   onConfirm: (on: boolean) => void
+  onFocus: () => void
   editable: boolean
 }) {
   const id = `field-${spec.name}`
@@ -279,6 +320,7 @@ function HeaderInput({
           spec.kind === 'amount' && 'text-right tabular-nums',
           level === 'WARNING' && 'border-amber-400 bg-amber-50 dark:bg-amber-500/10',
         )}
+        onFocus={onFocus}
         {...register(spec.name)}
       />
       {issues?.map((issue) => (
@@ -413,6 +455,7 @@ function Lines({
   options,
   coding,
   editable,
+  onFocusField,
 }: {
   control: Control<FormValues>
   register: UseFormRegister<FormValues>
@@ -420,6 +463,7 @@ function Lines({
   options: CodingOptions | undefined
   coding: DocumentDetail['coding']
   editable: boolean
+  onFocusField: (field: ActiveField) => void
 }) {
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
   const lineValues = useWatch({ control, name: 'lines' })
@@ -440,18 +484,26 @@ function Lines({
               ? SOURCE_HINTS[String(suggested.account_source)]
               : undefined
           const unknownAccount = account && !accounts.some((a) => a.code === account)
+          const focus = (name: 'description' | 'qty' | 'unit_price' | 'amount', label: string) => () =>
+            onFocusField({
+              name: `lines.${index}.${name}`,
+              label: `Line ${index + 1} ${label}`,
+              kind: name === 'description' ? 'text' : 'amount',
+            })
           return (
             <li key={field.id} aria-label={`Line ${index + 1}`} className="space-y-2 rounded-lg border p-3">
               <div className="flex items-start gap-2">
                 <span className="pt-2 text-xs text-muted-foreground">{index + 1}</span>
                 <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_5rem_6rem_7rem]">
-                  <Input aria-label="Description" placeholder="Description" {...register(`lines.${index}.description`)} />
+                  <Input aria-label="Description" placeholder="Description"
+                    onFocus={focus('description', 'description')} {...register(`lines.${index}.description`)} />
                   <Input aria-label="Quantity" placeholder="Qty" inputMode="decimal" className="text-right tabular-nums"
-                    {...register(`lines.${index}.qty`)} />
+                    onFocus={focus('qty', 'quantity')} {...register(`lines.${index}.qty`)} />
                   <Input aria-label="Unit price" placeholder="Price" inputMode="decimal" className="text-right tabular-nums"
-                    {...register(`lines.${index}.unit_price`)} />
+                    onFocus={focus('unit_price', 'unit price')} {...register(`lines.${index}.unit_price`)} />
                   <Input aria-label="Amount" placeholder="Amount" inputMode="decimal"
                     aria-invalid={worst(lineIssues('amount')) === 'ERROR' || undefined}
+                    onFocus={focus('amount', 'amount')}
                     className="text-right tabular-nums" {...register(`lines.${index}.amount`)} />
                 </div>
                 {editable && (

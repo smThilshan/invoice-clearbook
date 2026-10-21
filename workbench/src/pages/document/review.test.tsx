@@ -354,3 +354,98 @@ describe('unsaved changes', () => {
     expect(router.state.location.pathname).toBe('/queue')
   })
 })
+
+describe('field highlight', () => {
+  const PLACES: Record<string, unknown> = {
+    'amount:1050.00': [{ page: 1, box: [0.6, 0.8, 0.7, 0.82], exact: true }],
+    'amount:1060.00': [],
+    'trn:100444555666003': [{ page: 2, box: [0.1, 0.2, 0.4, 0.22], exact: true }],
+    'text:Fresh Farms Trading LLC': [{ page: 1, box: [0.1, 0.05, 0.5, 0.08], exact: false }],
+    'amount:400.00': [
+      { page: 1, box: [0.6, 0.5, 0.7, 0.52], exact: true },
+      { page: 2, box: [0.6, 0.1, 0.7, 0.12], exact: true },
+    ],
+  }
+
+  function locatingBackend() {
+    return mockApi({
+      '/health/ready': READY,
+      '/clients': [],
+      [`/documents/${ID}`]: detail(),
+      '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}/locate`]: (request: Request) => {
+        const params = new URL(request.url).searchParams
+        return { places: PLACES[`${params.get('kind')}:${params.get('value')}`] ?? [] }
+      },
+    })
+  }
+
+  async function openLocating() {
+    const api = locatingBackend()
+    renderApp(`/documents/${ID}`)
+    await screen.findByRole('form', { name: 'Review' })
+    return api
+  }
+
+  it('highlights where the focused field is printed', async () => {
+    await openLocating()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByLabelText('Total'))
+
+    const [box] = await screen.findAllByTestId('highlight')
+    expect(box).toHaveStyle({ left: '59.6%', top: '79.6%' })
+    expect(box).toHaveAttribute('data-exact', 'true')
+    expect(screen.getByText('Total:').parentElement).toHaveTextContent('Total: 1 place')
+  })
+
+  it('turns to the page where the value is printed', async () => {
+    await openLocating()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByLabelText('Supplier TRN'))
+
+    await screen.findByTestId('highlight')
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Page 2 of the document' })).toBeInTheDocument()
+  })
+
+  it('says when a value is not printed, and follows what is typed', async () => {
+    const api = await openLocating()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByLabelText('Total'))
+    await screen.findByTestId('highlight')
+    await user.clear(screen.getByLabelText('Total'))
+    await user.type(screen.getByLabelText('Total'), '1060.00')
+
+    expect(await screen.findByText(/not found in the page text/)).toBeInTheDocument()
+    expect(screen.queryByTestId('highlight')).not.toBeInTheDocument()
+    const lookups = api.calls.filter((call) => call.includes('/locate?'))
+    expect(lookups.some((call) => call.includes('value=1060.00'))).toBe(true)
+    expect(lookups.some((call) => call.includes('value=106&'))).toBe(false) // waits for a pause
+  })
+
+  it('marks names found only approximately', async () => {
+    await openLocating()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByLabelText('Supplier'))
+
+    expect(await screen.findByTestId('highlight')).toHaveAttribute('data-exact', 'false')
+    expect(screen.getByText(/dashed: most of the words/)).toBeInTheDocument()
+  })
+
+  it('highlights line values and offers the other pages they are on', async () => {
+    await openLocating()
+    const user = userEvent.setup()
+    const line = within(screen.getByRole('listitem', { name: 'Line 2' }))
+
+    await user.click(line.getByLabelText('Amount'))
+
+    expect(await screen.findByText('Line 2 amount:')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'also on page 2' }))
+    expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()
+    expect(screen.getAllByTestId('highlight')).toHaveLength(1)
+  })
+})

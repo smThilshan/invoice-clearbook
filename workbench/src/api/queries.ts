@@ -5,6 +5,7 @@ import {
   ApiError,
   type DocumentDetail,
   type DocumentUpdate,
+  type ValueKind,
   type QueueQuery,
   type RejectBody,
   type RunCreate,
@@ -19,6 +20,7 @@ export const queryKeys = {
   queues: ['queue'] as const,
   document: (id: string) => ['document', id] as const,
   codingOptions: (clientId: string) => ['coding-options', clientId] as const,
+  locate: (id: string, kind: ValueKind, value: string) => ['locate', id, kind, value] as const,
 }
 
 const READINESS_REFRESH_MS = 30_000
@@ -110,4 +112,21 @@ export function useUpdateDocument() {
 
 export function useRejectDocument() {
   return useDocumentChange<RejectBody>(api.rejectDocument)
+}
+
+export interface LocateTarget {
+  kind: ValueKind
+  value: string
+}
+
+/** Where the active field's value is printed. The pages never change, so each value is asked
+ * once; an empty value asks nothing. */
+export function useLocate(documentId: string, target: LocateTarget | null) {
+  const value = target?.value.trim() ?? ''
+  return useQuery({
+    queryKey: queryKeys.locate(documentId, target?.kind ?? 'text', value),
+    queryFn: () => api.locate(documentId, target?.kind ?? 'text', value),
+    enabled: target !== null && value !== '',
+    staleTime: Infinity,
+  })
 }

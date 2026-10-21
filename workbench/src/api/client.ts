@@ -31,6 +31,9 @@ export type RejectReason = Schemas['RejectReason']
 export type RejectBody = Schemas['RejectBody']
 export type AmountType = Schemas['AmountType']
 export type TaxType = Schemas['TaxType']
+export type ValueKind = Schemas['ValueKind']
+export type Place = Schemas['Place']
+export type Located = Schemas['Located']
 
 export interface QueueQuery {
   client_id: string
@@ -110,6 +113,9 @@ export const api = {
   /** Save the accountant's version; the server runs every check again (no model). */
   updateDocument: (id: string, body: DocumentUpdate) =>
     sendJson<DocumentDetail>('PATCH', documentPath(id), body),
+  /** Where a value is printed on the document (task 4.6). */
+  locate: (id: string, kind: ValueKind, value: string) =>
+    request<Located>(`${documentPath(id)}/locate?${new URLSearchParams({ kind, value })}`),
   rejectDocument: (id: string, body: RejectBody) =>
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
   /** Accounts and tax codes the review form may use (the client's active master data). */

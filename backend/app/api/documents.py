@@ -23,7 +23,8 @@ from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import StaleStatusError
 from app.models import Document
-from app.pipeline.read import PageText
+from app.pipeline.read import PageText, load_page_texts
+from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
 from app.services import review
 from app.services.clients import get_client
@@ -106,6 +107,16 @@ class PageTextOut(BaseModel):
     spans: list[Span]
 
 
+class Place(BaseModel):
+    page: int
+    box: tuple[float, float, float, float]  # x0, y0, x1, y1 as fractions of the page
+    exact: bool  # False: most words of a name found, not all (drawn as approximate)
+
+
+class Located(BaseModel):
+    places: list[Place]  # empty: not printed on the document (or not a valid value)
+
+
 def get_review_storage(settings: Annotated[Settings, Depends(get_settings)]) -> Storage:
     return get_storage(settings)
 
@@ -178,6 +189,25 @@ def get_page_text(
         source=text.source,
         spans=[Span(text=s.text, box=s.box, confidence=s.confidence) for s in text.spans],
     )
+
+
+@router.get("/{document_id}/locate")
+def locate_value(
+    document_id: uuid.UUID,
+    session: SessionDep,
+    storage: StorageDep,
+    kind: ValueKind,
+    value: Annotated[str, Query(max_length=200)],
+) -> Located:
+    """Where `value` is printed on the document, for highlighting a field (task 4.6). The value
+    may be what the accountant is typing, so it is compared the way grounding compares."""
+    document = _found(session, document_id)
+    try:
+        pages = load_page_texts(storage, document)
+    except NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "page text not found") from exc
+    found = locate(pages, kind, value)
+    return Located(places=[Place(page=m.page, box=m.box, exact=m.exact) for m in found])
 
 
 @router.patch("/{document_id}")
