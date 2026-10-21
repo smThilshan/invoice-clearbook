@@ -71,6 +71,10 @@ def test_date_confirmed_by_the_user_wins(client: TestClient) -> None:
     assert body["folder_date"] == str(date(2026, 10, 15))
 
 
+def test_user_can_confirm_there_is_no_folder_date(client: TestClient) -> None:
+    assert start(client, folder="October 2026/21", folder_date=None)["folder_date"] is None
+
+
 def test_whole_client_folder_can_be_run(client: TestClient) -> None:
     assert start(client)["folder"] == ""
 

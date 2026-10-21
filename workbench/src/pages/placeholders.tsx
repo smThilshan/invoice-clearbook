@@ -14,15 +14,6 @@ function Placeholder({ title, description }: { title: string; description: strin
   )
 }
 
-export function RunPage() {
-  return (
-    <Placeholder
-      title="Run"
-      description="Pick a restaurant and a folder, confirm the date, and start processing (task 4.3)."
-    />
-  )
-}
-
 export function QueuePage() {
   return (
     <Placeholder

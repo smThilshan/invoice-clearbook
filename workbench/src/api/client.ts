@@ -8,6 +8,15 @@ import type { components } from './schema'
 export type Schemas = components['schemas']
 export type Readiness = Schemas['Readiness']
 export type ModelStatus = Schemas['ModelStatus']
+export type Restaurant = Schemas['ClientOut']
+export type Folder = Schemas['Folder']
+export type FolderListing = Schemas['FolderListing']
+export type RunCreate = Schemas['RunCreate']
+export type RunAccepted = Schemas['RunAccepted']
+export type RunProgress = Schemas['RunProgressOut']
+export type FileStatus = Schemas['FileStatus']
+export type DocumentStatus = Schemas['DocumentStatus']
+export type DocumentType = Schemas['DocumentType']
 
 export class ApiError extends Error {
   readonly status: number
@@ -46,7 +55,23 @@ async function errorMessage(response: Response): Promise<string> {
   return `${response.status} ${response.statusText}`.trim()
 }
 
+function postJson<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export const api = {
   /** Readiness answers 503 (with the same body) when Postgres or Redis is down. */
   readiness: () => request<Readiness>('/health/ready', { acceptStatuses: [503] }),
+  restaurants: () => request<Restaurant[]>('/clients'),
+  /** Sub-folders of `path` inside the restaurant's shared-drive folder ('' = its top). */
+  folders: (clientId: string, path: string) =>
+    request<FolderListing>(
+      `/clients/${encodeURIComponent(clientId)}/folders?${new URLSearchParams({ path })}`,
+    ),
+  startRun: (body: RunCreate) => postJson<RunAccepted>('/runs', body),
+  run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
 }

@@ -11,6 +11,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
+from typing import Final, Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,6 +31,9 @@ IN_PROGRESS = frozenset(
     }
 )
 QUEUED = "QUEUED"  # listed by the scan, not ingested yet
+FROM_FOLDER: Final[Literal["from_folder"]] = (
+    "from_folder"  # start_run: read the date from the folder name
+)
 
 
 class RunState(StrEnum):
@@ -77,12 +81,13 @@ def start_run(
     *,
     client: Client,
     folder: str = "",
-    folder_date: date | None = None,
+    folder_date: date | Literal["from_folder"] | None = FROM_FOLDER,
     created_by: str | None = None,
 ) -> Run:
     """Create the run row for `folder` (relative to the client's folder; "" = all of it).
-    The date is the user's, else read from the folder name, else none. The caller commits,
-    then enqueues the scan (never before: the worker could start before the row is visible)."""
+    The date is the user's (None: they confirmed there is none), by default read from the
+    folder name. The caller commits, then enqueues the scan (never before: the worker could
+    start before the row is visible)."""
     root = client_root(client)
     path = resolve_inside(root, folder)
     if not path.is_dir():
@@ -92,7 +97,7 @@ def start_run(
         client_id=client.client_id,
         folder=relative,
         direction=Direction.PURCHASE,  # purchase-side by default (decision 25)
-        folder_date=folder_date or folder_date_from_path(relative),
+        folder_date=folder_date_from_path(relative) if folder_date == FROM_FOLDER else folder_date,
         created_by=created_by,
     )
     session.add(run)

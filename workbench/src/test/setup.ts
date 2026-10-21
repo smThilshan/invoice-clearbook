@@ -7,3 +7,13 @@ import { afterEach } from 'vitest'
 afterEach(() => {
   cleanup()
 })
+
+// Radix (Select and other popovers) calls these browser APIs, which jsdom does not have.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+  Element.prototype.releasePointerCapture = () => {}
+  Element.prototype.setPointerCapture = () => {}
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {}
+}

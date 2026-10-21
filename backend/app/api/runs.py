@@ -18,7 +18,7 @@ from app.domain.enums import DocumentType
 from app.models import Run, RunStatus
 from app.pipeline.folders import InboxError
 from app.services.clients import get_client
-from app.services.runs import RunState, run_progress, start_run
+from app.services.runs import FROM_FOLDER, RunState, run_progress, start_run
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -27,7 +27,9 @@ class RunCreate(BaseModel):
     client_id: str
     folder: str = Field(default="", description="Inside the client's folder; '' = all of it")
     folder_date: date | None = Field(
-        default=None, description="Confirmed on the Run screen; default: read from the folder"
+        default=None,
+        description="Confirmed on the Run screen; null = no folder date. "
+        "Left out: read from the folder name.",
     )
 
 
@@ -78,7 +80,8 @@ def create_run(
     if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     try:
-        run = start_run(session, client=client, folder=body.folder, folder_date=body.folder_date)
+        folder_date = body.folder_date if "folder_date" in body.model_fields_set else FROM_FOLDER
+        run = start_run(session, client=client, folder=body.folder, folder_date=folder_date)
         session.commit()
     except InboxError as exc:
         session.rollback()

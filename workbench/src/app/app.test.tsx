@@ -3,9 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { Readiness } from '@/api/client'
-import { mockFetch, renderApp } from '@/test/render'
+import { mockApi, renderApp, reply } from '@/test/render'
 
 const ALL_OK: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
+
+function mockReadiness(readiness: Readiness, status = 200) {
+  mockApi({ '/health/ready': reply(status, readiness), '/clients': [] })
+}
 const realFetch = globalThis.fetch
 
 afterEach(() => {
@@ -14,7 +18,7 @@ afterEach(() => {
 
 describe('layout and navigation', () => {
   it('opens on the Run page', async () => {
-    mockFetch(ALL_OK)
+    mockReadiness(ALL_OK)
     const router = renderApp('/')
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/run'))
@@ -23,7 +27,7 @@ describe('layout and navigation', () => {
   })
 
   it('navigates to the review queue', async () => {
-    mockFetch(ALL_OK)
+    mockReadiness(ALL_OK)
     const router = renderApp('/run')
 
     await userEvent.click(screen.getByRole('link', { name: /review queue/i }))
@@ -33,7 +37,7 @@ describe('layout and navigation', () => {
   })
 
   it('shows a not-found page for unknown paths', () => {
-    mockFetch(ALL_OK)
+    mockReadiness(ALL_OK)
     renderApp('/nowhere')
 
     expect(screen.getByRole('heading', { name: /page not found/i })).toBeInTheDocument()
@@ -42,7 +46,7 @@ describe('layout and navigation', () => {
 
 describe('system status', () => {
   it('shows every dependency as ready', async () => {
-    mockFetch(ALL_OK)
+    mockReadiness(ALL_OK)
     renderApp('/run')
 
     const status = await screen.findByRole('list', { name: /system status/i })
@@ -52,7 +56,7 @@ describe('system status', () => {
   })
 
   it('shows what is down when readiness answers 503', async () => {
-    mockFetch({ ...ALL_OK, status: 'unavailable', database: 'unavailable' }, 503)
+    mockReadiness({ ...ALL_OK, status: 'unavailable', database: 'unavailable' }, 503)
     renderApp('/run')
 
     const status = await screen.findByRole('list', { name: /system status/i })
@@ -61,7 +65,7 @@ describe('system status', () => {
   })
 
   it('explains a wrong model variant', async () => {
-    mockFetch({ ...ALL_OK, model: 'incompatible' })
+    mockReadiness({ ...ALL_OK, model: 'incompatible' })
     renderApp('/run')
 
     expect(await screen.findByText(/AI model: Wrong model \(needs Instruct\)/)).toBeInTheDocument()

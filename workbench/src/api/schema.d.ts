@@ -728,7 +728,7 @@ export interface components {
             folder: string;
             /**
              * Folder Date
-             * @description Confirmed on the Run screen; default: read from the folder
+             * @description Confirmed on the Run screen; null = no folder date. Left out: read from the folder name.
              */
             folder_date?: string | null;
         };
