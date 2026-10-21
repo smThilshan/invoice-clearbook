@@ -88,6 +88,9 @@ class Settings(BaseSettings):
     # Supplier name match (pg_trgm similarity 0-1): match at or above, suggest at or above.
     vendor_match_min_similarity: float = Field(default=0.6, gt=0, le=1)
     vendor_suggest_min_similarity: float = Field(default=0.35, gt=0, le=1)
+    # Coding (task 3.6): a supplier's learned account is used after this many consistent
+    # approvals; before that the model suggests one (architecture §9).
+    coding_min_consistent_approvals: int = Field(default=2, ge=1)
 
     @field_validator("inbox_dir", "store_dir", "ocr_models_dir")
     @classmethod

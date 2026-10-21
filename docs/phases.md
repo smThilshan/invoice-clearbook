@@ -41,7 +41,7 @@ Goal: every document has codes and a clear status with reasons.
 - [x] **3.3 Grounding** — key values checked against document text
 - [x] **3.4 Duplicate check** — business key unique constraint; duplicates → Exception
 - [x] **3.5 Vendor match** — TRN first, then pg_trgm fuzzy name against master-data contacts
-- [ ] **3.6 Coding** — vendor mapping → Qwen suggestion; store source + confidence per line
+- [x] **3.6 Coding** — vendor mapping → Qwen suggestion; store source + confidence per line
 - [ ] **3.7 Type check** — folder vs content signals; conflict → Exception; non-postables parked
 - [ ] **3.8 Verify step** — run all above, set Ready / Check / Exception, move to `IN_REVIEW`
 

@@ -53,6 +53,9 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
     # Current working copy of the Invoice: the latest extraction plus accountant edits.
     invoice: Mapped[dict[str, Any] | None]
     issues: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    # Per line: suggested account/tax code with its source and confidence (task 3.6). The
+    # codes themselves are in `invoice.lines`; this says where they came from.
+    coding: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     vendor_key: Mapped[str | None] = mapped_column(String(255))
     business_key: Mapped[str | None] = mapped_column(String(255))
     # The known supplier (master data) this document was matched to; null = new or unmatched.
