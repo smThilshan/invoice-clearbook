@@ -167,4 +167,7 @@ def test_tax_type_without_a_mapped_rate_is_warned(session: Session, chart: Chart
 def test_non_postables_are_not_coded(session: Session, chart: ChartOfAccounts) -> None:
     quote = receipt("Rice", document_type=DocumentType.NON_POSTABLE)
 
-    assert code(session, chart, quote, FakeCoder()) == CodingResult([], [])
+    result = code(session, chart, quote, FakeCoder())
+
+    assert result == CodingResult([], [])
+    assert result.apply(quote) == quote  # its lines stay as extracted, uncoded

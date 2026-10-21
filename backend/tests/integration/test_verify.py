@@ -161,13 +161,16 @@ def test_second_copy_is_a_duplicate_exception(session: Session, storage: LocalSt
 
 
 def test_quotation_confirmed_by_title_is_parked(session: Session, storage: LocalStorage) -> None:
-    quote = Invoice(document_type=DocumentType.NON_POSTABLE, vendor_name="Al Waha Hypermarket LLC")
+    quote = Invoice(document_type=DocumentType.NON_POSTABLE, vendor_name="Al Waha Hypermarket LLC",
+                    lines=[Line(description="Rice 5kg", amount=Decimal("600.00"))])  # fmt: skip
     doc = extracted(session, storage, quote, text="QUOTATION\nRice 5kg 600.00")
 
     result = verify(session, storage, doc)
 
     assert result.outcome is VerifyOutcome.PARKED
     assert doc.status is S.NON_POSTABLE
+    assert doc.invoice is not None and doc.invoice["lines"][0]["account_code"] is None
+    assert doc.coding == []
 
 
 def test_only_extracted_documents_are_verified(session: Session, storage: LocalStorage) -> None:

@@ -99,7 +99,10 @@ class CodingResult:
 
     def apply(self, invoice: Invoice) -> Invoice:
         """The invoice with the suggested codes on its lines (a new object; rule 8: the
-        extracted values themselves are untouched)."""
+        extracted values themselves are untouched). Nothing coded (non-postable documents):
+        the invoice as it is."""
+        if not self.lines:
+            return invoice
         coded = [
             line.model_copy(update={"account_code": c.account_code, "tax_type": c.tax_type})
             for line, c in zip(invoice.lines, self.lines, strict=True)
