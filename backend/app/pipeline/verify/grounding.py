@@ -24,11 +24,14 @@ from app.domain.invoice import Invoice
 from app.pipeline.read import PageText
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import (
+    OCR_DIGITS,
     find_amounts,
     find_dates,
+    fold_ocr_digits,
     normalize_trn,
     to_ascii_digits,
 )
+from app.pipeline.verify.trn_finder import PrintedTrns, find_printed_trns
 
 _AMOUNT_FIELDS = {"total": "total", "subtotal": "subtotal", "vat": "VAT amount"}
 _DATE_FIELDS = {
@@ -36,9 +39,6 @@ _DATE_FIELDS = {
     "due_date": ("due date", Severity.WARNING),
 }
 
-# Letters OCR mistakes for digits, only when they touch a digit or a number separator.
-_OCR_DIGITS = str.maketrans("OoQDlIiSsBZz", "000011155822")
-_CONFUSABLE_NEAR_DIGIT = re.compile(r"(?<=[\d.,])[OoQDlIiSsBZz]|[OoQDlIiSsBZz](?=[\d.,])")
 _DIGIT_RUN = re.compile(r"\d(?:[\d \-]*\d)?")
 
 # Decision 17: a number label on the page while no number was extracted -> likely missed.
@@ -71,20 +71,20 @@ def check_grounding(
         *_amounts(invoice, witness),
         *_dates(invoice, witness),
         *_number(invoice, witness),
-        *_trn(invoice, witness),
+        *_trn(invoice, witness, find_printed_trns(pages)),
     ]
     return [issue for issue in issues if issue.field not in verified]
 
 
 def _witness(pages: Sequence[PageText]) -> _Witness:
     exact = "\n".join(page.text for page in pages)
-    ocr = "\n".join(_fold_ocr_digits(page.text) for page in pages if page.source == "ocr")
+    ocr = "\n".join(fold_ocr_digits(page.text) for page in pages if page.source == "ocr")
     both = to_ascii_digits(f"{exact}\n{ocr}")
     return _Witness(
         amounts=find_amounts(both),
         dates=find_dates(both),
         compact=_compact(exact),
-        compact_ocr=_compact(ocr).translate(_OCR_DIGITS),
+        compact_ocr=_compact(ocr).translate(OCR_DIGITS),
         digit_runs={re.sub(r"\D", "", run) for run in _DIGIT_RUN.findall(both)},
         raw=exact,
     )
@@ -126,29 +126,44 @@ def _number(invoice: Invoice, witness: _Witness) -> list[Issue]:
         return []
     wanted = _compact(number)
     found = bool(wanted) and (
-        wanted in witness.compact or wanted.translate(_OCR_DIGITS) in witness.compact_ocr
+        wanted in witness.compact or wanted.translate(OCR_DIGITS) in witness.compact_ocr
     )
     return (
         [] if found else [_not_found("invoice_number", "document number", number, Severity.ERROR)]
     )
 
 
-def _trn(invoice: Invoice, witness: _Witness) -> list[Issue]:
-    if invoice.vendor_trn is None:
-        return []
-    digits = normalize_trn(invoice.vendor_trn)
-    if digits and digits in witness.digit_runs:
-        return []
-    return [_not_found("vendor_trn", "supplier TRN", invoice.vendor_trn, Severity.ERROR)]
+def _trn(invoice: Invoice, witness: _Witness, printed: PrintedTrns) -> list[Issue]:
+    """Against the TRNs our own finder read next to their labels (decision 29) when it found
+    them; otherwise the value must at least appear somewhere on the document."""
+    issues = []
+    if printed.supplier is not None:
+        issues += _against_printed(invoice.vendor_trn, printed.supplier, "vendor_trn",
+                                   "supplier", Severity.ERROR)  # fmt: skip
+    elif invoice.vendor_trn is not None:
+        digits = normalize_trn(invoice.vendor_trn)
+        if not (digits and digits in witness.digit_runs):
+            issues.append(
+                _not_found("vendor_trn", "supplier TRN", invoice.vendor_trn, Severity.ERROR)
+            )
+    if printed.customer is not None:
+        issues += _against_printed(invoice.recipient_trn, printed.customer, "recipient_trn",
+                                   "customer", Severity.WARNING)  # fmt: skip
+    return issues
 
 
-def _fold_ocr_digits(text: str) -> str:
-    """'1,O5O.1O' -> '1,050.10'. Repeated, because each fix can expose a neighbour."""
-    previous = None
-    while previous != text:
-        previous = text
-        text = _CONFUSABLE_NEAR_DIGIT.sub(lambda m: m.group().translate(_OCR_DIGITS), text)
-    return text
+def _against_printed(
+    value: str | None, printed: str, field: str, whose: str, severity: Severity
+) -> list[Issue]:
+    if value is None:
+        return [Issue("trn_not_extracted", severity, field,
+                      f"The {whose} TRN {printed} is printed on the document but was not "
+                      "extracted.", suggestion=printed)]  # fmt: skip
+    if normalize_trn(value) != printed:
+        return [Issue("trn_differs_from_printed", severity, field,
+                      f"The {whose} TRN printed on the document is {printed}, not {value}.",
+                      suggestion=printed)]  # fmt: skip
+    return []
 
 
 def _compact(text: str) -> str:

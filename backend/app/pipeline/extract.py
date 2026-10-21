@@ -40,7 +40,8 @@ ACTOR = "system:extract"
 # Bump when the prompt or the extraction schema changes; stored with every extraction.
 # v2: currency signs (UAE dirham sign introduced 2025, after most model training data).
 # v3: dates copied as printed, converted by our parser (decision 28).
-PROMPT_VERSION = "extract-v3"
+# v4: where each TRN is and what is not a TRN (decision 29).
+PROMPT_VERSION = "extract-v4"
 
 EXTRACTION_SCHEMA = build_model_schema(line_coding=False)
 
@@ -59,6 +60,10 @@ Rules:
 - currency as a 3-letter code. The UAE dirham sign (a letter D crossed by two horizontal bars,
   printed before the amount; OCR may show it as D) means AED. The Saudi riyal sign means SAR.
   "Dh", "Dhs" and the Arabic dirham abbreviation also mean AED.
+- TRN (UAE tax registration number) is always exactly 15 digits. It may be labelled TRN,
+  VAT Registration No or Tax Registration No. vendor_trn is the seller's, usually in the header
+  near its name; recipient_trn is the buyer's, in the customer / bill-to block. Never use an
+  excise, licence, phone or customer account number as a TRN. If a TRN is not printed, use null.
 - original_invoice_ref only for credit or debit notes that refer to an earlier invoice.
 - evidence: for invoice_number, invoice_date, total, vat and vendor_trn, copy the exact text you
   read each value from."""

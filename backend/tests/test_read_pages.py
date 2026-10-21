@@ -2,7 +2,7 @@ import pytest
 
 from app.adapters.ocr import Image, OcrEngine, RecognizedText
 from app.pipeline.read import PageText, TextSpan, UnreadableError, read_pages
-from tests.read_fixtures import digital_pdf, jpeg, scanned_pdf
+from tests.read_fixtures import digital_pdf, jpeg, scanned_pdf, scanned_pdf_with_text
 
 
 class FakeOcr:
@@ -41,6 +41,16 @@ def test_digital_pdf_uses_text_layer_and_never_ocr() -> None:
     assert max(image.shape[:2]) == 1500
     assert all(span.confidence is None for span in text.spans)
     assert all(0 <= v <= 1 for span in text.spans for v in span.box)
+
+
+def test_scanner_text_layer_is_used_but_marked_as_ocr() -> None:
+    ocr = FakeOcr()
+
+    [(_, text)] = read(scanned_pdf_with_text(), "application/pdf", ocr)
+
+    assert ocr.calls == 0  # the scanner's text is used: no second OCR
+    assert text.source == "ocr"  # but checks allow for OCR mistakes (decision 29)
+    assert "INV-00291" in text.text
 
 
 def test_scanned_pdf_pages_go_through_ocr() -> None:

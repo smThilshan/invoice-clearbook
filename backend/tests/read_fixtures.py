@@ -37,6 +37,16 @@ def scanned_pdf(pages: int = 1) -> bytes:
     return bytes(doc.tobytes())
 
 
+def scanned_pdf_with_text() -> bytes:
+    """A scanner's PDF: the page picture over the whole page, plus the scanner's own text."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    for i, line in enumerate(INVOICE_LINES):
+        page.insert_text((60, 80 + i * 40), line, fontsize=18)
+    page.insert_image(page.rect, stream=page_png(), keep_proportion=False)
+    return bytes(doc.tobytes())
+
+
 def jpeg(width: int, height: int, *, exif_orientation: int | None = None) -> bytes:
     """Plain JPEG; orientation 6 = 'rotate 90° clockwise to display' (phone held upright)."""
     image = PILImage.new("RGB", (width, height), "white")

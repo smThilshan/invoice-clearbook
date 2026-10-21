@@ -122,3 +122,9 @@ def test_money_stays_exact_after_reading_the_answer() -> None:
 def test_prompt_asks_for_dates_as_printed() -> None:
     assert "Dates exactly as printed" in SYSTEM_PROMPT
     assert "YYYY-MM-DD" not in SYSTEM_PROMPT
+
+
+def test_prompt_says_where_trns_are_and_what_is_not_one() -> None:
+    assert "exactly 15 digits" in SYSTEM_PROMPT
+    assert "VAT Registration No" in SYSTEM_PROMPT
+    assert "excise" in SYSTEM_PROMPT

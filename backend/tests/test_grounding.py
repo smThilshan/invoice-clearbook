@@ -58,7 +58,6 @@ def test_values_printed_on_the_document_are_grounded() -> None:
         ("vat", Decimal("55.00")),
         ("invoice_date", date(2026, 10, 16)),
         ("invoice_number", "INV-00292"),
-        ("vendor_trn", "100999000000002"),
     ],
 )
 def test_value_not_on_document_is_an_error(field: str, value: object) -> None:
@@ -66,6 +65,23 @@ def test_value_not_on_document_is_an_error(field: str, value: object) -> None:
 
     assert (issue.code, issue.severity, issue.field) == ("not_on_document", Severity.ERROR, field)
     assert str(value) in issue.message
+
+
+def test_supplier_trn_differing_from_the_labelled_one_offers_the_printed_one() -> None:
+    [issue] = issues_for(invoice(vendor_trn="100999000000002"))  # page: "TRN 100-9990-0000-0001"
+
+    assert (issue.code, issue.severity, issue.field) == (
+        "trn_differs_from_printed", Severity.ERROR, "vendor_trn"
+    )  # fmt: skip
+    assert issue.suggestion == "100999000000001"
+
+
+def test_supplier_trn_without_a_label_must_still_be_on_the_document() -> None:
+    unlabelled = page(PRINTED.replace("TRN 100-9990-0000-0001", "100-9990-0000-0001"))
+
+    [issue] = issues_for(invoice(vendor_trn="100999000000002"), unlabelled)
+
+    assert (issue.code, issue.field, issue.suggestion) == ("not_on_document", "vendor_trn", None)
 
 
 def test_due_date_not_printed_is_only_a_warning() -> None:

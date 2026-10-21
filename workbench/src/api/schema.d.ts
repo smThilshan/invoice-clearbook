@@ -581,6 +581,8 @@ export interface components {
              * @enum {string}
              */
             severity: "ERROR" | "WARNING";
+            /** Suggestion */
+            suggestion?: string | null;
         };
         /** Line */
         "Line-Input": {

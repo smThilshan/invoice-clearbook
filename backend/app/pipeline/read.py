@@ -1,6 +1,9 @@
 """Read (architecture §4, step 3): every page becomes an image plus text with positions.
 
 - Digital PDF page: the text layer (PyMuPDF), exact and fast.
+- Scanned PDF page with a text layer added by the scanner (one picture covers the page): that
+  text is used, but it is OCR text, with OCR mistakes (S for 5), so it is marked "ocr" and the
+  checks allow for them (decision 29).
 - Scanned page or photo: OCR on the page image. Photos are turned upright from their EXIF
   orientation first (phone photos of receipts are often sideways).
 Per page, Storage gets a PNG (for the model and the Workbench viewer) and a JSON with text spans
@@ -30,6 +33,8 @@ from app.models import Document
 logger = logging.getLogger(__name__)
 
 ACTOR = "system:read"
+# A picture covering at least this share of a PDF page makes it a scan.
+SCAN_COVERAGE = 0.9
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +49,7 @@ class PageText:
     page: int  # 1-based
     width: int  # page image size in pixels
     height: int
-    source: Literal["text_layer", "ocr"]
+    source: Literal["text_layer", "ocr"]  # "ocr": ours or a scanner's, may misread characters
     spans: list[TextSpan] = field(default_factory=list)
 
     @property
@@ -198,7 +203,17 @@ def _text_layer(page: pymupdf.Page, image: Image, number: int, min_chars: int) -
     spans = [
         TextSpan(w[4], _fractions((w[0], w[1], w[2], w[3]), width, height), None) for w in words
     ]
-    return PageText(number, image.shape[1], image.shape[0], "text_layer", spans)
+    source: Literal["text_layer", "ocr"] = "ocr" if _is_scan(page) else "text_layer"
+    return PageText(number, image.shape[1], image.shape[0], source, spans)
+
+
+def _is_scan(page: pymupdf.Page) -> bool:
+    """One picture covers (almost) the whole page: a scan, so its text came from a scanner's OCR."""
+    area = page.rect.get_area()
+    return area > 0 and any(
+        (pymupdf.Rect(info["bbox"]) & page.rect).get_area() >= SCAN_COVERAGE * area
+        for info in page.get_image_info()
+    )
 
 
 def _ocr(engine: OcrEngine, image: Image, number: int) -> PageText:

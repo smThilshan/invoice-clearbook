@@ -37,6 +37,7 @@ class IssueOut(BaseModel):
     severity: Literal["ERROR", "WARNING"]
     field: str | None
     message: str
+    suggestion: str | None = None  # the value printed on the document, to offer in review
 
 
 class DocumentSummary(BaseModel):

@@ -28,6 +28,21 @@ _TO_ASCII = str.maketrans(
 _NUMBER = re.compile(r"\d[\d,.]*\d|\d")
 
 
+# Letters OCR mistakes for digits ("1,O5O.1O", "100S"), only when they touch a digit or a number
+# separator. Used on OCR text only (ours or a scanner's): an exact text layer gets no tolerance.
+OCR_DIGITS = str.maketrans("OoQDlIiSsBZz", "000011155822")
+_CONFUSABLE_NEAR_DIGIT = re.compile(r"(?<=[\d.,])[OoQDlIiSsBZz]|[OoQDlIiSsBZz](?=[\d.,])")
+
+
+def fold_ocr_digits(text: str) -> str:
+    """'1,O5O.1O' -> '1,050.10'. Repeated, because each fix can expose a neighbour."""
+    previous = None
+    while previous != text:
+        previous = text
+        text = _CONFUSABLE_NEAR_DIGIT.sub(lambda m: m.group().translate(OCR_DIGITS), text)
+    return text
+
+
 def to_ascii_digits(text: str) -> str:
     return text.translate(_TO_ASCII)
 

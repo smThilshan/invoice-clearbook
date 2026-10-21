@@ -21,6 +21,9 @@ class Issue:
     severity: Severity
     field: str | None  # e.g. "total", "lines[2].amount"; None = whole document
     message: str
+    # The value printed on the document, when a check read it itself (e.g. the supplier TRN):
+    # offered to the accountant in review, never applied automatically (rule 8).
+    suggestion: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
