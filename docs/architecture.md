@@ -214,7 +214,8 @@ Daily reconciliation: count + total per day vs the accounting system.
 - The accounting system receives data only, no attachment. Missan's folders remain the official archive.
 
 ## 15. Security
-- **[MVP]** Everything local; model via local Ollama; secrets in `.env` (not committed); no sensitive values in logs; basic JWT auth with roles (reviewer, approver, admin).
+- **[MVP]** Everything local; model via local Ollama; secrets in `.env` (not committed); no sensitive values in logs.
+- **[Phase 6, decision 26]** Basic JWT auth with roles (reviewer, approver, admin). Deferred until after pilot testing; until then the API and Workbench run on one machine and listen on localhost only.
 - **[LATER]** Firewall (outbound to the accounting system's API only), TLS, disk + bucket encryption, Vault/Docker secrets, SSO/MFA, append-only audit log enforced at DB level, ClamAV, fraud alerts, masked logs in self-hosted Loki.
 - Prompt injection: hidden text cannot change outputs beyond the schema; grounding, validation and human review catch the rest.
 

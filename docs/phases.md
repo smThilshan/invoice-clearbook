@@ -51,9 +51,9 @@ Done when: every extracted document has issues, codes and a queue category.
 ## Phase 4 — Review Workbench (Day 8–10)
 Goal: an accountant reviews and approves without touching the DB.
 
-- [ ] **4.1 Workbench skeleton** — Vite + React + TS, routing, API client, TanStack Query, basic layout, login (JWT)
-- [ ] **4.2 Backend review API** — master data import endpoint (from 1.5); list queue, get document (data + issues + page images + word boxes), update fields, approve, reject; JWT roles
-- [ ] **4.3 Run screen** — pick folder + date, Run, progress
+- [ ] **4.1 Workbench skeleton** — Vite + React + TS (strict), shadcn/ui (Tailwind + Radix), routing, typed API client generated from the backend's OpenAPI, TanStack Query, basic layout, system status; no login yet (decision 26)
+- [ ] **4.2 Backend review API** — master data import endpoint (from 1.5); list queue, get document (data + issues + page images + word boxes), update fields, approve, reject
+- [ ] **4.3 Run screen** — pick restaurant, browse folders, confirm date, Run, progress
 - [ ] **4.4 Queue screen** — table sorted Exception → Check → Ready, filters
 - [ ] **4.5 Review screen** — PDF/image viewer left, form right (header + lines), flagged fields yellow with reason, code dropdowns with source hint, live totals
 - [ ] **4.6 Field highlight** — click field → highlight word box on the page
@@ -86,7 +86,8 @@ retries never double-post.
 ## After the MVP
 
 ### Phase 6 — Go live on Missan's setup (Week 4)
-GPU server + vLLM serving Qwen3-VL-4B; Missan's real accounting system connected; users and roles; daily use, all `SUBMITTED`.
+**First: login & roles (decision 26)** — `users` table (Missan staff, access to all restaurants), Argon2-hashed passwords, JWT with expiry, roles reviewer / approver / admin, `make add-user`, every endpoint except health requires login, approve requires approver; then the API may listen beyond localhost.
+GPU server + vLLM serving Qwen3-VL-4B; Missan's real accounting system connected; daily use, all `SUBMITTED`.
 Done when: real invoices flow daily on the production server.
 
 ### Phase 7 — Safety and control (Week 5–6)
