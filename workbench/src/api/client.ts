@@ -17,6 +17,18 @@ export type RunProgress = Schemas['RunProgressOut']
 export type FileStatus = Schemas['FileStatus']
 export type DocumentStatus = Schemas['DocumentStatus']
 export type DocumentType = Schemas['DocumentType']
+export type QueueCategory = Schemas['QueueCategory']
+export type DocumentSummary = Schemas['DocumentSummary']
+export type QueuePage = Schemas['QueuePageOut']
+
+export interface QueueQuery {
+  client_id: string
+  queue?: QueueCategory
+  status?: DocumentStatus
+  run_id?: string
+  limit: number
+  offset: number
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -74,4 +86,15 @@ export const api = {
     ),
   startRun: (body: RunCreate) => postJson<RunAccepted>('/runs', body),
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
+  /** Exception first, then Check, then Ready; oldest first inside each. */
+  queue: (query: QueueQuery) => request<QueuePage>(`/documents?${searchParams(query)}`),
+}
+
+/** Query string from an object; undefined values are left out. */
+function searchParams(values: object): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) params.set(key, String(value))
+  }
+  return params
 }

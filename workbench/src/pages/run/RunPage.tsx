@@ -3,19 +3,13 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import type { Folder, Restaurant } from '@/api/client'
-import { useFolders, useRestaurants, useStartRun } from '@/api/queries'
+import { useFolders, useStartRun } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
+import { RestaurantSelect } from '@/components/RestaurantSelect'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDate } from '@/lib/labels'
 
@@ -28,7 +22,6 @@ interface Crumb {
 
 /** Pick a restaurant and a folder, confirm the date, start the run (task 4.3). */
 export function RunPage() {
-  const restaurants = useRestaurants()
   const [restaurant, setRestaurant] = useState<Restaurant>()
   const [crumbs, setCrumbs] = useState<Crumb[]>([])
   const [date, setDate] = useState('')
@@ -38,10 +31,9 @@ export function RunPage() {
   const current = crumbs.at(-1)
   const folderDate = current?.date ?? null
 
-  function pickRestaurant(clientId: string) {
-    const picked = restaurants.data?.find((r) => r.client_id === clientId)
+  function pickRestaurant(picked: Restaurant) {
     setRestaurant(picked)
-    setCrumbs(picked ? [{ name: picked.name, path: '', date: null }] : [])
+    setCrumbs([{ name: picked.name, path: '', date: null }])
     setDate('')
     startRun.reset()
   }
@@ -75,28 +67,7 @@ export function RunPage() {
           <CardTitle>1. Restaurant</CardTitle>
         </CardHeader>
         <CardContent>
-          {restaurants.isPending ? (
-            <Skeleton className="h-8 w-72" />
-          ) : restaurants.isError ? (
-            <ErrorAlert title="Restaurants could not be loaded" error={restaurants.error} />
-          ) : restaurants.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No restaurants yet: add one with <code>make add-client</code>.
-            </p>
-          ) : (
-            <Select value={restaurant?.client_id ?? ''} onValueChange={pickRestaurant}>
-              <SelectTrigger className="w-72" aria-label="Restaurant">
-                <SelectValue placeholder="Choose a restaurant" />
-              </SelectTrigger>
-              <SelectContent>
-                {restaurants.data.map((r) => (
-                  <SelectItem key={r.client_id} value={r.client_id}>
-                    {r.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <RestaurantSelect value={restaurant?.client_id} onChange={pickRestaurant} />
         </CardContent>
       </Card>
 

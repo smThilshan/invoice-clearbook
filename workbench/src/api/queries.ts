@@ -1,16 +1,18 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 
-import { api, ApiError, type RunCreate } from './client'
+import { api, ApiError, type QueueQuery, type RunCreate } from './client'
 
 export const queryKeys = {
   readiness: ['readiness'] as const,
   restaurants: ['restaurants'] as const,
   folders: (clientId: string, path: string) => ['folders', clientId, path] as const,
   run: (runId: string) => ['run', runId] as const,
+  queue: (query: QueueQuery) => ['queue', query] as const,
 }
 
 const READINESS_REFRESH_MS = 30_000
 export const RUN_REFRESH_MS = 3_000
+export const QUEUE_REFRESH_MS = 30_000
 
 /** System status, refreshed every 30 seconds while the Workbench is open. */
 export function useReadiness() {
@@ -50,5 +52,17 @@ export function useRun(runId: string) {
       if (query.state.error instanceof ApiError && query.state.error.status === 404) return false
       return RUN_REFRESH_MS
     },
+  })
+}
+
+/** One page of the review queue; refreshed so documents of a running run appear by themselves.
+ * The previous page stays on screen while the next one loads (no flicker when paging). */
+export function useQueue(query: QueueQuery | undefined) {
+  return useQuery({
+    queryKey: queryKeys.queue(query ?? { client_id: '', limit: 0, offset: 0 }),
+    queryFn: () => api.queue(query as QueueQuery),
+    enabled: query !== undefined,
+    refetchInterval: QUEUE_REFRESH_MS,
+    placeholderData: keepPreviousData,
   })
 }

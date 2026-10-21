@@ -1,5 +1,5 @@
 /** Words the accountants see for backend codes. One place, so every screen says the same. */
-import type { DocumentStatus, DocumentType } from '@/api/client'
+import type { DocumentStatus, DocumentType, QueueCategory } from '@/api/client'
 
 /** QUEUED: found by the folder scan, not taken in yet (run progress only). */
 export type FileStatusCode = DocumentStatus | 'QUEUED'
@@ -32,6 +32,12 @@ export const TYPE_LABELS: Record<DocumentType, string> = {
   NON_POSTABLE: 'Not postable',
 }
 
+export const QUEUE_LABELS: Record<QueueCategory, string> = {
+  EXCEPTION: 'Exception',
+  CHECK: 'Check',
+  READY: 'Ready',
+}
+
 /** Still moving through read, extract and check. */
 export const WORKING: ReadonlySet<string> = new Set([
   'QUEUED',
@@ -49,6 +55,26 @@ export function statusLabel(status: string): string {
 export function formatDate(iso: string): string {
   const [year, month, day] = iso.split('-').map(Number)
   if (!year || !month || !day) return iso
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  return `${day} ${months[month - 1] ?? ''} ${year}`
+  return `${day} ${MONTHS[month - 1] ?? ''} ${year}`
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** A server timestamp in this computer's time: 21 Oct 2026 14:50. */
+export function formatDateTime(iso: string): string {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return iso
+  const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  return `${at.getDate()} ${MONTHS[at.getMonth()] ?? ''} ${at.getFullYear()} ${time}`
+}
+
+/**
+ * "1050.5" -> "1,050.5". Works on the text the server sent: money is never turned into a
+ * JavaScript number, so nothing is rounded (rule 1).
+ */
+export function formatAmount(amount: string): string {
+  const match = /^(-?)(\d+)(\.\d+)?$/.exec(amount)
+  if (!match) return amount
+  const [, sign = '', whole = '', fraction = ''] = match
+  return `${sign}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction}`
 }
