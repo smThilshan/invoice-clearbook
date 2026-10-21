@@ -7,7 +7,8 @@
   the document; giving a parked document a postable type brings it back to review.
 - Reject: a reason from a fixed list, so rejections can be counted and learned from.
 
-Approve comes with the outbox in task 4.8; the correction history in task 4.7. No login yet
+Every save also brings the document's corrections up to date (task 4.7). Approve comes with
+the outbox in task 4.8. No login yet
 (decision 26): changes are recorded as made by the Workbench.
 """
 
@@ -30,6 +31,7 @@ from app.domain.state_machine import transition
 from app.models import Document
 from app.pipeline.verify.issues import Severity
 from app.pipeline.verify.step import Assessment, recheck_document, working_copy
+from app.services.corrections import sync_corrections
 
 ACTOR: Final = "workbench"  # until login (decision 26)
 EDITABLE: Final = frozenset({DocumentStatus.IN_REVIEW, DocumentStatus.NON_POSTABLE})
@@ -128,7 +130,9 @@ def update_document(
     elif document.status is DocumentStatus.NON_POSTABLE and not parked:
         transition(session, document, DocumentStatus.IN_REVIEW, actor=ACTOR,
                    reason=f"type changed to {invoice.document_type.value} in review")  # fmt: skip
-    return recheck_document(session, storage, document, settings=settings, today=today)
+    assessment = recheck_document(session, storage, document, settings=settings, today=today)
+    sync_corrections(session, document, corrected_by=ACTOR)  # after the re-check: current supplier
+    return assessment
 
 
 def reject_document(

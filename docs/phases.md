@@ -57,7 +57,7 @@ Goal: an accountant reviews and approves without touching the DB.
 - [x] **4.4 Queue screen** — table sorted Exception → Check → Ready; filters (restaurant, category, in review / parked, one run) kept in the address; paging; last restaurant remembered per computer
 - [x] **4.5 Review screen** — page viewer left (page pictures, zoom), form right (header + lines), flagged fields with reason (errors red, warnings yellow), printed-value suggestions, "checked against the original" tick, code dropdowns with source hint, live totals (exact arithmetic), save & re-check, reject with reason, unsaved-changes warning (decision 32)
 - [x] **4.6 Field highlight** — focus a field → its value is highlighted where printed (all places, any page; follows typing); matched in the backend like grounding (`GET /documents/{id}/locate`); names found by most of their words shown dashed; "not found in the page text" otherwise
-- [ ] **4.7 Corrections** — every edit saved (field, model value, final value, vendor, model/prompt version); reject reason pick-list
+- [x] **4.7 Corrections** — one row per changed field (model value or suggested code vs final value, supplier, model, prompt version), kept in step with every save (unique per document + field); "AI read: …" shown under changed fields; reject reason pick-list (done in 4.2/4.5)
 - [ ] **4.8 Approve flow** — server re-validates; errors block; `APPROVED` + outbox row in one transaction; vendor mapping updated
 
 Done when: full review and approval works from the browser.

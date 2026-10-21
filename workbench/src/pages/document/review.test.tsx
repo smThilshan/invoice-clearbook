@@ -73,6 +73,7 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
     contact_id: null,
     failure_reason: null,
     updated_at: '2026-10-21T08:01:00Z',
+    corrections: [],
     ...changes,
   } as DocumentDetail
 }
@@ -447,5 +448,26 @@ describe('field highlight', () => {
     await user.click(await screen.findByRole('button', { name: 'also on page 2' }))
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()
     expect(screen.getAllByTestId('highlight')).toHaveLength(1)
+  })
+})
+
+describe('corrections', () => {
+  it('shows what the AI read under the fields that were changed', async () => {
+    await open(backend(detail({
+      corrections: [
+        { field: 'total', model_value: '1060.00', final_value: '1050.00' },
+        { field: 'invoice_date', model_value: '4520-05-04', final_value: '2026-05-04' },
+        { field: 'vendor_name', model_value: null, final_value: 'Fresh Farms Trading LLC' },
+        { field: 'lines[1].amount', model_value: '410.00', final_value: '400.00' },
+        { field: 'lines[1].account_code', model_value: '5000', final_value: '5010' },
+      ],
+    })))  // prettier-ignore
+
+    expect(screen.getByText('AI read: 1,060.00')).toBeInTheDocument()
+    expect(screen.getByText('AI read: 4 May 4520')).toBeInTheDocument()
+    expect(screen.getByText('AI read: nothing')).toBeInTheDocument()
+    const line = within(screen.getByRole('listitem', { name: 'Line 2' }))
+    expect(line.getByText('Amount: AI read: 410.00')).toBeInTheDocument()
+    expect(line.getByText('Account: suggested: 5000')).toBeInTheDocument()
   })
 })

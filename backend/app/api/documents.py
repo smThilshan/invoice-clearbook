@@ -28,6 +28,7 @@ from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
 from app.services import review
 from app.services.clients import get_client
+from app.services.corrections import corrections_of
 from app.services.review import RejectReason, ReviewError
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -66,6 +67,12 @@ class QueuePageOut(BaseModel):
     documents: list[DocumentSummary]
 
 
+class CorrectionOut(BaseModel):
+    field: str  # e.g. "total", "lines[0].account_code"
+    model_value: Any  # what the model read (or the coding step suggested); None = nothing
+    final_value: Any
+
+
 class DocumentDetail(DocumentSummary):
     source_path: str  # inside the client's folder
     mime_type: str
@@ -78,6 +85,7 @@ class DocumentDetail(DocumentSummary):
     contact_id: uuid.UUID | None
     failure_reason: str | None
     updated_at: datetime
+    corrections: list[CorrectionOut]  # fields where the accountant's value differs from the model's
 
 
 class DocumentUpdate(BaseModel):
@@ -151,7 +159,7 @@ def get_queue(
 
 @router.get("/{document_id}")
 def get_document(document_id: uuid.UUID, session: SessionDep) -> DocumentDetail:
-    return _detail(_found(session, document_id))
+    return _detail(session, _found(session, document_id))
 
 
 @router.get(
@@ -228,7 +236,7 @@ def update_document(
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
-    return _detail(document)
+    return _detail(session, document)
 
 
 @router.post("/{document_id}/reject")
@@ -242,7 +250,7 @@ def reject_document(
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
-    return _detail(document)
+    return _detail(session, document)
 
 
 def _found(session: Session, document_id: uuid.UUID, *, for_update: bool = False) -> Document:
@@ -288,7 +296,7 @@ def _summary_fields(document: Document, invoice: Invoice | None) -> dict[str, An
     }
 
 
-def _detail(document: Document) -> DocumentDetail:
+def _detail(session: Session, document: Document) -> DocumentDetail:
     invoice = working_copy(document)
     return DocumentDetail(
         **_summary_fields(document, invoice),
@@ -303,4 +311,8 @@ def _detail(document: Document) -> DocumentDetail:
         contact_id=document.contact_id,
         failure_reason=document.failure_reason,
         updated_at=document.updated_at,
+        corrections=[
+            CorrectionOut(field=c.field, model_value=c.model_value, final_value=c.final_value)
+            for c in corrections_of(session, document)
+        ],
     )

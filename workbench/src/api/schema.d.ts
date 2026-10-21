@@ -321,6 +321,15 @@ export interface components {
             /** Tax Types */
             tax_types: components["schemas"]["TaxOption"][];
         };
+        /** CorrectionOut */
+        CorrectionOut: {
+            /** Field */
+            field: string;
+            /** Final Value */
+            final_value: unknown;
+            /** Model Value */
+            model_value: unknown;
+        };
         /** DocumentDetail */
         DocumentDetail: {
             /** Client Id */
@@ -331,6 +340,8 @@ export interface components {
             }[];
             /** Contact Id */
             contact_id: string | null;
+            /** Corrections */
+            corrections: components["schemas"]["CorrectionOut"][];
             /**
              * Created At
              * Format: date-time

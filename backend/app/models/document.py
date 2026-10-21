@@ -115,7 +115,8 @@ class Extraction(UuidPk, ClientScoped, Base):
 
 
 class Correction(UuidPk, ClientScoped, Base):
-    """One field the accountant changed: what the model said vs the final value."""
+    """One field the accountant changed: what the model said vs the final value. One row per
+    document and field, kept in step with every save (task 4.7)."""
 
     __tablename__ = "corrections"
 
@@ -132,4 +133,7 @@ class Correction(UuidPk, ClientScoped, Base):
     corrected_by: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    __table_args__ = (Index(None, "document_id"), Index(None, "client_id", "vendor_key"))
+    __table_args__ = (
+        UniqueConstraint("document_id", "field"),  # also serves lookups by document
+        Index(None, "client_id", "vendor_key"),
+    )

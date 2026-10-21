@@ -11,7 +11,7 @@ import {
   useWatch,
 } from 'react-hook-form'
 
-import type { CodingOptions, DocumentDetail, Issue, ValueKind } from '@/api/client'
+import type { CodingOptions, Correction, DocumentDetail, Issue, ValueKind } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { TYPE_LABELS } from '@/lib/labels'
+import { formatAmount, formatDate, TYPE_LABELS } from '@/lib/labels'
 import { formatScaled, parseAmount, sumAmounts, withinTolerance } from '@/lib/money'
 import { useDebounced } from '@/lib/useDebounced'
 import { cn } from '@/lib/utils'
@@ -131,6 +131,7 @@ export function ReviewForm({
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
   const issues = mapIssues(document.issues)
   const verified = new Set(document.verified_fields)
+  const corrected = new Map(document.corrections.map((c) => [c.field, c]))
   const documentType = useWatch({ control, name: 'document_type' })
 
   const dirty = formState.isDirty || confirmed.size > 0
@@ -165,7 +166,8 @@ export function ReviewForm({
         <GeneralIssues issues={issues.general} />
 
         <section className="grid gap-4 sm:grid-cols-2">
-          <SelectField label={FIELD_LABELS.document_type ?? ''} issues={issues.byField.get('document_type')}>
+          <SelectField label={FIELD_LABELS.document_type ?? ''} issues={issues.byField.get('document_type')}
+            correction={corrected.get('document_type')}>
             <Controller
               control={control}
               name="document_type"
@@ -221,6 +223,7 @@ export function ReviewForm({
                   setValue={setValue}
                   issues={issues.byField.get(spec.name)}
                   verified={verified.has(spec.name)}
+                  correction={corrected.get(spec.name)}
                   confirmed={confirmed.has(spec.name)}
                   onConfirm={(on) => toggleConfirmed(spec.name, on)}
                   onFocus={() => setActive(headerTarget(spec))}
@@ -234,6 +237,7 @@ export function ReviewForm({
                   setValue={setValue}
                   issues={issues.byField.get('original_invoice_ref')}
                   verified={verified.has('original_invoice_ref')}
+                  correction={corrected.get('original_invoice_ref')}
                   confirmed={confirmed.has('original_invoice_ref')}
                   onConfirm={(on) => toggleConfirmed('original_invoice_ref', on)}
                   onFocus={() => setActive(headerTarget({ name: 'original_invoice_ref' }))}
@@ -252,6 +256,7 @@ export function ReviewForm({
           issues={issues}
           options={options}
           coding={document.coding}
+          corrected={corrected}
           editable={editable}
           onFocusField={setActive}
         />
@@ -283,6 +288,7 @@ function HeaderInput({
   setValue,
   issues,
   verified,
+  correction,
   confirmed,
   onConfirm,
   onFocus,
@@ -293,6 +299,7 @@ function HeaderInput({
   setValue: UseFormSetValue<FormValues>
   issues: Issue[] | undefined
   verified: boolean
+  correction: Correction | undefined
   confirmed: boolean
   onConfirm: (on: boolean) => void
   onFocus: () => void
@@ -323,6 +330,7 @@ function HeaderInput({
         onFocus={onFocus}
         {...register(spec.name)}
       />
+      {correction && <AiRead value={shown(correction.model_value, spec.kind)} />}
       {issues?.map((issue) => (
         <IssueNote key={issue.code} issue={issue}>
           {editable && issue.suggestion && (
@@ -351,19 +359,51 @@ function HeaderInput({
 function SelectField({
   label,
   issues,
+  correction,
   children,
 }: {
   label: string
   issues: Issue[] | undefined
+  correction?: Correction
   children: ReactNode
 }) {
+  const before = correction?.model_value
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
       {children}
+      {correction && (
+        <AiRead value={typeof before === 'string' ? (TYPE_LABELS[before as keyof typeof TYPE_LABELS] ?? before) : 'nothing'} />
+      )}
       {issues?.map((issue) => <IssueNote key={issue.code} issue={issue} />)}
     </div>
   )
+}
+
+/** What the model read (or the coding step suggested) for a field the accountant changed. */
+function AiRead({ value, prefix = 'AI read' }: { value: string; prefix?: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      {prefix}: {value}
+    </p>
+  )
+}
+
+function shown(value: unknown, kind?: FieldSpec['kind']): string {
+  if (value === null || value === undefined || value === '') return 'nothing'
+  const text = String(value)
+  if (kind === 'amount') return formatAmount(text)
+  if (kind === 'date') return formatDate(text)
+  return text
+}
+
+const LINE_FIELD_LABELS: Record<string, string> = {
+  description: 'Description',
+  qty: 'Quantity',
+  unit_price: 'Unit price',
+  amount: 'Amount',
+  account_code: 'Account',
+  tax_type: 'VAT',
 }
 
 function IssueNote({ issue, children }: { issue: Issue; children?: ReactNode }) {
@@ -454,6 +494,7 @@ function Lines({
   issues,
   options,
   coding,
+  corrected,
   editable,
   onFocusField,
 }: {
@@ -462,6 +503,7 @@ function Lines({
   issues: IssueMap
   options: CodingOptions | undefined
   coding: DocumentDetail['coding']
+  corrected: Map<string, Correction>
   editable: boolean
   onFocusField: (field: ActiveField) => void
 }) {
@@ -567,6 +609,16 @@ function Lines({
                   .flatMap((name) => lineIssues(name) ?? [])].map((issue) => (
                 <IssueNote key={`${issue.code}-${issue.field}`} issue={issue} />
               ))}
+              {Object.entries(LINE_FIELD_LABELS).map(([name, label]) => {
+                const correction = corrected.get(`lines[${index}].${name}`)
+                if (!correction) return null
+                const code = name === 'account_code' || name === 'tax_type'
+                const value = shown(correction.model_value, name === 'description' ? undefined : 'amount')
+                return (
+                  <AiRead key={name} prefix={`${label}: ${code ? 'suggested' : 'AI read'}`}
+                    value={code ? shown(correction.model_value) : value} />
+                )
+              })}
             </li>
           )
         })}

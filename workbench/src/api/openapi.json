@@ -130,6 +130,27 @@
         "title": "CodingOptions",
         "type": "object"
       },
+      "CorrectionOut": {
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "final_value": {
+            "title": "Final Value"
+          },
+          "model_value": {
+            "title": "Model Value"
+          }
+        },
+        "required": [
+          "field",
+          "model_value",
+          "final_value"
+        ],
+        "title": "CorrectionOut",
+        "type": "object"
+      },
       "DocumentDetail": {
         "properties": {
           "client_id": {
@@ -155,6 +176,13 @@
               }
             ],
             "title": "Contact Id"
+          },
+          "corrections": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionOut"
+            },
+            "title": "Corrections",
+            "type": "array"
           },
           "created_at": {
             "format": "date-time",
@@ -360,7 +388,8 @@
           "verified_fields",
           "contact_id",
           "failure_reason",
-          "updated_at"
+          "updated_at",
+          "corrections"
         ],
         "title": "DocumentDetail",
         "type": "object"
