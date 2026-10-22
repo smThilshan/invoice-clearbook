@@ -110,6 +110,10 @@ export function useUpdateDocument() {
   return useDocumentChange<DocumentUpdate>(api.updateDocument)
 }
 
+export function useApproveDocument() {
+  return useDocumentChange<null>((id) => api.approveDocument(id))
+}
+
 export function useRejectDocument() {
   return useDocumentChange<RejectBody>(api.rejectDocument)
 }

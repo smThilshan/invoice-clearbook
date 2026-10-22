@@ -26,7 +26,7 @@ from app.models import Document
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
-from app.services import review
+from app.services import approval, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
 from app.services.review import RejectReason, ReviewError
@@ -247,6 +247,23 @@ def reject_document(
     try:
         with session.begin_nested():
             review.reject_document(session, document, body.reason, note=body.note)
+    except (ReviewError, StaleStatusError) as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    return _detail(session, document)
+
+
+@router.post("/{document_id}/approve")
+def approve_document(
+    document_id: uuid.UUID, session: SessionDep, storage: StorageDep, settings: SettingsDep
+) -> DocumentDetail:
+    """Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
+    approval takes the document as last saved. 422 if errors remain; nothing changes then."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        with session.begin_nested():
+            approval.approve_document(session, storage, document, settings=settings,
+                                      today=settings.business_today())  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()

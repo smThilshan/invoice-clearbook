@@ -117,6 +117,27 @@ export interface paths {
         patch: operations["update_document_documents__document_id__patch"];
         trace?: never;
     };
+    "/documents/{document_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Document
+         * @description Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
+         *     approval takes the document as last saved. 422 if errors remain; nothing changes then.
+         */
+        post: operations["approve_document_documents__document_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents/{document_id}/locate": {
         parameters: {
             query?: never;
@@ -1079,6 +1100,37 @@ export interface operations {
                 "application/json": components["schemas"]["DocumentUpdate"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_document_documents__document_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

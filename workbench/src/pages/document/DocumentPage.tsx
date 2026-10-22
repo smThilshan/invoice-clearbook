@@ -1,9 +1,15 @@
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, CircleCheck } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useBlocker, useNavigate, useParams } from 'react-router'
 
 import { type DocumentDetail, type DocumentStatus } from '@/api/client'
-import { useCodingOptions, useDocument, useLocate, useUpdateDocument } from '@/api/queries'
+import {
+  useApproveDocument,
+  useCodingOptions,
+  useDocument,
+  useLocate,
+  useUpdateDocument,
+} from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +30,7 @@ export function DocumentPage() {
   const document = useDocument(documentId)
   const options = useCodingOptions(document.data?.client_id)
   const save = useUpdateDocument()
+  const approve = useApproveDocument()
   const navigate = useNavigate()
   const [dirty, setDirty] = useState(false)
   const onDirtyChange = useCallback((next: boolean) => setDirty(next), [])
@@ -59,6 +66,13 @@ export function DocumentPage() {
         </p>
       )}
       {save.isError && <ErrorAlert title="Not saved" error={save.error} />}
+      {approve.isError && <ErrorAlert title="Not approved" error={approve.error} />}
+      {doc.status === 'APPROVED' && (
+        <p role="status" className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+          <CircleCheck className="size-4" aria-hidden />
+          Approved: waiting to be posted.
+        </p>
+      )}
       {save.isSuccess && !save.isPending && (
         <p role="status" className="text-sm text-muted-foreground">
           Saved and checked again
@@ -83,7 +97,20 @@ export function DocumentPage() {
           onSave={onSave}
           onDirtyChange={onDirtyChange}
           onTarget={onTarget}
-          actions={doc.status === 'IN_REVIEW' && <RejectDialog documentId={doc.document_id} />}
+          actions={
+            doc.status === 'IN_REVIEW' && (
+              <>
+                <ApproveButton
+                  blockedBy={
+                    dirty ? 'Save your changes first' : doc.errors > 0 ? 'Fix the errors first' : null
+                  }
+                  pending={approve.isPending}
+                  onApprove={() => approve.mutate({ id: doc.document_id, body: null })}
+                />
+                <RejectDialog documentId={doc.document_id} />
+              </>
+            )
+          }
         />
       </div>
     </div>
@@ -116,6 +143,33 @@ function Header({ document: doc, onBack }: { document: DocumentDetail; onBack: (
         {doc.warnings === 1 ? '' : 's'}
       </span>
     </div>
+  )
+}
+
+/** Approve takes the document as last saved and checked: never with unsaved edits or errors.
+ * The server checks again before approving. */
+function ApproveButton({
+  blockedBy,
+  pending,
+  onApprove,
+}: {
+  blockedBy: string | null
+  pending: boolean
+  onApprove: () => void
+}) {
+  return (
+    <>
+      <Button
+        type="button"
+        className="bg-emerald-600 text-white hover:bg-emerald-700"
+        disabled={blockedBy !== null || pending}
+        onClick={onApprove}
+      >
+        <CircleCheck aria-hidden />
+        {pending ? 'Approving…' : 'Approve'}
+      </Button>
+      {blockedBy && <span className="text-sm text-muted-foreground">{blockedBy}</span>}
+    </>
   )
 }
 

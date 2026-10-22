@@ -117,6 +117,8 @@ export const api = {
   /** Where a value is printed on the document (task 4.6). */
   locate: (id: string, kind: ValueKind, value: string) =>
     request<Located>(`${documentPath(id)}/locate?${new URLSearchParams({ kind, value })}`),
+  /** Re-check, then APPROVED + outbox in one transaction (task 4.8); the document as last saved. */
+  approveDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/approve`, {}),
   rejectDocument: (id: string, body: RejectBody) =>
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
   /** Accounts and tax codes the review form may use (the client's active master data). */

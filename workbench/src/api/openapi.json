@@ -2274,6 +2274,50 @@
         ]
       }
     },
+    "/documents/{document_id}/approve": {
+      "post": {
+        "description": "Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:\napproval takes the document as last saved. 422 if errors remain; nothing changes then.",
+        "operationId": "approve_document_documents__document_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/documents/{document_id}/locate": {
       "get": {
         "description": "Where `value` is printed on the document, for highlighting a field (task 4.6). The value\nmay be what the accountant is typing, so it is compared the way grounding compares.",

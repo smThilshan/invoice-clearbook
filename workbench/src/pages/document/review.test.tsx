@@ -471,3 +471,61 @@ describe('corrections', () => {
     expect(line.getByText('Account: suggested: 5000')).toBeInTheDocument()
   })
 })
+
+describe('approve', () => {
+  const CLEAN = detail({ queue: 'CHECK', errors: 0, warnings: 1,
+    issues: [{ code: 'vendor_new', severity: 'WARNING', field: 'vendor_name',
+      message: 'New supplier.', suggestion: null }] })  // prettier-ignore
+
+  function approveBackend(answer: unknown) {
+    return mockApi({
+      '/health/ready': READY,
+      '/clients': [],
+      [`/documents/${ID}`]: CLEAN,
+      [`POST /documents/${ID}/approve`]: answer,
+      '/clients/cafe/coding-options': OPTIONS,
+    })
+  }
+
+  it('approves a document without errors, which then can no longer be changed', async () => {
+    const api = approveBackend(detail({ status: 'APPROVED', updated_at: '2026-10-21T09:00:00Z' }))
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    await user.click(await screen.findByRole('button', { name: 'Approve' }))
+
+    expect(await screen.findByText('Approved: waiting to be posted.')).toBeInTheDocument()
+    expect(api.calls).toContain(`POST /documents/${ID}/approve`)
+    expect(screen.getByLabelText('Supplier')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+  })
+
+  it('cannot approve while errors remain', async () => {
+    await open() // the default document has errors
+
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(screen.getByText('Fix the errors first')).toBeInTheDocument()
+  })
+
+  it('asks to save changes before approving', async () => {
+    approveBackend(CLEAN)
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    await user.type(await screen.findByLabelText('Supplier'), ' X')
+
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(screen.getByText('Save your changes first')).toBeInTheDocument()
+  })
+
+  it('says why the server refused', async () => {
+    approveBackend(reply(422, { detail: '1 error must be fixed before approval' }))
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    await user.click(await screen.findByRole('button', { name: 'Approve' }))
+
+    expect(await screen.findByText('Not approved')).toBeInTheDocument()
+    expect(screen.getByText('1 error must be fixed before approval')).toBeInTheDocument()
+  })
+})
