@@ -91,7 +91,7 @@ const SECTIONS: { title: string; fields: FieldSpec[] }[] = [
     ],
   },
   {
-    title: 'Customer (the restaurant)',
+    title: 'Customer (the client)',
     fields: [{ name: 'recipient_name' }, { name: 'recipient_trn', kind: 'code' }],
   },
 ]

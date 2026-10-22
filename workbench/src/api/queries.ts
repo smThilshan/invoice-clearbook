@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   api,
   ApiError,
+  type ClientCreate,
   type DocumentDetail,
   type DocumentUpdate,
   type ValueKind,
@@ -13,8 +14,10 @@ import {
 
 export const queryKeys = {
   readiness: ['readiness'] as const,
-  restaurants: ['restaurants'] as const,
-  folders: (clientId: string, path: string) => ['folders', clientId, path] as const,
+  clients: ['clients'] as const,
+  places: (clientId: string) => ['places', clientId] as const,
+  folder: (clientId: string, place: string, path: string) =>
+    ['folder', clientId, place, path] as const,
   run: (runId: string) => ['run', runId] as const,
   runs: (clientId: string) => ['runs', clientId] as const,
   queue: (query: QueueQuery) => ['queue', query] as const,
@@ -38,16 +41,34 @@ export function useReadiness() {
   })
 }
 
-export function useRestaurants() {
-  return useQuery({ queryKey: queryKeys.restaurants, queryFn: api.restaurants })
+export function useClients() {
+  return useQuery({ queryKey: queryKeys.clients, queryFn: api.clients })
 }
 
-/** Sub-folders of `path`; idle until a restaurant is picked. */
-export function useFolders(clientId: string | undefined, path: string) {
+/** Creates a client; the client list is refreshed so it appears in every dropdown. */
+export function useCreateClient() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: ClientCreate) => api.createClient(body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
+/** Where a folder may be picked; idle until a client is picked. */
+export function usePlaces(clientId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.folders(clientId ?? '', path),
-    queryFn: () => api.folders(clientId ?? '', path),
+    queryKey: queryKeys.places(clientId ?? ''),
+    queryFn: () => api.places(clientId ?? ''),
     enabled: clientId !== undefined,
+  })
+}
+
+/** Sub-folders of `path` in a place; idle until a client and a place are picked. */
+export function useFolder(clientId: string | undefined, place: string | undefined, path: string) {
+  return useQuery({
+    queryKey: queryKeys.folder(clientId ?? '', place ?? '', path),
+    queryFn: () => api.folder(clientId ?? '', place ?? '', path),
+    enabled: clientId !== undefined && place !== undefined,
     retry: false, // a missing folder will not appear by retrying
   })
 }
@@ -56,7 +77,7 @@ export function useStartRun() {
   return useMutation({ mutationFn: (body: RunCreate) => api.startRun(body) })
 }
 
-/** A restaurant's latest runs, for the queue filter; idle until a restaurant is picked. */
+/** A client's latest runs, for the queue filter; idle until a client is picked. */
 export function useRuns(clientId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.runs(clientId ?? ''),
@@ -95,7 +116,7 @@ export function useDocument(documentId: string) {
   return useQuery({ queryKey: queryKeys.document(documentId), queryFn: () => api.document(documentId) })
 }
 
-/** Idle until the document (and so its restaurant) is known. */
+/** Idle until the document (and so its client) is known. */
 export function useCodingOptions(clientId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.codingOptions(clientId ?? ''),

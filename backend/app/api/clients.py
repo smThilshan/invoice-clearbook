@@ -1,8 +1,8 @@
-"""Clients (restaurants): their folders for the Run screen's pickers (decision 25), their
+"""Clients (any business, decision 35): their folders for the Run screen's pickers, their
 master data (CSV import, task 4.2) and the code options for the review form.
 
-Clients are added with `make add-client` until the admin screen exists (behind login, Phase 6).
-No login yet: the API listens on localhost only.
+Clients are added on the Run screen (decision 35) or with `make add-client`. No login yet: the
+API listens on localhost only; login comes before it listens anywhere else (Phase 6).
 """
 
 import uuid
@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
@@ -21,7 +21,14 @@ from app.domain.enums import AccountClass, AccountingProvider, TaxType
 from app.models import Client
 from app.pipeline import coding
 from app.pipeline.folders import InboxError, folder_date_from_path
-from app.services.clients import browse, get_client, list_clients
+from app.services.clients import (
+    ClientError,
+    add_client,
+    browse,
+    get_client,
+    list_clients,
+    new_client_id,
+)
 from app.services.master_data import Counts, import_master_data
 from app.services.runs import recent_runs
 
@@ -33,6 +40,10 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 class ClientOut(BaseModel):
     client_id: str
     name: str
+
+
+class ClientCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
 
 
 class Folder(BaseModel):
@@ -90,6 +101,21 @@ class CodingOptions(BaseModel):
 @router.get("")
 def get_clients(session: Annotated[Session, Depends(get_session)]) -> list[ClientOut]:
     return [ClientOut(client_id=c.client_id, name=c.name) for c in list_clients(session)]
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def create_client(
+    body: ClientCreate, session: Annotated[Session, Depends(get_session)]
+) -> ClientOut:
+    """A new client from the Run screen: just a name; its id is made from the name. Its
+    folder is picked per run (decision 35)."""
+    try:
+        client = add_client(session, client_id=new_client_id(session, body.name), name=body.name)
+        session.commit()
+    except ClientError as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return ClientOut(client_id=client.client_id, name=client.name)
 
 
 @router.get("/{client_id}/runs")

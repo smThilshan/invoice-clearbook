@@ -138,3 +138,81 @@ def test_browsing_outside_the_restaurant_is_refused(client: TestClient) -> None:
     response = client.get(f"/clients/{CLIENT}/folders", params={"path": "../Other Restaurant"})
 
     assert response.status_code == 404
+
+
+# --- decision 35: any client, any folder in the allowed places --------------------------
+
+
+@pytest.fixture
+def anywhere(session: Session, tmp_path: Path, enqueued: list[str]) -> Iterator[TestClient]:
+    from app.api.runs import get_enqueue_scan
+
+    (tmp_path / "mac" / "Invoice tests" / "May 5").mkdir(parents=True)
+    (tmp_path / "mac" / "Invoice tests" / "May 5" / "bill.pdf").write_bytes(b"%PDF-1.4")
+    make_client(session, tmp_path / "Cafe Al Noor")
+    settings = Settings(_env_file=None, app_env="test", folder_places=[tmp_path / "mac"])
+    app = create_app(settings)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_enqueue_scan] = lambda: enqueued.append
+    from app.core.config import get_settings
+
+    app.dependency_overrides[get_settings] = lambda: settings
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_a_client_is_created_from_a_name(anywhere: TestClient) -> None:
+    first = anywhere.post("/clients", json={"name": "Blue Sky Trading LLC"})
+    second = anywhere.post("/clients", json={"name": "Blue Sky Trading LLC"})
+
+    assert first.status_code == 201
+    assert first.json() == {"client_id": "blue-sky-trading-llc", "name": "Blue Sky Trading LLC"}
+    assert second.json()["client_id"] == "blue-sky-trading-llc-2"
+    assert anywhere.post("/clients", json={"name": ""}).status_code == 422
+
+
+def test_places_and_folders_can_be_browsed(anywhere: TestClient, tmp_path: Path) -> None:
+    places = anywhere.get("/folders/places", params={"client_id": CLIENT}).json()
+    listing = anywhere.get("/folders", params={"place": "p0", "path": "Invoice tests"}).json()
+
+    assert [p["key"] for p in places] == ["client", "p0"]
+    assert places[1]["path"] == str(tmp_path / "mac")
+    assert listing["folders"] == [
+        {"name": "May 5", "path": "Invoice tests/May 5", "date": "2026-05-05"}
+    ]
+    assert anywhere.get("/folders", params={"place": "p0", "path": ".."}).status_code == 404
+
+
+def test_a_run_reads_from_the_place_it_was_picked_in(
+    anywhere: TestClient, session: Session, tmp_path: Path
+) -> None:
+    new = anywhere.post("/clients", json={"name": "Blue Sky"}).json()["client_id"]
+
+    response = anywhere.post(
+        "/runs", json={"client_id": new, "place": "p0", "folder": "Invoice tests/May 5"}
+    )
+
+    assert response.status_code == 202, response.text
+    run = session.get_one(Run, response.json()["run_id"])
+    assert (run.root_path, run.folder) == (str(tmp_path / "mac"), "Invoice tests/May 5")
+    assert response.json()["folder_date"] == "2026-05-05"
+
+
+def test_a_client_without_a_folder_must_pick_a_place(anywhere: TestClient) -> None:
+    new = anywhere.post("/clients", json={"name": "No Folder"}).json()["client_id"]
+
+    assert anywhere.post("/runs", json={"client_id": new, "folder": ""}).status_code == 404
+
+
+def test_the_worker_reads_a_run_from_its_place(
+    anywhere: TestClient, session: Session, tmp_path: Path
+) -> None:
+    from app.workers.tasks import _client_root
+
+    picked = anywhere.post("/runs", json={"client_id": CLIENT, "place": "p0", "folder": ""})
+    own = anywhere.post("/runs", json={"client_id": CLIENT, "folder": ""})
+
+    assert _client_root(session, session.get_one(Run, picked.json()["run_id"])) == tmp_path / "mac"
+    assert _client_root(session, session.get_one(Run, own.json()["run_id"])) == (
+        tmp_path / "Cafe Al Noor"
+    )

@@ -235,7 +235,7 @@ describe('review screen', () => {
     ])  // prettier-ignore
   })
 
-  it('codes a line from the restaurant accounts and says where a code came from', async () => {
+  it('codes a line from the client accounts and says where a code came from', async () => {
     const api = await open()
     const user = userEvent.setup()
     expect(within(screen.getByRole('listitem', { name: 'Line 1' })).getByText('AI suggestion'))

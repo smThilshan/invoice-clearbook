@@ -2,7 +2,7 @@ import { ArrowLeft, FileSearch, LoaderCircle } from 'lucide-react'
 import { Link, useParams } from 'react-router'
 
 import type { FileStatus, RunProgress } from '@/api/client'
-import { useRestaurants, useRun } from '@/api/queries'
+import { useClients, useRun } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -29,7 +29,7 @@ const STATE_LABELS: Record<RunProgress['state'], string> = {
 export function RunProgressPage() {
   const { runId = '' } = useParams()
   const run = useRun(runId)
-  const restaurants = useRestaurants()
+  const clients = useClients()
 
   if (run.isPending) return <Skeleton className="h-40 w-full max-w-4xl" />
   if (run.isError) {
@@ -42,14 +42,14 @@ export function RunProgressPage() {
   }
 
   const progress = run.data
-  const restaurant = restaurants.data?.find((r) => r.client_id === progress.client_id)
+  const client = clients.data?.find((c) => c.client_id === progress.client_id)
   const finished = progress.state === 'finished'
   const working = progress.files.filter((file) => WORKING.has(file.status)).length
 
   return (
     <div className="max-w-4xl space-y-6">
       <div className="space-y-1">
-        <h2 className="text-xl font-semibold">Run: {restaurant?.name ?? progress.client_id}</h2>
+        <h2 className="text-xl font-semibold">Run: {client?.name ?? progress.client_id}</h2>
         <p className="text-sm text-muted-foreground">
           Folder <span className="font-medium text-foreground">{progress.folder || '(all)'}</span>
           {' · '}

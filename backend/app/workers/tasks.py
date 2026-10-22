@@ -32,7 +32,7 @@ from app.models import Document, Run, RunStatus
 from app.pipeline import extract, ingest, read
 from app.pipeline.folders import InboxError
 from app.pipeline.verify import step as verify
-from app.services.clients import client_root, get_client
+from app.services.clients import get_client, run_root
 from app.services.pipeline import NEXT_STEP, Step, fail_document
 from app.workers.celery_app import celery_app
 
@@ -250,7 +250,8 @@ def _unexpected(exc: Exception) -> str:
 
 
 def _client_root(session: Session, run: Run) -> Path:
+    """The run's root (decision 35): where its folder and files are."""
     client = get_client(session, run.client_id)
     if client is None:
         raise InboxError(f"client {run.client_id!r} not found or inactive")
-    return client_root(client)
+    return run_root(run, client)

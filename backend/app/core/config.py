@@ -48,8 +48,12 @@ class Settings(BaseSettings):
     # limit, or a slow job would be handed to a second worker while the first still runs it.
     job_visibility_timeout_seconds: int = Field(default=3600, gt=0)
 
-    # Our own file store (via the Storage interface). Each client's inbox folder is on its
-    # client record (decision 25). Relative paths are resolved against the repo root.
+    # Places the Run screen may browse and run from (decision 35): only folders inside these
+    # are ever read. A client's own folder is offered too. Missing places are left out.
+    folder_places: list[Path] = Field(default_factory=lambda: [Path.home(), Path("/Volumes")])
+
+    # Our own file store (via the Storage interface). Relative paths are resolved against the
+    # repo root.
     store_dir: Path = Field(default=Path("data/store"), validate_default=True)
     max_file_mb: int = Field(default=25, gt=0)  # larger files become FAILED documents
     # A file is ingested only if its size and mtime are unchanged over this interval, so a

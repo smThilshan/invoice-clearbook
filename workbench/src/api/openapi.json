@@ -87,6 +87,21 @@
         "title": "Body_upload_master_data_clients__client_id__master_data_post",
         "type": "object"
       },
+      "ClientCreate": {
+        "properties": {
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ClientCreate",
+        "type": "object"
+      },
       "ClientOut": {
         "properties": {
           "client_id": {
@@ -733,6 +748,36 @@
           "folders"
         ],
         "title": "FolderListing",
+        "type": "object"
+      },
+      "FolderOut": {
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "date"
+        ],
+        "title": "FolderOut",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1513,6 +1558,60 @@
         "title": "Place",
         "type": "object"
       },
+      "PlaceListing": {
+        "properties": {
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/FolderOut"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "invoice_files": {
+            "title": "Invoice Files",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "place": {
+            "title": "Place",
+            "type": "string"
+          }
+        },
+        "required": [
+          "place",
+          "path",
+          "folders",
+          "invoice_files"
+        ],
+        "title": "PlaceListing",
+        "type": "object"
+      },
+      "PlaceOut": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "path"
+        ],
+        "title": "PlaceOut",
+        "type": "object"
+      },
       "QueueCategory": {
         "description": "Verification result shown in the Workbench.",
         "enum": [
@@ -1672,7 +1771,7 @@
           },
           "folder": {
             "default": "",
-            "description": "Inside the client's folder; '' = all of it",
+            "description": "Inside the place; '' = all of it",
             "title": "Folder",
             "type": "string"
           },
@@ -1688,6 +1787,18 @@
             ],
             "description": "Confirmed on the Run screen; null = no folder date. Left out: read from the folder name.",
             "title": "Folder Date"
+          },
+          "place": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the folder was picked (GET /folders/places); left out: the client's own folder (decision 35)",
+            "title": "Place"
           }
         },
         "required": [
@@ -2074,6 +2185,46 @@
           }
         },
         "summary": "Get Clients",
+        "tags": [
+          "clients"
+        ]
+      },
+      "post": {
+        "description": "A new client from the Run screen: just a name; its id is made from the name. Its\nfolder is picked per run (decision 35).",
+        "operationId": "create_client_clients_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Client",
         "tags": [
           "clients"
         ]
@@ -2746,6 +2897,128 @@
         "summary": "Reject Document",
         "tags": [
           "documents"
+        ]
+      }
+    },
+    "/folders": {
+      "get": {
+        "operationId": "get_folder_folders_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "place",
+            "required": true,
+            "schema": {
+              "title": "Place",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaceListing"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/folders/places": {
+      "get": {
+        "description": "The client's own folder (if it has one), then this Mac and the shared drives.",
+        "operationId": "get_places_folders_places_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlaceOut"
+                  },
+                  "title": "Response Get Places Folders Places Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Places",
+        "tags": [
+          "folders"
         ]
       }
     },

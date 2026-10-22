@@ -26,8 +26,9 @@ make worker               # Celery
 make web                  # Workbench
 ```
 
-## Set up a restaurant (once each)
-Each restaurant is a client with its own folder on the shared drive (decision 25):
+## Set up a client (once each)
+A client is any business whose books Missan keeps. Create it on the Run screen (**+ New client**:
+just a name), or from the terminal with its own folder (decisions 25, 35):
 ```bash
 make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX="/Volumes/Shared/Clients/Cafe Al Noor"
 make import-master-data DIR=path/to/its/csvs CLIENT=cafe-al-noor   # chart of accounts, VAT, suppliers
@@ -36,8 +37,8 @@ make list-clients
 For development, `make seed` loads fictional F&B master data for the default client.
 
 ## Use
-1. Accountants keep files in the restaurant's folder as they do today (e.g. `October 2026/21/`)
-2. Workbench → Run → pick the restaurant → pick a folder (sub-folders included) → confirm the date → Run
+1. Accountants keep files in folders as they do today (e.g. `October 2026/21/`), on this Mac or a shared drive
+2. Workbench → Run → pick or create the client → pick a place (the client's folder, This Mac, Shared drives) → open a folder (sub-folders included) → confirm the date → Run
 3. Review, approve → exported, or posted to Xero as Awaiting Approval when connected
 
 ## Develop

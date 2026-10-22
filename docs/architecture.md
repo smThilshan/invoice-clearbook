@@ -25,11 +25,12 @@ runs standalone and Xero, Zoho Books or others plug in per client without touchi
 | PDF, scanned and photo documents | Peppol e-invoices (later lane) |
 
 ## 3. Workflow (accountant's view)
-1. **Capture**: each restaurant (= client) has its own folder on Missan's shared drive, organised the
-   way the accountants already work (e.g. a folder per month with a folder per day). Almost
-   everything is purchase-side; no sorting by type is needed (decision 25).
-2. **Run**: in the Workbench, pick the restaurant, pick a folder inside it (sub-folders included),
-   click Run.
+1. **Capture**: a client (any business whose books Missan keeps) keeps its documents in folders,
+   on this Mac or a shared drive, organised the way the accountants already work (e.g. a folder
+   per month with a folder per day). Almost everything is purchase-side; no sorting by type is
+   needed (decisions 25, 35).
+2. **Run**: in the Workbench, pick or create the client, pick a folder in an allowed place (the
+   client's own folder, this Mac, shared drives; sub-folders included), click Run.
 3. **Review**: Ready / Check / Exception queues; fix flagged fields; approve or reject.
 4. **Done**: approved data posts to the accounting system (or is exported).
 
@@ -170,7 +171,7 @@ Different vendors may share numbers (vendor in key); credit note may share numbe
 - Side-by-side review: original on the left (zoom, pages), extracted form on the right; flagged fields yellow with reason; click field → highlight source (word boxes from OCR).
 - Dropdowns of the client's real account/tax codes with source hint; live total recalculation.
 - Approve / Reject (reject reasons pick-list); corrections captured at edit time.
-- Run screen: pick restaurant, browse and pick a folder, confirm the date read from it, click Run, see progress.
+- Run screen: pick or create a client, browse and pick a folder in an allowed place, confirm the date read from it, click Run, see progress.
 
 **[LATER]** quick-confirm grid with enforced spot-checks; keyboard shortcuts (Enter, R, Tab, J/K); preload next; four-eyes queue; record locking; create vendor in the accounting system from Workbench; duplicate side-by-side compare.
 

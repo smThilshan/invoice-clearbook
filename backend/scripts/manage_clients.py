@@ -1,4 +1,4 @@
-"""Register and list clients (restaurants), until the admin screen exists (decision 25).
+"""Register and list clients from the terminal (the Run screen can create them too, decision 35).
 
 make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX="/Volumes/Shared/Cafe Al Noor"
 make list-clients
@@ -16,7 +16,7 @@ from app.services.clients import ClientError, add_client, list_clients
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    add = commands.add_parser("add", help="register a restaurant and its shared-drive folder")
+    add = commands.add_parser("add", help="register a client and its own folder")
     add.add_argument("client_id")
     add.add_argument("name")
     add.add_argument("inbox", type=Path)
@@ -26,13 +26,14 @@ def main() -> int:
         choices=[p.value for p in AccountingProvider],
         default=AccountingProvider.MANUAL.value,
     )
-    commands.add_parser("list", help="list active restaurants")
+    commands.add_parser("list", help="list active clients")
     args = parser.parse_args()
 
     if args.command == "list":
         with session_scope() as session:
             for client in list_clients(session):
-                print(f"{client.client_id:<28} {client.name:<32} {client.inbox_path}")
+                folder = client.inbox_path or "(no own folder)"
+                print(f"{client.client_id:<28} {client.name:<32} {folder}")
         return 0
 
     try:

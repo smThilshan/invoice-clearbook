@@ -14,7 +14,12 @@ export interface paths {
         /** Get Clients */
         get: operations["get_clients_clients_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Client
+         * @description A new client from the Run screen: just a name; its id is made from the name. Its
+         *     folder is picked per run (decision 35).
+         */
+        post: operations["create_client_clients_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -233,6 +238,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Folder */
+        get: operations["get_folder_folders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/folders/places": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Places
+         * @description The client's own folder (if it has one), then this Mac and the shared drives.
+         */
+        get: operations["get_places_folders_places_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -343,6 +385,11 @@ export interface components {
             ledger_accounts?: string | null;
             /** Tax Rates */
             tax_rates?: string | null;
+        };
+        /** ClientCreate */
+        ClientCreate: {
+            /** Name */
+            name: string;
         };
         /** ClientOut */
         ClientOut: {
@@ -532,6 +579,15 @@ export interface components {
         FolderListing: {
             /** Folders */
             folders: components["schemas"]["Folder"][];
+            /** Path */
+            path: string;
+        };
+        /** FolderOut */
+        FolderOut: {
+            /** Date */
+            date: string | null;
+            /** Name */
+            name: string;
             /** Path */
             path: string;
         };
@@ -756,6 +812,26 @@ export interface components {
             /** Page */
             page: number;
         };
+        /** PlaceListing */
+        PlaceListing: {
+            /** Folders */
+            folders: components["schemas"]["FolderOut"][];
+            /** Invoice Files */
+            invoice_files: number;
+            /** Path */
+            path: string;
+            /** Place */
+            place: string;
+        };
+        /** PlaceOut */
+        PlaceOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Path */
+            path: string;
+        };
         /**
          * QueueCategory
          * @description Verification result shown in the Workbench.
@@ -822,7 +898,7 @@ export interface components {
             client_id: string;
             /**
              * Folder
-             * @description Inside the client's folder; '' = all of it
+             * @description Inside the place; '' = all of it
              * @default
              */
             folder: string;
@@ -831,6 +907,11 @@ export interface components {
              * @description Confirmed on the Run screen; null = no folder date. Left out: read from the folder name.
              */
             folder_date?: string | null;
+            /**
+             * Place
+             * @description Where the folder was picked (GET /folders/places); left out: the client's own folder (decision 35)
+             */
+            place?: string | null;
         };
         /** RunOption */
         RunOption: {
@@ -978,6 +1059,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClientOut"][];
+                };
+            };
+        };
+    };
+    create_client_clients_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1368,6 +1482,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_folder_folders_get: {
+        parameters: {
+            query: {
+                place: string;
+                path?: string;
+                client_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceListing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_places_folders_places_get: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceOut"][];
                 };
             };
             /** @description Validation Error */

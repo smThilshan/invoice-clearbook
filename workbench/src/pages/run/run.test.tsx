@@ -2,29 +2,31 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { FolderListing, Readiness, RunProgress } from '@/api/client'
+import type { FolderPlace, PlaceListing, Readiness, RunProgress } from '@/api/client'
 import { RUN_REFRESH_MS } from '@/api/queries'
 import { type Answer, mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
-const RESTAURANTS = [
-  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' },
-  { client_id: 'spice-route', name: 'Spice Route' },
+const CLIENTS = [
+  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' }, // has its own folder
+  { client_id: 'spice-route', name: 'Spice Route' }, // has none
 ]
-const FOLDERS: Record<string, FolderListing> = {
-  '': {
-    path: '',
-    folders: [
-      { name: 'October 2026', path: 'October 2026', date: '2026-10-31' },
-      { name: 'Supplier bills', path: 'Supplier bills', date: null },
-    ],
-  },
-  'October 2026': {
-    path: 'October 2026',
-    folders: [{ name: '21', path: 'October 2026/21', date: '2026-10-21' }],
-  },
-  'October 2026/21': { path: 'October 2026/21', folders: [] },
-  'Supplier bills': { path: 'Supplier bills', folders: [] },
+const OWN: FolderPlace = { key: 'client', label: 'Cafe Al Noor folder', path: '/Shared/Cafe Al Noor' }
+const MAC: FolderPlace = { key: 'p0', label: 'This Mac', path: '/Users/me' }
+const listing = (place: string, path: string, folders: [string, string | null][], files = 0) =>
+  ({
+    place,
+    path,
+    folders: folders.map(([name, date]) => ({ name, path: path ? `${path}/${name}` : name, date })),
+    invoice_files: files,
+  }) as PlaceListing
+const FOLDERS: Record<string, PlaceListing> = {
+  'client:': listing('client', '', [['October 2026', '2026-10-31'], ['Supplier bills', null]]),
+  'client:October 2026': listing('client', 'October 2026', [['21', '2026-10-21']]),
+  'client:October 2026/21': listing('client', 'October 2026/21', [], 2),
+  'client:Supplier bills': listing('client', 'Supplier bills', []),
+  'p0:': listing('p0', '', [['Invoice tests', null]]),
+  'p0:Invoice tests': listing('p0', 'Invoice tests', [], 3),
 }
 const RUN_ID = '6f1c2b0e-0000-4000-8000-000000000001'
 
@@ -35,16 +37,23 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function folders(request: Request) {
-  const path = new URL(request.url).searchParams.get('path') ?? ''
-  return FOLDERS[path] ?? reply(404, { detail: `folder not found: ${path}` })
+function places(request: Request) {
+  return new URL(request.url).searchParams.get('client_id') === 'cafe-al-noor' ? [OWN, MAC] : [MAC]
+}
+
+function folder(request: Request) {
+  const params = new URL(request.url).searchParams
+  const path = params.get('path') ?? ''
+  return FOLDERS[`${params.get('place')}:${path}`] ?? reply(404, { detail: `folder not found: ${path}` })
 }
 
 function backend(extra: Record<string, Answer> = {}) {
   return mockApi({
     '/health/ready': READY,
-    '/clients': RESTAURANTS,
-    '/clients/cafe-al-noor/folders': folders,
+    '/clients': CLIENTS,
+    'POST /clients': reply(201, { client_id: 'blue-sky', name: 'Blue Sky' }),
+    '/folders/places': places,
+    '/folders': folder,
     'POST /runs': reply(202, {
       run_id: RUN_ID,
       status: 'RUNNING',
@@ -84,8 +93,8 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
   }
 }
 
-async function pickRestaurant(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor') {
-  await user.click(await screen.findByRole('combobox', { name: 'Restaurant' }))
+async function pickClient(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor') {
+  await user.click(await screen.findByRole('combobox', { name: 'Client' }))
   await user.click(await screen.findByRole('option', { name }))
 }
 
@@ -95,21 +104,25 @@ async function openFolder(user: ReturnType<typeof userEvent.setup>, name: string
 }
 
 describe('run screen', () => {
-  it('browses into a day folder and takes its date from the name', async () => {
+  it("opens the client's own folder, browses into a day folder and takes its date", async () => {
     backend()
     const user = userEvent.setup()
     renderApp('/run')
 
-    await pickRestaurant(user)
+    await pickClient(user)
     await openFolder(user, 'October 2026')
     await openFolder(user, '21')
 
+    const placeGroup = screen.getByRole('group', { name: 'Place' })
+    expect(within(placeGroup).getByRole('button', { name: 'Cafe Al Noor folder' }))
+      .toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('navigation', { name: 'Folder path' })).toHaveTextContent(
-      'Cafe Al Noor' + 'October 2026' + '21',
+      'Cafe Al Noor folder' + 'October 2026' + '21',
     )
     expect(screen.getByLabelText('Folder date')).toHaveValue('2026-10-21')
     expect(screen.getByTestId('date-hint')).toHaveTextContent('Taken from the folder name.')
-    expect(await screen.findByText('No sub-folders here.')).toBeInTheDocument()
+    expect(await screen.findByTestId('file-count')).toHaveTextContent('2 invoice files')
+    expect(screen.getByText('No sub-folders here.')).toBeInTheDocument()
   })
 
   it('goes back up with the folder path and uses the month end for a month folder', async () => {
@@ -117,7 +130,7 @@ describe('run screen', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
-    await pickRestaurant(user)
+    await pickClient(user)
     await openFolder(user, 'October 2026')
     await openFolder(user, '21')
     await user.click(screen.getByRole('button', { name: 'October 2026' }))
@@ -126,23 +139,72 @@ describe('run screen', () => {
     expect(await screen.findByRole('button', { name: /^21/ })).toBeInTheDocument()
   })
 
-  it('starts the run with the confirmed folder and date, then shows its progress', async () => {
+  it('starts the run with the place, folder and date, then shows its progress', async () => {
     const api = backend()
     const user = userEvent.setup()
     const router = renderApp('/run')
 
-    await pickRestaurant(user)
+    await pickClient(user)
     await openFolder(user, 'October 2026')
     await openFolder(user, '21')
-    await user.click(screen.getByRole('button', { name: 'Run Cafe Al Noor / October 2026 / 21' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Run Cafe Al Noor: Cafe Al Noor folder / October 2026 / 21' }),
+    )
 
     await waitFor(() => expect(router.state.location.pathname).toBe(`/run/${RUN_ID}`))
     expect(api.bodies['POST /runs']).toEqual({
       client_id: 'cafe-al-noor',
+      place: 'client',
       folder: 'October 2026/21',
       folder_date: '2026-10-21',
     })
     expect(await screen.findByRole('heading', { name: 'Run: Cafe Al Noor' })).toBeInTheDocument()
+  })
+
+  it('runs a folder on this Mac, but never the whole of it', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await user.click(within(await screen.findByRole('group', { name: 'Place' })).getByRole('button', { name: 'This Mac' }))
+
+    expect(await screen.findByText(/Open a folder inside This Mac first/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Run Cafe Al Noor/ })).toBeDisabled()
+    await openFolder(user, 'Invoice tests')
+    expect(await screen.findByTestId('file-count')).toHaveTextContent('3 invoice files')
+    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
+
+    await waitFor(() =>
+      expect(api.bodies['POST /runs']).toMatchObject({ place: 'p0', folder: 'Invoice tests' }),
+    )
+  })
+
+  it('creates a client from a name and picks it straight away', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await user.click(await screen.findByRole('button', { name: 'New client' }))
+    await user.type(screen.getByLabelText('New client name'), 'Blue Sky')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(api.bodies['POST /clients']).toEqual({ name: 'Blue Sky' }))
+    expect(await screen.findByRole('button', { name: 'This Mac' })).toBeInTheDocument()
+    expect(api.calls).toContain('GET /folders/places?client_id=blue-sky')
+    expect(localStorage.getItem('clearbook.lastClient')).toBe('blue-sky')
+  })
+
+  it('says why a client could not be created', async () => {
+    backend({ 'POST /clients': reply(422, { detail: 'name is required' }) })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await user.click(await screen.findByRole('button', { name: 'New client' }))
+    await user.type(screen.getByLabelText('New client name'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+
+    expect(await screen.findByText('The client was not created')).toBeInTheDocument()
   })
 
   it('sends no folder date when the user clears it', async () => {
@@ -150,7 +212,7 @@ describe('run screen', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
-    await pickRestaurant(user)
+    await pickClient(user)
     await openFolder(user, 'October 2026')
     await user.clear(screen.getByLabelText('Folder date'))
 
@@ -159,6 +221,7 @@ describe('run screen', () => {
     await waitFor(() =>
       expect(api.bodies['POST /runs']).toEqual({
         client_id: 'cafe-al-noor',
+        place: 'client',
         folder: 'October 2026',
         folder_date: null,
       }),
@@ -170,7 +233,7 @@ describe('run screen', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
-    await pickRestaurant(user)
+    await pickClient(user)
     await openFolder(user, 'Supplier bills')
 
     expect(screen.getByLabelText('Folder date')).toHaveValue('')
@@ -178,14 +241,14 @@ describe('run screen', () => {
   })
 
   it('says why a folder could not be opened', async () => {
-    backend({ '/clients/spice-route/folders': reply(404, { detail: 'folder not found: (client folder)' }) })
+    backend({ '/folders': reply(404, { detail: 'folder not found: Invoice tests' }) })
     const user = userEvent.setup()
     renderApp('/run')
 
-    await pickRestaurant(user, 'Spice Route')
+    await pickClient(user, 'Spice Route')
 
     expect(await screen.findByText('This folder could not be opened')).toBeInTheDocument()
-    expect(screen.getByText('folder not found: (client folder)')).toBeInTheDocument()
+    expect(screen.getByText('folder not found: Invoice tests')).toBeInTheDocument()
   })
 
   it('says why the run did not start', async () => {
@@ -193,7 +256,7 @@ describe('run screen', () => {
     const user = userEvent.setup()
     const router = renderApp('/run')
 
-    await pickRestaurant(user)
+    await pickClient(user)
     await openFolder(user, 'October 2026')
     await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
 
@@ -202,11 +265,11 @@ describe('run screen', () => {
     expect(router.state.location.pathname).toBe('/run')
   })
 
-  it('explains how to add a restaurant when there is none', async () => {
+  it('says how to add the first client', async () => {
     backend({ '/clients': [] })
     renderApp('/run')
 
-    expect(await screen.findByText(/No restaurants yet/)).toHaveTextContent('make add-client')
+    expect(await screen.findByText(/No clients yet/)).toHaveTextContent('add one on the Run screen')
   })
 })
 

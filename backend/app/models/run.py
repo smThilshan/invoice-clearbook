@@ -17,12 +17,18 @@ class RunStatus(StrEnum):
 
 
 class Run(UuidPk, ClientScoped, Timestamps, Base):
-    """One click on Run in the Workbench: a folder the user picked inside a client's folder,
-    sub-folders included (decision 25)."""
+    """One click on Run in the Workbench: a folder the user picked, sub-folders included.
+
+    Decision 35: the folder may be anywhere inside the allowed places (this Mac, shared
+    drives, the client's own folder). `root_path` is the place it was picked in; `folder` and
+    every document's `source_path` are relative to it. Runs from before decision 35 have no
+    root: they are relative to the client's folder (decision 25)."""
 
     __tablename__ = "runs"
 
-    # Relative to the client's inbox folder; "" = the whole client folder.
+    # The place the folder was picked in (absolute); null = the client's folder (older runs).
+    root_path: Mapped[str | None] = mapped_column(Text)
+    # Relative to `root_path`; "" = the whole place.
     folder: Mapped[str] = mapped_column(Text, default="", server_default="")
     direction: Mapped[Direction] = mapped_column(
         str_enum(Direction, "direction"), default=Direction.PURCHASE
@@ -34,7 +40,7 @@ class Run(UuidPk, ClientScoped, Timestamps, Base):
         str_enum(RunStatus, "status"), default=RunStatus.RUNNING
     )
     files_found: Mapped[int] = mapped_column(default=0)
-    # Client-folder-relative paths listed by the scan; null = not scanned yet. Per file progress.
+    # Root-relative paths listed by the scan; null = not scanned yet. Per file progress.
     files: Mapped[list[Any] | None] = mapped_column(JSONB)
     created_by: Mapped[str | None] = mapped_column(String(128))
     # Why the run could not proceed (e.g. the shared folder was unreachable); null = fine.

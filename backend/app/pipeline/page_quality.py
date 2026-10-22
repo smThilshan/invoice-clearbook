@@ -100,7 +100,7 @@ def quality_issues(qualities: Sequence[tuple[int, PageQuality | None]]) -> list[
                     Severity.WARNING,
                     None,
                     f"Page {page} looks {' and '.join(problems)}: values may be misread. Check "
-                    "them against the original, or ask the restaurant for a clearer copy.",
+                    "them against the original, or ask for a clearer copy.",
                 )
             )
     return issues

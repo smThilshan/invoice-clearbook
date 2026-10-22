@@ -6,7 +6,7 @@ import type { DocumentSummary, QueuePage, Readiness } from '@/api/client'
 import { mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
-const RESTAURANTS = [
+const CLIENTS = [
   { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' },
   { client_id: 'spice-route', name: 'Spice Route' },
 ]
@@ -62,7 +62,7 @@ const RUNS = [
 function backend(queue: unknown = PAGE) {
   return mockApi({
     '/health/ready': READY,
-    '/clients': RESTAURANTS,
+    '/clients': CLIENTS,
     '/clients/cafe-al-noor/runs': RUNS,
     '/clients/spice-route/runs': [],
     '/documents': queue,
@@ -76,11 +76,11 @@ function queueCalls(api: { calls: string[] }) {
 }
 
 describe('review queue', () => {
-  it('asks for a restaurant first', async () => {
+  it('asks for a client first', async () => {
     const api = backend()
     renderApp('/queue')
 
-    expect(await screen.findByText('Choose a restaurant to see its documents.')).toBeInTheDocument()
+    expect(await screen.findByText('Choose a client to see its documents.')).toBeInTheDocument()
     expect(queueCalls(api)).toEqual([])
   })
 
@@ -168,19 +168,19 @@ describe('review queue', () => {
     expect(queueCalls(api).at(-1)).toMatchObject({ offset: '100' })
   })
 
-  it('remembers the last restaurant on this computer', async () => {
+  it('remembers the last client on this computer', async () => {
     backend()
     const user = userEvent.setup()
     renderApp('/queue')
 
-    await user.click(await screen.findByRole('combobox', { name: 'Restaurant' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Client' }))
     await user.click(await screen.findByRole('option', { name: 'Spice Route' }))
     await screen.findByRole('table', { name: 'Documents' })
 
-    expect(localStorage.getItem('clearbook.lastRestaurant')).toBe('spice-route')
+    expect(localStorage.getItem('clearbook.lastClient')).toBe('spice-route')
   })
 
-  it('opens a remembered restaurant straight away', async () => {
+  it('opens a remembered client straight away (also one remembered under the old name)', async () => {
     localStorage.setItem('clearbook.lastRestaurant', 'spice-route')
     const api = backend()
     renderApp('/queue')

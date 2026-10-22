@@ -63,11 +63,11 @@ retry-document: ## Send a FAILED document back to the start: make retry-document
 	@test -n "$(ID)" || { echo 'usage: make retry-document ID=<document uuid>'; exit 1; }
 	@$(UV) python scripts/pipeline_admin.py retry "$(ID)"
 
-add-client: ## Register a restaurant: make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX=/path
+add-client: ## Register a client with its own folder: make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX=/path
 	@test -n "$(ID)" -a -n "$(NAME)" -a -n "$(INBOX)" || { echo 'usage: make add-client ID=<id> NAME="<name>" INBOX=<folder>'; exit 1; }
 	@$(UV) python scripts/manage_clients.py add "$(ID)" "$(NAME)" "$(INBOX)" --base "$(CURDIR)"
 
-list-clients: ## List registered restaurants
+list-clients: ## List registered clients
 	@$(UV) python scripts/manage_clients.py list
 
 seed: ## Load the fictional F&B sample master data for the default client

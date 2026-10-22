@@ -1,4 +1,4 @@
-"""Runs: process a folder the user picked inside a restaurant's folder (decision 25).
+"""Runs: process a folder the user picked in an allowed place (decisions 25, 35).
 
 No login yet (task 4.1): the API listens on localhost only.
 """
@@ -19,6 +19,7 @@ from app.domain.enums import DocumentType
 from app.models import Run, RunStatus
 from app.pipeline.folders import InboxError
 from app.services.clients import get_client
+from app.services.places import find_place
 from app.services.runs import FROM_FOLDER, RunState, run_progress, start_run
 from app.services.timings import StepTimings
 
@@ -27,7 +28,12 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 
 class RunCreate(BaseModel):
     client_id: str
-    folder: str = Field(default="", description="Inside the client's folder; '' = all of it")
+    place: str | None = Field(
+        default=None,
+        description="Where the folder was picked (GET /folders/places); left out: the "
+        "client's own folder (decision 35)",
+    )
+    folder: str = Field(default="", description="Inside the place; '' = all of it")
     folder_date: date | None = Field(
         default=None,
         description="Confirmed on the Run screen; null = no folder date. "
@@ -100,8 +106,9 @@ def create_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     try:
         folder_date = body.folder_date if "folder_date" in body.model_fields_set else FROM_FOLDER
-        run = start_run(session, client=client, folder=body.folder, folder_date=folder_date,
-                        today=settings.business_today())  # fmt: skip
+        root = find_place(settings, client, body.place).path if body.place else None
+        run = start_run(session, client=client, root=root, folder=body.folder,
+                        folder_date=folder_date, today=settings.business_today())  # fmt: skip
         session.commit()
     except InboxError as exc:
         session.rollback()

@@ -3,9 +3,9 @@ import type { ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import type { DocumentSummary, QueueCategory, QueueQuery, RunOption } from '@/api/client'
-import { useQueue, useRestaurants, useRuns } from '@/api/queries'
+import { useClients, useQueue, useRuns } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
-import { RestaurantSelect } from '@/components/RestaurantSelect'
+import { ClientSelect } from '@/components/ClientSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,7 +31,7 @@ import {
   QUEUE_LABELS,
   TYPE_LABELS,
 } from '@/lib/labels'
-import { lastRestaurant } from '@/lib/remember'
+import { lastClient } from '@/lib/remember'
 import { cn } from '@/lib/utils'
 
 export const PAGE_SIZE = 50
@@ -50,17 +50,17 @@ const CATEGORY_STYLES: Record<QueueCategory, string> = {
 }
 
 /**
- * Documents to review for one restaurant: Exception first, then Check, then Ready (task 4.4).
+ * Documents to review for one client: Exception first, then Check, then Ready (task 4.4).
  * Every filter lives in the address, so refresh, back and the link from a run keep them.
  */
 export function QueuePage() {
   const [params, setParams] = useSearchParams()
-  const restaurants = useRestaurants()
+  const clients = useClients()
 
-  const remembered = lastRestaurant()
+  const remembered = lastClient()
   const clientId =
     params.get('client') ??
-    (restaurants.data?.some((r) => r.client_id === remembered) ? remembered : undefined)
+    (clients.data?.some((c) => c.client_id === remembered) ? remembered : undefined)
   const category = asCategory(params.get('queue'))
   const status: ListStatus = params.get('status') === 'NON_POSTABLE' ? 'NON_POSTABLE' : 'IN_REVIEW'
   const runId = params.get('run') ?? undefined
@@ -100,9 +100,9 @@ export function QueuePage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <RestaurantSelect
+        <ClientSelect
           value={clientId}
-          onChange={(r) => update({ client: r.client_id, run: undefined })}
+          onChange={(c) => update({ client: c.client_id, run: undefined })}
         />
         <Toggle label="Category">
           {CATEGORIES.map((c) => (
@@ -130,7 +130,7 @@ export function QueuePage() {
       </div>
 
       {!clientId ? (
-        <p className="text-sm text-muted-foreground">Choose a restaurant to see its documents.</p>
+        <p className="text-sm text-muted-foreground">Choose a client to see its documents.</p>
       ) : queue.isPending ? (
         <Skeleton className="h-48 w-full" />
       ) : queue.isError ? (

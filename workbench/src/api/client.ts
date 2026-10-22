@@ -8,10 +8,12 @@ import type { components } from './schema'
 export type Schemas = components['schemas']
 export type Readiness = Schemas['Readiness']
 export type ModelStatus = Schemas['ModelStatus']
-export type Restaurant = Schemas['ClientOut']
-export type Folder = Schemas['Folder']
+export type Client = Schemas['ClientOut']
+export type ClientCreate = Schemas['ClientCreate']
+export type FolderPlace = Schemas['PlaceOut']
+export type Folder = Schemas['FolderOut']
+export type PlaceListing = Schemas['PlaceListing']
 export type RunOption = Schemas['RunOption']
-export type FolderListing = Schemas['FolderListing']
 export type RunCreate = Schemas['RunCreate']
 export type RunAccepted = Schemas['RunAccepted']
 export type RunProgress = Schemas['RunProgressOut']
@@ -102,12 +104,15 @@ export function pageImageUrl(documentId: string, page: number): string {
 export const api = {
   /** Readiness answers 503 (with the same body) when Postgres or Redis is down. */
   readiness: () => request<Readiness>('/health/ready', { acceptStatuses: [503] }),
-  restaurants: () => request<Restaurant[]>('/clients'),
-  /** Sub-folders of `path` inside the restaurant's shared-drive folder ('' = its top). */
-  folders: (clientId: string, path: string) =>
-    request<FolderListing>(
-      `/clients/${encodeURIComponent(clientId)}/folders?${new URLSearchParams({ path })}`,
-    ),
+  clients: () => request<Client[]>('/clients'),
+  /** A new client from just a name; its id is made from the name (decision 35). */
+  createClient: (body: ClientCreate) => sendJson<Client>('POST', '/clients', body),
+  /** Where the Run screen may pick a folder: the client's own folder, this Mac, shared drives. */
+  places: (clientId: string) =>
+    request<FolderPlace[]>(`/folders/places?${new URLSearchParams({ client_id: clientId })}`),
+  /** Sub-folders of `path` inside a place ('' = its top), and its invoice file count. */
+  folder: (clientId: string, place: string, path: string) =>
+    request<PlaceListing>(`/folders?${new URLSearchParams({ client_id: clientId, place, path })}`),
   /** Latest runs that took in documents, newest first (the queue's run filter). */
   runs: (clientId: string) => request<RunOption[]>(`/clients/${encodeURIComponent(clientId)}/runs`),
   startRun: (body: RunCreate) => sendJson<RunAccepted>('POST', '/runs', body),

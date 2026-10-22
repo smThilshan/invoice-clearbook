@@ -11,6 +11,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
+from pathlib import Path
 from typing import Final, Literal
 
 from sqlalchemy import func, select
@@ -82,23 +83,26 @@ def start_run(
     session: Session,
     *,
     client: Client,
+    root: Path | None = None,
     folder: str = "",
     folder_date: date | Literal["from_folder"] | None = FROM_FOLDER,
     today: date,
     created_by: str | None = None,
 ) -> Run:
-    """Create the run row for `folder` (relative to the client's folder; "" = all of it).
+    """Create the run row for `folder`, relative to `root`: the place it was picked in
+    (decision 35; None = the client's own folder). "" = the whole place.
     The date is the user's (None: they confirmed there is none), by default read from the
     folder name (a name without a year: the most recent such date up to `today`). The caller
     commits, then enqueues the scan (never before: the worker could start before the row is
     visible)."""
-    root = client_root(client)
+    root = root or client_root(client)
     path = resolve_inside(root, folder)
     if not path.is_dir():
-        raise InboxError(f"folder not found: {folder or '(client folder)'}")
+        raise InboxError(f"folder not found: {folder or str(root)}")
     relative = relative_to_root(root, path) if path != root.resolve() else ""
     run = Run(
         client_id=client.client_id,
+        root_path=str(root),
         folder=relative,
         direction=Direction.PURCHASE,  # purchase-side by default (decision 25)
         folder_date=(
