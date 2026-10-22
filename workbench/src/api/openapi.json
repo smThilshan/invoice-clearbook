@@ -323,6 +323,16 @@
           "status": {
             "$ref": "#/components/schemas/DocumentStatus"
           },
+          "timings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepTimingsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "total": {
             "anyOf": [
               {
@@ -389,7 +399,8 @@
           "contact_id",
           "failure_reason",
           "updated_at",
-          "corrections"
+          "corrections",
+          "timings"
         ],
         "title": "DocumentDetail",
         "type": "object"
@@ -638,6 +649,16 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "timings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepTimingsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -647,7 +668,8 @@
           "document_type",
           "pages",
           "failure_reason",
-          "from_earlier_run"
+          "from_earlier_run",
+          "timings"
         ],
         "title": "FileStatus",
         "type": "object"
@@ -1810,6 +1832,87 @@
           "confidence"
         ],
         "title": "Span",
+        "type": "object"
+      },
+      "StepTimingsOut": {
+        "description": "Milliseconds per step (task 4.9); null = not measured or not run yet.",
+        "properties": {
+          "checks_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checks Ms"
+          },
+          "coding_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coding Ms"
+          },
+          "extract_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extract Ms"
+          },
+          "read_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read Ms"
+          },
+          "total_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Ms"
+          },
+          "waiting_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Ms"
+          }
+        },
+        "required": [
+          "waiting_ms",
+          "read_ms",
+          "extract_ms",
+          "coding_ms",
+          "checks_ms",
+          "total_ms"
+        ],
+        "title": "StepTimingsOut",
         "type": "object"
       },
       "TaxOption": {

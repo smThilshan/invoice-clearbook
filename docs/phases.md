@@ -59,6 +59,7 @@ Goal: an accountant reviews and approves without touching the DB.
 - [x] **4.6 Field highlight** — focus a field → its value is highlighted where printed (all places, any page; follows typing); matched in the backend like grounding (`GET /documents/{id}/locate`); names found by most of their words shown dashed; "not found in the page text" otherwise
 - [x] **4.7 Corrections** — one row per changed field (model value or suggested code vs final value, supplier, model, prompt version), kept in step with every save (unique per document + field); "AI read: …" shown under changed fields; reject reason pick-list (done in 4.2/4.5)
 - [x] **4.8 Approve flow** — server re-validates (no model); errors block, warnings do not; `APPROVED` + outbox row + corrections + supplier mapping in one transaction; approve takes the document as last saved (button disabled with unsaved edits or errors); one consistent approval more for the same account/VAT, a different choice starts over, mixed accounts teach nothing
+- [x] **4.9 Step timings** (decision 33) — each step records its work time; run page shows per file waiting / read / extract (model) / coding (model) / checks / total and the average per invoice without waiting; review screen shows processing and model time
 
 Done when: full review and approval works from the browser.
 

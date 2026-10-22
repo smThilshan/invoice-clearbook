@@ -20,6 +20,7 @@ from app.domain.enums import Direction, DocumentStatus, DocumentType
 from app.models import Client, Document, Run, RunStatus
 from app.pipeline.folders import InboxError, folder_date_from_path, relative_to_root, resolve_inside
 from app.services.clients import client_root
+from app.services.timings import StepTimings, load_timings
 
 # Statuses that will move on by themselves (a pipeline step is pending or running).
 IN_PROGRESS = frozenset(
@@ -51,6 +52,7 @@ class FileProgress:
     page_count: int | None
     failure_reason: str | None
     from_earlier_run: bool  # already processed before; this run found it again
+    timings: StepTimings | None = None  # None = not ingested yet
 
     @property
     def status_label(self) -> str:
@@ -127,12 +129,18 @@ def run_progress(session: Session, run: Run) -> RunProgress:
         if current is None or current.run_id != run.id:
             by_path[document.source_path] = document
 
-    files = [_file_progress(path, by_path.get(path), run.id) for path in paths]
+    timings = load_timings(session, list(by_path.values()))
+    files = [_file_progress(path, by_path.get(path), run.id, timings) for path in paths]
     pending = any(f.status is None or f.status in IN_PROGRESS for f in files)
     return RunProgress(run, RunState.PROCESSING if pending else RunState.FINISHED, files)
 
 
-def _file_progress(path: str, document: Document | None, run_id: uuid.UUID) -> FileProgress:
+def _file_progress(
+    path: str,
+    document: Document | None,
+    run_id: uuid.UUID,
+    timings: dict[uuid.UUID, StepTimings],
+) -> FileProgress:
     if document is None:
         return FileProgress(path, None, None, None, None, None, from_earlier_run=False)
     return FileProgress(
@@ -143,4 +151,5 @@ def _file_progress(path: str, document: Document | None, run_id: uuid.UUID) -> F
         document.page_count,
         document.failure_reason,
         from_earlier_run=document.run_id != run_id,
+        timings=timings.get(document.id),
     )

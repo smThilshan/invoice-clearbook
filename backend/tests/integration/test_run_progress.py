@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -9,8 +10,9 @@ from app.core.config import Settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus as S
 from app.main import create_app
-from app.models import Run, RunStatus
+from app.models import AuditLog, Run, RunStatus
 from app.services.runs import QUEUED, RunState, run_progress
+from app.services.timings import StepTimings
 from tests.integration.factories import make_client, make_document, make_run
 
 pytestmark = pytest.mark.integration
@@ -138,3 +140,29 @@ def test_run_status_is_derived_from_its_files(session: Session) -> None:
 
     finished.status = RunStatus.FAILED  # e.g. the shared folder was unreachable
     assert run_progress(session, finished).status is RunStatus.FAILED
+
+
+def test_files_carry_their_step_timings(session: Session) -> None:
+    run = scanned(session, "a.pdf", "b.pdf")
+    document = make_document(session, run_id=run.id, source_path=f"{FOLDER}/a.pdf",
+                             status=S.IN_REVIEW)  # fmt: skip
+    session.refresh(document)
+    steps = [  # (from, to, started after capture in s, details)
+        (S.CAPTURED, S.READ, 10, {"work_ms": 6_000}),
+        (S.READ, S.EXTRACTED, 30, {"work_ms": 200_000}),
+        (S.EXTRACTED, S.VERIFIED, 240, {"work_ms": 16_000, "coding_ms": 15_000}),
+    ]
+    for source, target, seconds, details in steps:
+        session.add(
+            AuditLog(
+                client_id=document.client_id, document_id=document.id, from_status=source,
+                to_status=target, actor="system:test", details=details,
+                created_at=document.created_at + timedelta(seconds=seconds),
+            )
+        )  # fmt: skip
+    session.flush()
+
+    timed, queued = run_progress(session, run).files
+
+    assert timed.timings == StepTimings(34_000, 6_000, 200_000, 15_000, 1_000, 256_000)
+    assert queued.timings is None

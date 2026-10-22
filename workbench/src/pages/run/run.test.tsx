@@ -70,11 +70,15 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
     counts: { IN_REVIEW: 1, READ: 1, FAILED: 1 },
     files: [
       { file: 'inv-1.pdf', status: 'IN_REVIEW', document_id: 'd1', document_type: 'BILL',
-        pages: 1, failure_reason: null, from_earlier_run: false },
+        pages: 1, failure_reason: null, from_earlier_run: false,
+        timings: { waiting_ms: 34_000, read_ms: 6_000, extract_ms: 200_000, coding_ms: 15_000,
+                   checks_ms: 1_000, total_ms: 256_000 } },
       { file: 'inv-2.pdf', status: 'READ', document_id: 'd2', document_type: null,
-        pages: 2, failure_reason: null, from_earlier_run: false },
+        pages: 2, failure_reason: null, from_earlier_run: false,
+        timings: { waiting_ms: null, read_ms: 4_200, extract_ms: null, coding_ms: null,
+                   checks_ms: null, total_ms: null } },
       { file: 'scan.jpg', status: 'FAILED', document_id: 'd3', document_type: null,
-        pages: null, failure_reason: 'file is damaged', from_earlier_run: false },
+        pages: null, failure_reason: 'file is damaged', from_earlier_run: false, timings: null },
     ],
     ...changes,
   }
@@ -222,6 +226,22 @@ describe('run progress', () => {
     expect(counts).toHaveTextContent('Failed: 1')
     expect(screen.getByRole('status')).toHaveTextContent('3 files found, 1 still being worked on')
     expect(screen.queryByRole('link', { name: /open review queue/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the time each step took per file, and the average without waiting', async () => {
+    backend()
+    renderApp(`/run/${RUN_ID}`)
+
+    const table = await screen.findByRole('table', { name: 'Time per step' })
+    const rows = within(table).getAllByRole('row')
+    expect(rows).toHaveLength(3) // header + the 2 timed files
+    expect(rows[1]).toHaveTextContent(
+      'inv-1.pdf' + '34 s' + '6.0 s' + '3 min 20 s' + '15 s' + '1.0 s' + '4 min 16 s',
+    )
+    expect(rows[2]).toHaveTextContent('inv-2.pdf' + '—' + '4.2 s' + '—')
+    expect(screen.getByText(/Per invoice, without waiting/)).toHaveTextContent(
+      '3 min 42 s on average (1 timed',
+    )
   })
 
   it('refreshes until the run is finished, then offers the review queue', async () => {

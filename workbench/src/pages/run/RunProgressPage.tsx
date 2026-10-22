@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDate, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
+import { formatDuration, summarize } from '@/lib/timings'
 
 const STATE_LABELS: Record<RunProgress['state'], string> = {
   scanning: 'Looking through the folder…',
@@ -87,6 +88,7 @@ export function RunProgressPage() {
       )}
 
       {progress.files.length > 0 && <FileTable files={progress.files} />}
+      {progress.files.some((file) => file.timings) && <TimingTable files={progress.files} />}
       {progress.state !== 'scanning' && progress.files.length === 0 && (
         <p className="text-sm text-muted-foreground">No documents found in this folder.</p>
       )}
@@ -138,6 +140,61 @@ function FileTable({ files }: { files: FileStatus[] }) {
         </TableBody>
       </Table>
     </div>
+  )
+}
+
+/** Where the time went, per file (task 4.9). Waiting = queued behind other files: the worker
+ * does one job at a time, so the work columns are the real time per invoice. */
+function TimingTable({ files }: { files: FileStatus[] }) {
+  const timed = files.filter((file) => file.timings)
+  const summary = summarize(timed.map((file) => file.timings))
+  return (
+    <section aria-labelledby="timings-heading" className="space-y-2">
+      <h3 id="timings-heading" className="font-semibold">
+        Time per step
+      </h3>
+      <div className="rounded-lg border">
+        <Table aria-label="Time per step">
+          <TableHeader>
+            <TableRow>
+              <TableHead>File</TableHead>
+              <TableHead className="text-right">Waiting</TableHead>
+              <TableHead className="text-right">Read</TableHead>
+              <TableHead className="text-right">Extract (model)</TableHead>
+              <TableHead className="text-right">Coding (model)</TableHead>
+              <TableHead className="text-right">Checks</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {timed.map(({ file, timings: t }) => (
+              <TableRow key={file}>
+                <TableCell className="font-medium">{file}</TableCell>
+                <TableCell className="text-right text-muted-foreground">
+                  {formatDuration(t?.waiting_ms)}
+                </TableCell>
+                <TableCell className="text-right">{formatDuration(t?.read_ms)}</TableCell>
+                <TableCell className="text-right">{formatDuration(t?.extract_ms)}</TableCell>
+                <TableCell className="text-right">{formatDuration(t?.coding_ms)}</TableCell>
+                <TableCell className="text-right">{formatDuration(t?.checks_ms)}</TableCell>
+                <TableCell className="text-right font-medium">{formatDuration(t?.total_ms)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {summary.measured > 0 ? (
+          <>
+            Per invoice, without waiting:{' '}
+            <span className="font-medium text-foreground">{formatDuration(summary.averageWorkMs)}</span>{' '}
+            on average ({summary.measured} timed, {formatDuration(summary.totalWorkMs)} in all).{' '}
+          </>
+        ) : null}
+        Waiting is time in line behind other files. — = not measured yet, or processed before
+        timing was added.
+      </p>
+    </section>
   )
 }
 

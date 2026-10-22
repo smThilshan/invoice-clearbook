@@ -12,6 +12,7 @@ compares the folder with what the content says, so the model must not be told th
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -146,6 +147,7 @@ def extract_document(
     if document.status is not DocumentStatus.READ:
         return ExtractResult(ExtractOutcome.SKIPPED)
 
+    started = time.perf_counter()
     pages = load_page_texts(storage, document)
     images = [
         storage.get(page_image_key(document.client_id, document.id, number))
@@ -191,6 +193,7 @@ def extract_document(
             "output_tokens": llm.output_tokens,
             "reading_ms": llm.reading_ms,
             "writing_ms": llm.writing_ms,
+            "work_ms": round((time.perf_counter() - started) * 1000),  # step timings (4.9)
         },
     )
     outcome = ExtractOutcome.EXTRACTED if invoice else ExtractOutcome.INVALID

@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { QUEUE_LABELS, statusLabel, TYPE_LABELS } from '@/lib/labels'
+import { formatDuration, workMs } from '@/lib/timings'
 
 import { toInvoiceInput } from './formModel'
 import { type Highlight, PageViewer } from './PageViewer'
@@ -142,6 +143,12 @@ function Header({ document: doc, onBack }: { document: DocumentDetail; onBack: (
         {doc.errors} error{doc.errors === 1 ? '' : 's'} · {doc.warnings} warning
         {doc.warnings === 1 ? '' : 's'}
       </span>
+      {doc.timings?.extract_ms != null && (
+        <span className="text-sm text-muted-foreground">
+          {doc.timings.total_ms !== null && `Processed in ${formatDuration(workMs(doc.timings))} · `}
+          model {formatDuration(doc.timings.extract_ms)}
+        </span>
+      )}
     </div>
   )
 }

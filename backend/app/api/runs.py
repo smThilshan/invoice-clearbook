@@ -20,6 +20,7 @@ from app.models import Run, RunStatus
 from app.pipeline.folders import InboxError
 from app.services.clients import get_client
 from app.services.runs import FROM_FOLDER, RunState, run_progress, start_run
+from app.services.timings import StepTimings
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -41,6 +42,21 @@ class RunAccepted(BaseModel):
     folder_date: date | None
 
 
+class StepTimingsOut(BaseModel):
+    """Milliseconds per step (task 4.9); null = not measured or not run yet."""
+
+    waiting_ms: int | None
+    read_ms: int | None
+    extract_ms: int | None
+    coding_ms: int | None
+    checks_ms: int | None
+    total_ms: int | None
+
+    @classmethod
+    def of(cls, timings: StepTimings | None) -> "StepTimingsOut | None":
+        return cls.model_validate(timings, from_attributes=True) if timings else None
+
+
 class FileStatus(BaseModel):
     file: str  # path inside the selected folder
     status: str  # a document status, or QUEUED (not ingested yet)
@@ -49,6 +65,7 @@ class FileStatus(BaseModel):
     pages: int | None
     failure_reason: str | None
     from_earlier_run: bool
+    timings: StepTimingsOut | None
 
 
 class RunProgressOut(BaseModel):
@@ -123,6 +140,7 @@ def get_run(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]
                 pages=f.page_count,
                 failure_reason=f.failure_reason,
                 from_earlier_run=f.from_earlier_run,
+                timings=StepTimingsOut.of(f.timings),
             )
             for f in progress.files
         ],

@@ -56,6 +56,8 @@ def test_digital_pdf_is_read_without_ocr(session: Session, storage: LocalStorage
     page = PageText.from_json(storage.get(ocr_key(doc.client_id, doc.id, 1)))
     assert page.source == "text_layer" and "INV-00291" in page.text
     [entry] = audit(session, doc)
+    work_ms = entry.details.pop("work_ms")  # step timings (4.9)
+    assert isinstance(work_ms, int) and work_ms >= 0
     assert (entry.to_status, entry.details) == (DocumentStatus.READ, {"pages": 2, "ocr_pages": 0})
 
 

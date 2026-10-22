@@ -404,6 +404,7 @@ export interface components {
             /** Source Path */
             source_path: string;
             status: components["schemas"]["DocumentStatus"];
+            timings: components["schemas"]["StepTimingsOut"] | null;
             /** Total */
             total: string | null;
             /**
@@ -492,6 +493,7 @@ export interface components {
             pages: number | null;
             /** Status */
             status: string;
+            timings: components["schemas"]["StepTimingsOut"] | null;
         };
         /** Folder */
         Folder: {
@@ -860,6 +862,24 @@ export interface components {
             confidence: number | null;
             /** Text */
             text: string;
+        };
+        /**
+         * StepTimingsOut
+         * @description Milliseconds per step (task 4.9); null = not measured or not run yet.
+         */
+        StepTimingsOut: {
+            /** Checks Ms */
+            checks_ms: number | null;
+            /** Coding Ms */
+            coding_ms: number | null;
+            /** Extract Ms */
+            extract_ms: number | null;
+            /** Read Ms */
+            read_ms: number | null;
+            /** Total Ms */
+            total_ms: number | null;
+            /** Waiting Ms */
+            waiting_ms: number | null;
         };
         /** TaxOption */
         TaxOption: {

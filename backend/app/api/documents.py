@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.adapters.storage import Storage, get_storage
 from app.adapters.storage.base import NotFoundError
 from app.adapters.storage.keys import ocr_key, page_image_key
+from app.api.runs import StepTimingsOut
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
@@ -30,6 +31,7 @@ from app.services import approval, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
 from app.services.review import RejectReason, ReviewError
+from app.services.timings import load_timings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -86,6 +88,7 @@ class DocumentDetail(DocumentSummary):
     failure_reason: str | None
     updated_at: datetime
     corrections: list[CorrectionOut]  # fields where the accountant's value differs from the model's
+    timings: StepTimingsOut | None  # where the processing time went (task 4.9)
 
 
 class DocumentUpdate(BaseModel):
@@ -332,4 +335,5 @@ def _detail(session: Session, document: Document) -> DocumentDetail:
             CorrectionOut(field=c.field, model_value=c.model_value, final_value=c.final_value)
             for c in corrections_of(session, document)
         ],
+        timings=StepTimingsOut.of(load_timings(session, [document]).get(document.id)),
     )

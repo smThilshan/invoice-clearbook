@@ -19,6 +19,7 @@ itself never needs the model to succeed.
 
 import json
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -86,11 +87,14 @@ def verify_document(
     if document.status is not DocumentStatus.EXTRACTED:
         return VerifyResult(VerifyOutcome.SKIPPED)
 
+    started = time.perf_counter()
     provider = _provider(session, document, settings)
     chart = coding.load_chart(session, client_id=document.client_id, provider=provider)
     invoice = working_copy(document)
     coding_issues: list[Issue] = []
+    coding_seconds = 0.0
     if invoice is not None:
+        coding_started = time.perf_counter()
         coded = coding.code_document(
             session,
             invoice,
@@ -100,6 +104,7 @@ def verify_document(
             vendor_key=vendor_key(invoice),
             min_consistent_approvals=settings.coding_min_consistent_approvals,
         )
+        coding_seconds = time.perf_counter() - coding_started
         invoice = coded.apply(invoice)
         coding_issues = coded.issues
         document.coding = [line.to_json() for line in coded.lines]
@@ -110,7 +115,12 @@ def verify_document(
     )  # fmt: skip
 
     summary = {"queue": result.queue.value, "errors": result.errors, "warnings": result.warnings}
-    transition(session, document, DocumentStatus.VERIFIED, actor=ACTOR, details=summary)
+    timed = {  # step timings (4.9): coding is the model's part of this step
+        **summary,
+        "work_ms": round((time.perf_counter() - started) * 1000),
+        "coding_ms": round(coding_seconds * 1000),
+    }
+    transition(session, document, DocumentStatus.VERIFIED, actor=ACTOR, details=timed)
     if result.park:
         transition(
             session,

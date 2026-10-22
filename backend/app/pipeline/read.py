@@ -117,14 +117,15 @@ def read_document(
 
     ocr_pages = sum(text.source == "ocr" for _, text in pages)
     document.page_count = len(pages)
+    seconds = time.perf_counter() - started
     transition(
         session,
         document,
         DocumentStatus.READ,
         actor=ACTOR,
-        details={"pages": len(pages), "ocr_pages": ocr_pages},
+        details={"pages": len(pages), "ocr_pages": ocr_pages, "work_ms": round(seconds * 1000)},
     )
-    return ReadResult(ReadOutcome.READ, len(pages), ocr_pages, time.perf_counter() - started)
+    return ReadResult(ReadOutcome.READ, len(pages), ocr_pages, seconds)
 
 
 def read_pages(
