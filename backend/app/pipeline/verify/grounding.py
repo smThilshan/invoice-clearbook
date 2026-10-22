@@ -139,29 +139,31 @@ def _trn(invoice: Invoice, witness: _Witness, printed: PrintedTrns) -> list[Issu
     issues = []
     if printed.supplier is not None:
         issues += _against_printed(invoice.vendor_trn, printed.supplier, "vendor_trn",
-                                   "supplier", Severity.ERROR)  # fmt: skip
+                                   "supplier VAT registration no", Severity.ERROR)  # fmt: skip
     elif invoice.vendor_trn is not None:
         digits = normalize_trn(invoice.vendor_trn)
         if not (digits and digits in witness.digit_runs):
             issues.append(
-                _not_found("vendor_trn", "supplier TRN", invoice.vendor_trn, Severity.ERROR)
+                _not_found(
+                    "vendor_trn", "supplier VAT registration no", invoice.vendor_trn, Severity.ERROR
+                )
             )
     if printed.customer is not None:
         issues += _against_printed(invoice.recipient_trn, printed.customer, "recipient_trn",
-                                   "customer", Severity.WARNING)  # fmt: skip
+                                   "customer TRN", Severity.WARNING)  # fmt: skip
     return issues
 
 
 def _against_printed(
-    value: str | None, printed: str, field: str, whose: str, severity: Severity
+    value: str | None, printed: str, field: str, label: str, severity: Severity
 ) -> list[Issue]:
     if value is None:
         return [Issue("trn_not_extracted", severity, field,
-                      f"The {whose} TRN {printed} is printed on the document but was not "
+                      f"The {label} {printed} is printed on the document but was not "
                       "extracted.", suggestion=printed)]  # fmt: skip
     if normalize_trn(value) != printed:
         return [Issue("trn_differs_from_printed", severity, field,
-                      f"The {whose} TRN printed on the document is {printed}, not {value}.",
+                      f"The {label} printed on the document is {printed}, not {value}.",
                       suggestion=printed)]  # fmt: skip
     return []
 

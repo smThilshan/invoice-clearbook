@@ -56,7 +56,7 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
     },
     issues: [
       { code: 'trn_differs_from_printed', severity: 'ERROR', field: 'vendor_trn',
-        message: `The supplier TRN printed on the document is ${PRINTED_TRN}, not 100444555666003.`,
+        message: `The supplier VAT registration no printed on the document is ${PRINTED_TRN}, not 100444555666003.`,
         suggestion: PRINTED_TRN },
       { code: 'type_maybe_receipt', severity: 'WARNING', field: 'document_type',
         message: 'Read as a bill to pay, but the document shows a payment.', suggestion: null },
@@ -126,8 +126,8 @@ describe('review screen', () => {
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
     expect(screen.getByLabelText('Supplier')).toHaveValue('Fresh Farms Trading LLC')
     expect(screen.getByLabelText('Total')).toHaveValue('1050.00')
-    expect(screen.getByLabelText('Supplier TRN')).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByText(/supplier TRN printed on the document is/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Supplier VAT registration no')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText(/supplier VAT registration no printed on the document is/)).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Document issues' })).getByText(/looks blurry/))
       .toBeInTheDocument()
     expect(screen.getByText('Checked')).toBeInTheDocument() // invoice_date already verified
@@ -151,7 +151,7 @@ describe('review screen', () => {
     const user = userEvent.setup()
 
     await user.click(screen.getByRole('button', { name: `Use printed value ${PRINTED_TRN}` }))
-    await user.click(screen.getByRole('checkbox', { name: 'Supplier TRN checked against the original' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Supplier VAT registration no checked against the original' }))
     await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
 
     await waitFor(() => expect(sent(api)).toBeDefined())
@@ -421,7 +421,7 @@ describe('field highlight', () => {
     await openLocating()
     const user = userEvent.setup()
 
-    await user.click(screen.getByLabelText('Supplier TRN'))
+    await user.click(screen.getByLabelText('Supplier VAT registration no'))
 
     await screen.findByTestId('highlight')
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()

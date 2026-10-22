@@ -256,7 +256,8 @@ def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
             _warning(
                 "vat_without_trn",
                 "vendor_trn",
-                "VAT is charged but no supplier TRN was found: input VAT may not be recoverable.",
+                "VAT is charged but no supplier VAT registration no was found: input VAT may "
+                "not be recoverable.",
             )
         )
     return issues
@@ -264,9 +265,9 @@ def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
 
 def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     issues = []
-    for field, severity, whose in (
-        ("vendor_trn", Severity.ERROR, "Supplier"),
-        ("recipient_trn", Severity.WARNING, "Customer"),
+    for field, severity, label in (
+        ("vendor_trn", Severity.ERROR, "Supplier VAT registration no"),
+        ("recipient_trn", Severity.WARNING, "Customer TRN"),
     ):
         value = getattr(invoice, field)
         if value is None:
@@ -278,7 +279,7 @@ def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
                     "trn_invalid",
                     severity,
                     field,
-                    f"{whose} TRN must be 15 digits (found {len(digits)}).",
+                    f"{label} must be 15 digits (found {len(digits)}).",
                 )
             )
     vendor, recipient = invoice.vendor_trn, invoice.recipient_trn
@@ -287,8 +288,8 @@ def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
             _error(
                 "trn_is_recipient",
                 "vendor_trn",
-                "The supplier TRN is the same as the customer's (your own) TRN: the supplier's "
-                "TRN was probably misread.",
+                "The supplier VAT registration no is the same as the customer's (your own) TRN: "
+                "it was probably misread.",
             )
         )
     return issues

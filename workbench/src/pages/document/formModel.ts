@@ -44,7 +44,7 @@ export type HeaderField = Exclude<keyof FormValues, 'lines' | 'document_type' | 
 export const FIELD_LABELS: Record<string, string> = {
   document_type: 'Document type',
   vendor_name: 'Supplier',
-  vendor_trn: 'Supplier TRN',
+  vendor_trn: 'Supplier VAT registration no',
   invoice_number: 'Number',
   invoice_date: 'Date',
   due_date: 'Due date',
