@@ -105,7 +105,7 @@ class Invoice(BaseModel):
     due_date: date | None
     po_number: str | None
     original_invoice_ref: str | None   # credit/debit notes
-    amount_type: AmountType | None     # INCLUSIVE, EXCLUSIVE, NO_TAX
+    amount_type: AmountType | None     # INCLUSIVE, EXCLUSIVE, NO_TAX; set from the amounts, not the model's guess (decision 34)
     subtotal: Decimal | None
     vat: Decimal | None
     lines: list[Line]
@@ -125,6 +125,7 @@ Deterministic Python only. The system flags; it never silently fixes. Errors blo
 | Grounding | Key values (number, dates, total, VAT, TRN) appear in document text after normalization (digits incl. Arabic-Indic, separators, date formats) | Error |
 | Line math | qty × unit_price = amount; lines sum to subtotal (discount/rounding lines allowed) | Warning |
 | Totals | subtotal + VAT = total (±0.01) | Error |
+| VAT type | Agrees with the amounts: lines + VAT = total → VAT added on top, lines = total → VAT included (decision 34); suggestion offered | Warning; missing with VAT → Error |
 | VAT | 5% standard, or valid zero/exempt/reverse-charge case | Error or warning |
 | TRN | 15 digits; matches the vendor contact's TRN in master data if known | Error or warning |
 | Dates | Not in the future; due ≥ invoice date | Error |

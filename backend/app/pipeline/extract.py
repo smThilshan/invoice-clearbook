@@ -33,6 +33,7 @@ from app.models import Document, Extraction
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.normalize import parse_date
+from app.pipeline.verify.vat_type import vat_type_from_amounts
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,10 @@ def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
         answer = None
     try:
         if isinstance(answer, dict):
-            return Invoice.model_validate(parse_answer_dates(answer)), None
+            invoice = Invoice.model_validate(parse_answer_dates(answer))
+            # Decision 34: the amounts decide the VAT type, not the model's guess. The model is
+            # still asked so its prompt stays unchanged: any wording change shifts other fields.
+            return invoice.model_copy(update={"amount_type": vat_type_from_amounts(invoice)}), None
         return Invoice.model_validate_json(llm.raw_output), None  # reports why it is invalid
     except ValidationError as exc:
         problems = ", ".join(f"{'.'.join(map(str, e['loc'])) or 'root'}:{e['type']}"

@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 
 from app.adapters.llm import ExtractionResult
+from app.domain.enums import AmountType
 from app.pipeline.extract import (
     EXTRACTION_SCHEMA,
     SYSTEM_PROMPT,
@@ -128,3 +129,34 @@ def test_prompt_says_where_trns_are_and_what_is_not_one() -> None:
     assert "exactly 15 digits" in SYSTEM_PROMPT
     assert "VAT Registration No" in SYSTEM_PROMPT
     assert "excise" in SYSTEM_PROMPT
+
+
+def test_the_models_vat_type_guess_is_replaced_by_the_amounts() -> None:
+    """Decision 34 (EXP-004): headings like "INCL EXCISE" made the model say INCLUSIVE although
+    the lines plus VAT made the total."""
+    raw = (
+        '{"document_type": "BILL", "amount_type": "INCLUSIVE", "vat": 2.00, "total": 42.00, '
+        '"lines": [{"description": "Milk", "qty": null, "unit_price": null, "amount": 40.00}]}'
+    )
+
+    invoice, _ = validate_answer(answer(raw))
+
+    assert invoice is not None and invoice.amount_type is AmountType.EXCLUSIVE
+
+
+def test_vat_type_is_worked_out_from_the_amounts() -> None:
+    raw = (
+        '{"document_type": "BILL", "vat": 2.00, "total": 42.00, "lines": '
+        '[{"description": "Milk", "qty": null, "unit_price": null, "amount": 40.00}]}'
+    )
+
+    invoice, error = validate_answer(answer(raw))
+
+    assert error is None and invoice is not None
+    assert invoice.amount_type is AmountType.EXCLUSIVE
+
+
+def test_vat_type_stays_empty_when_the_amounts_do_not_tell() -> None:
+    invoice, _ = validate_answer(answer('{"document_type": "BILL", "vat": 2.00, "total": 42.00}'))
+
+    assert invoice is not None and invoice.amount_type is None

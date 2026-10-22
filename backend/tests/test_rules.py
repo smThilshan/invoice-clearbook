@@ -370,3 +370,45 @@ def test_context_takes_tolerances_from_settings() -> None:
 
     assert (ctx.vat_tolerance_per_line, ctx.period_max_days_before) == (Decimal("0.02"), 30)
     assert ctx.future_date_slack_days == 0
+
+
+# --- VAT type (decision 34) --------------------------------------------------------------
+
+
+def test_vat_type_that_contradicts_the_amounts_is_a_warning_with_the_right_one() -> None:
+    issue = only(invoice(amount_type=AmountType.INCLUSIVE), "vat_type_mismatch")
+
+    assert (issue.severity, issue.field) == (Severity.WARNING, "amount_type")
+    assert issue.suggestion == "EXCLUSIVE"
+    assert "before VAT" in issue.message
+
+
+def test_vat_type_mismatch_replaces_the_lines_warning() -> None:
+    assert "lines_sum_mismatch" not in codes(invoice(amount_type=AmountType.INCLUSIVE))
+
+
+def test_missing_vat_type_with_vat_is_an_error_with_a_suggestion() -> None:
+    issue = only(invoice(amount_type=None), "vat_type_missing")
+
+    assert (issue.severity, issue.suggestion) == (Severity.ERROR, "EXCLUSIVE")
+
+
+def test_missing_vat_type_the_amounts_cannot_explain_has_no_suggestion() -> None:
+    lines = [Line(description="Rice", amount=Decimal("600.00"))]  # a line is missing
+
+    issue = only(invoice(amount_type=None, lines=lines), "vat_type_missing")
+
+    assert issue.suggestion is None
+    assert "could not be worked out" in issue.message
+
+
+def test_missing_vat_type_without_vat_is_fine() -> None:
+    lines = [Line(description="Water", amount=Decimal("1000.00"))]
+    inv = invoice(amount_type=None, vat=None, subtotal=None, total=Decimal("1000.00"),
+                  lines=lines)  # fmt: skip
+
+    assert not codes(inv) & {"vat_type_missing", "vat_type_mismatch"}
+
+
+def test_vat_type_is_not_checked_without_lines() -> None:
+    assert not codes(invoice(amount_type=None, lines=[])) & {"vat_type_missing"}

@@ -14,8 +14,8 @@ from app.adapters.accounting.manual import ManualAccountingSystem
 from app.adapters.storage.keys import ocr_key
 from app.adapters.storage.local import LocalStorage
 from app.core.config import Settings
+from app.domain.enums import AmountType, DocumentType, QueueCategory, TaxType
 from app.domain.enums import DocumentStatus as S
-from app.domain.enums import DocumentType, QueueCategory, TaxType
 from app.domain.invoice import Invoice, Line
 from app.models import AuditLog, Document, Extraction, VendorMapping
 from app.pipeline.read import PageText, TextSpan
@@ -63,6 +63,7 @@ def bill(**changes: Any) -> Invoice:
         "invoice_date": date(2026, 10, 15),
         "due_date": date(2026, 11, 14),
         "currency": "AED",
+        "amount_type": AmountType.EXCLUSIVE,  # as extraction sets it from these amounts (34)
         "subtotal": Decimal("1000.00"),
         "vat": Decimal("50.00"),
         "total": Decimal("1050.00"),

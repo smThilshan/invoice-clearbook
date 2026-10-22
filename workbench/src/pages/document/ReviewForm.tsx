@@ -11,7 +11,7 @@ import {
   useWatch,
 } from 'react-hook-form'
 
-import type { CodingOptions, Correction, DocumentDetail, Issue, ValueKind } from '@/api/client'
+import type { AmountType, CodingOptions, Correction, DocumentDetail, Issue, ValueKind } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -187,7 +187,14 @@ export function ReviewForm({
               )}
             />
           </SelectField>
-          <SelectField label={FIELD_LABELS.amount_type ?? ''} issues={issues.byField.get('amount_type')}>
+          <SelectField
+            label={FIELD_LABELS.amount_type ?? ''}
+            issues={issues.byField.get('amount_type')}
+            suggest={editable ? {
+              label: (value) => AMOUNT_TYPE_LABELS[value as AmountType] ?? value,
+              apply: (value) => setValue('amount_type', value as AmountType, { shouldDirty: true }),
+            } : undefined}
+          >
             <Controller
               control={control}
               name="amount_type"
@@ -356,15 +363,23 @@ function HeaderInput({
   )
 }
 
+/** A suggested value for a dropdown (e.g. the VAT type the amounts show, decision 34). */
+interface Suggest {
+  label: (value: string) => string
+  apply: (value: string) => void
+}
+
 function SelectField({
   label,
   issues,
   correction,
+  suggest,
   children,
 }: {
   label: string
   issues: Issue[] | undefined
   correction?: Correction
+  suggest?: Suggest
   children: ReactNode
 }) {
   const before = correction?.model_value
@@ -375,7 +390,16 @@ function SelectField({
       {correction && (
         <AiRead value={typeof before === 'string' ? (TYPE_LABELS[before as keyof typeof TYPE_LABELS] ?? before) : 'nothing'} />
       )}
-      {issues?.map((issue) => <IssueNote key={issue.code} issue={issue} />)}
+      {issues?.map((issue) => (
+        <IssueNote key={issue.code} issue={issue}>
+          {suggest && issue.suggestion && (
+            <Button type="button" variant="outline" size="xs"
+              onClick={() => suggest.apply(issue.suggestion ?? '')}>
+              Use: {suggest.label(issue.suggestion)}
+            </Button>
+          )}
+        </IssueNote>
+      ))}
     </div>
   )
 }

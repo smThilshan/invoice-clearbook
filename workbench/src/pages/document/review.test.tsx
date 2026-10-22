@@ -160,6 +160,23 @@ describe('review screen', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Saved and checked again: now Ready')
   })
 
+  it('offers the VAT type the amounts show and sends it', async () => {
+    const vatType = detail({
+      invoice: { ...detail().invoice!, amount_type: 'INCLUSIVE' },
+      issues: [{ code: 'vat_type_mismatch', severity: 'WARNING', field: 'amount_type',
+        message: 'The lines plus VAT add up to the total, so the line amounts are before VAT.',
+        suggestion: 'EXCLUSIVE' }],
+    })  // prettier-ignore
+    const api = await open(backend(vatType))
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Use: VAT added on top' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).invoice.amount_type).toBe('EXCLUSIVE')
+  })
+
   it('sends amounts exactly as typed and empty fields as null', async () => {
     const api = await open()
     const user = userEvent.setup()

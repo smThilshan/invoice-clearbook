@@ -20,6 +20,7 @@ from app.pipeline.verify.normalize import (
     is_valid_trn,
     normalize_trn,
 )
+from app.pipeline.verify.vat_type import vat_type_from_amounts
 
 CENT = Decimal("0.01")
 UAE_VAT_RATE = Decimal("0.05")
@@ -142,7 +143,11 @@ def check_line_math(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     if invoice.lines:
         lines_sum = sum((line.amount for line in invoice.lines), Decimal(0))
         target, label = _lines_target(invoice)
-        if target is not None and abs(lines_sum - target) > CENT:
+        if (
+            target is not None
+            and abs(lines_sum - target) > CENT
+            and not _vat_type_mismatch(invoice)
+        ):
             issues.append(
                 _warning(
                     "lines_sum_mismatch",
@@ -152,6 +157,58 @@ def check_line_math(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
                 )
             )
     return issues
+
+
+# What the amounts show, for the VAT type messages (decision 34).
+_VAT_TYPE_REASONS = {
+    AmountType.EXCLUSIVE: "The lines plus VAT add up to the total, so the line amounts are "
+    "before VAT (VAT added on top).",
+    AmountType.INCLUSIVE: "The lines add up to the total, so the line amounts already include VAT.",
+    AmountType.NO_TAX: "There is no VAT and the lines add up to the total.",
+}
+
+
+def check_vat_type(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
+    """Decision 34: the VAT type must agree with the amounts. Extraction sets it from them;
+    this catches edits that break the agreement, and a type nobody could work out."""
+    if not invoice.lines:
+        return []
+    from_amounts = vat_type_from_amounts(invoice)
+    suggestion = from_amounts.value if from_amounts else None
+    if invoice.amount_type is None:
+        if not invoice.vat:
+            return []  # no VAT: whether amounts include it does not matter
+        reason = (
+            _VAT_TYPE_REASONS[from_amounts] + " "
+            if from_amounts
+            else ("It could not be worked out from the amounts. ")
+        )
+        return [
+            Issue(
+                "vat_type_missing",
+                Severity.ERROR,
+                "amount_type",
+                f"{reason}Choose whether the line amounts include VAT: needed to post.",
+                suggestion,
+            )
+        ]
+    if from_amounts is not None and from_amounts is not invoice.amount_type:
+        return [
+            Issue(
+                "vat_type_mismatch",
+                Severity.WARNING,
+                "amount_type",
+                f"{_VAT_TYPE_REASONS[from_amounts]} Check the VAT type.",
+                suggestion,
+            )
+        ]
+    return []
+
+
+def _vat_type_mismatch(invoice: Invoice) -> bool:
+    """The VAT type rule already explains why the lines do not add up."""
+    from_amounts = vat_type_from_amounts(invoice)
+    return from_amounts is not None and from_amounts is not invoice.amount_type
 
 
 def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
@@ -373,6 +430,7 @@ RULES: tuple[Rule, ...] = (
     check_required,
     check_totals,
     check_line_math,
+    check_vat_type,
     check_vat,
     check_trn,
     check_dates,
