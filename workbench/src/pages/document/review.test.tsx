@@ -134,6 +134,15 @@ describe('review screen', () => {
     expect(screen.getByText('Choose an account for this line.')).toBeInTheDocument()
   })
 
+  it('names the line columns once above the lines', async () => {
+    await open()
+
+    const lines = screen.getByRole('region', { name: 'Lines' })
+    for (const heading of ['Description', 'Qty', 'Unit price', 'Amount']) {
+      expect(within(lines).getByText(heading, { selector: 'span' })).toBeInTheDocument()
+    }
+  })
+
   it('pages through the document', async () => {
     const user = userEvent.setup()
     await open()

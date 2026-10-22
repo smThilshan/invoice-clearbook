@@ -540,6 +540,25 @@ function Lines({
     <section className="space-y-3" aria-label="Lines">
       <h3 className="text-sm font-semibold text-muted-foreground">Lines</h3>
       {fields.length === 0 && <p className="text-sm text-muted-foreground">No lines.</p>}
+      {fields.length > 0 && (
+        // Column headings, lined up with the boxes below by the same layout: invisible copies
+        // of the line number and the remove button take their space. Stacked boxes on narrow
+        // screens have no columns, so the headings show from the sm breakpoint only.
+        <div aria-hidden className="hidden items-end gap-2 px-3 text-xs font-medium text-muted-foreground sm:flex">
+          <span className="invisible">{fields.length}</span>
+          <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_5rem_6rem_7rem]">
+            <span>Description</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">Unit price</span>
+            <span className="text-right">Amount</span>
+          </div>
+          {editable && (
+            <Button type="button" variant="ghost" size="icon-sm" tabIndex={-1} className="invisible">
+              <Trash2 />
+            </Button>
+          )}
+        </div>
+      )}
       <ol className="space-y-3">
         {fields.map((field, index) => {
           const lineIssues = (name: string) => issues.byLine.get(`${index}.${name}`)
