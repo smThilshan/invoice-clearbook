@@ -18,6 +18,7 @@ function doc(id: string, changes: Partial<DocumentSummary> = {}): DocumentSummar
     client_id: 'cafe-al-noor',
     run_id: RUN_ID,
     file: `${id}.pdf`,
+    folder: 'October 2026/21',
     status: 'IN_REVIEW',
     queue: 'READY',
     document_type: 'BILL',
@@ -51,8 +52,21 @@ afterEach(() => {
   globalThis.fetch = realFetch
 })
 
+const RUNS = [
+  { run_id: RUN_ID, folder: 'October 2026/21', folder_date: '2026-10-21',
+    created_at: '2026-10-21T08:00:00Z', documents: 3 },
+  { run_id: '6f1c2b0e-0000-4000-8000-000000000002', folder: '', folder_date: null,
+    created_at: '2026-10-20T08:00:00Z', documents: 1 },
+]  // prettier-ignore
+
 function backend(queue: unknown = PAGE) {
-  return mockApi({ '/health/ready': READY, '/clients': RESTAURANTS, '/documents': queue })
+  return mockApi({
+    '/health/ready': READY,
+    '/clients': RESTAURANTS,
+    '/clients/cafe-al-noor/runs': RUNS,
+    '/clients/spice-route/runs': [],
+    '/documents': queue,
+  })
 }
 
 function queueCalls(api: { calls: string[] }) {
@@ -80,9 +94,11 @@ describe('review queue', () => {
       'Exception', 'Check', 'Ready',
     ])  // prettier-ignore
     expect(rows[0]).toHaveTextContent('AED 1,234,567.5') // exact text, separators only
-    expect(rows[0]).toHaveTextContent('2 errors · 1 warning')
+    expect(rows[0]).toHaveTextContent('2 errors1 warning')
     expect(rows[0]).toHaveTextContent('15 Oct 2026')
-    expect(rows[1]).toHaveTextContent('Not read')
+    expect(rows[0]).toHaveTextContent('Bill · October 2026/21 / d1.pdf') // type, folder and file
+    expect(rows[1]).toHaveTextContent('Supplier not read')
+    expect(rows[2]).toHaveTextContent('None') // no issues
     expect(screen.getByText('1–3 of 3')).toBeInTheDocument()
     expect(queueCalls(api)[0]).toEqual({
       client_id: 'cafe-al-noor', status: 'IN_REVIEW', limit: '50', offset: '0',
@@ -112,10 +128,26 @@ describe('review queue', () => {
 
     await screen.findByRole('table', { name: 'Documents' })
     expect(queueCalls(api)[0]).toMatchObject({ run_id: RUN_ID })
-    await user.click(screen.getByRole('button', { name: 'Show all runs' }))
+    const run = screen.getByRole('combobox', { name: 'Run' })
+    await waitFor(() => expect(run).toHaveTextContent('October 2026/21 · 3 documents'))
+    await user.click(run)
+    await user.click(await screen.findByRole('option', { name: 'All runs' }))
 
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
     expect(queueCalls(api).at(-1)).not.toHaveProperty('run_id')
+  })
+
+  it('picks one of the latest runs', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/queue?client=cafe-al-noor')
+
+    await user.click(await screen.findByRole('combobox', { name: 'Run' }))
+    await user.click(await screen.findByRole('option', { name: /^All folders · 1 document/ }))
+
+    await waitFor(() =>
+      expect(queueCalls(api).at(-1)).toMatchObject({ run_id: '6f1c2b0e-0000-4000-8000-000000000002' }),
+    )
   })
 
   it('pages through long queues', async () => {

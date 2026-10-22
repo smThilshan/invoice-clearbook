@@ -13,7 +13,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Final, Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import Direction, DocumentStatus, DocumentType
@@ -153,3 +153,23 @@ def _file_progress(
         from_earlier_run=document.run_id != run_id,
         timings=timings.get(document.id),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RunSummary:
+    run: Run
+    documents: int  # documents this run took in (files already seen belong to earlier runs)
+
+
+def recent_runs(session: Session, client_id: str, *, limit: int) -> list[RunSummary]:
+    """The client's latest runs that took in documents, newest first (queue run filter)."""
+    count = func.count(Document.id)
+    rows = session.execute(
+        select(Run, count)
+        .join(Document, Document.run_id == Run.id)
+        .where(Run.client_id == client_id, Document.client_id == client_id)
+        .group_by(Run.id)
+        .order_by(Run.created_at.desc())
+        .limit(limit)
+    )
+    return [RunSummary(run, documents) for run, documents in rows]

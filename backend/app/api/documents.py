@@ -49,6 +49,7 @@ class DocumentSummary(BaseModel):
     client_id: str
     run_id: uuid.UUID
     file: str  # file name; the full path is in the detail
+    folder: str  # where the file sits inside the client's folder; "" = at the top
     status: DocumentStatus
     queue: QueueCategory | None
     document_type: DocumentType | None
@@ -302,6 +303,7 @@ def _summary_fields(document: Document, invoice: Invoice | None) -> dict[str, An
         "client_id": document.client_id,
         "run_id": document.run_id,
         "file": PurePosixPath(document.source_path).name,
+        "folder": _folder(document.source_path),
         "status": document.status,
         "queue": document.queue,
         "document_type": document.document_type,
@@ -337,3 +339,8 @@ def _detail(session: Session, document: Document) -> DocumentDetail:
         ],
         timings=StepTimingsOut.of(load_timings(session, [document]).get(document.id)),
     )
+
+
+def _folder(source_path: str) -> str:
+    parent = PurePosixPath(source_path).parent.as_posix()
+    return "" if parent == "." else parent

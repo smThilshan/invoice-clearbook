@@ -21,7 +21,7 @@ from app.domain.enums import AccountingProvider, DocumentType, QueueCategory
 from app.domain.enums import DocumentStatus as S
 from app.main import create_app
 from app.models import AuditLog, Client, Contact, Document
-from tests.integration.factories import CLIENT, make_client
+from tests.integration.factories import CLIENT, make_client, make_run
 from tests.integration.test_verify import (  # noqa: F401  (fixtures)
     PRINTED,
     TODAY,
@@ -136,6 +136,35 @@ def test_queue_filters_and_pages(
         ok(api.get("/documents", params={"client_id": CLIENT, "status": "REJECTED"}))["documents"]
         == []
     )
+
+
+def test_queue_rows_say_which_folder_the_file_is_in(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage)
+
+    [row] = ok(api.get("/documents", params={"client_id": CLIENT}))["documents"]
+
+    assert row["folder"] == doc.source_path.rsplit("/", 1)[0]
+    assert row["file"] == doc.source_path.rsplit("/", 1)[1]
+
+
+def test_runs_that_took_in_documents_are_offered_for_the_filter(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    first = in_review(session, storage, "INV-00301")
+    second = in_review(session, storage, "INV-00303", total=Decimal("1060.00"))
+    make_run(session)  # took in nothing: not offered
+
+    runs = ok(api.get(f"/clients/{CLIENT}/runs"))
+
+    assert {r["run_id"] for r in runs} == {str(first.run_id), str(second.run_id)}
+    assert [r["documents"] for r in runs] == [1, 1]
+    assert api.get("/clients/nobody/runs").status_code == 404
 
 
 def test_queue_of_unknown_client_is_not_found(api: TestClient) -> None:

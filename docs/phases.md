@@ -61,6 +61,7 @@ Goal: an accountant reviews and approves without touching the DB.
 - [x] **4.8 Approve flow** — server re-validates (no model); errors block, warnings do not; `APPROVED` + outbox row + corrections + supplier mapping in one transaction; approve takes the document as last saved (button disabled with unsaved edits or errors); one consistent approval more for the same account/VAT, a different choice starts over, mixed accounts teach nothing
 - [x] **4.9 Step timings** (decision 33) — each step records its work time; run page shows per file waiting / read / extract (model) / coding (model) / checks / total and the average per invoice without waiting; review screen shows processing and model time
 - [x] **4.10 VAT type from the amounts** (decision 34) — extraction sets whether amounts include VAT from lines / VAT / total instead of the model's guess (prompt unchanged), or leaves it empty for the accountant; a check warns when it contradicts the amounts (one-click suggestion) and errors when it is missing on a document with VAT
+- [x] **4.11 Queue fits the screen** — page never scrolls sideways (main area `min-w-0`); fixed column widths, long text cut with … (full on hover); type, folder and file under the supplier; errors red and warnings amber; number column hidden on narrow screens; run filter on screen (`GET /clients/{id}/runs`: latest runs that took in documents)
 
 Done when: full review and approval works from the browser.
 

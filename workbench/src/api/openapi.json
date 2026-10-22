@@ -234,6 +234,10 @@
             "title": "File",
             "type": "string"
           },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
           "folder_date": {
             "anyOf": [
               {
@@ -377,6 +381,7 @@
           "client_id",
           "run_id",
           "file",
+          "folder",
           "status",
           "queue",
           "document_type",
@@ -472,6 +477,10 @@
             "title": "File",
             "type": "string"
           },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
           "invoice_date": {
             "anyOf": [
               {
@@ -545,6 +554,7 @@
           "client_id",
           "run_id",
           "file",
+          "folder",
           "status",
           "queue",
           "document_type",
@@ -1686,6 +1696,49 @@
         "title": "RunCreate",
         "type": "object"
       },
+      "RunOption": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "folder_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Date"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "folder",
+          "folder_date",
+          "created_at",
+          "documents"
+        ],
+        "title": "RunOption",
+        "type": "object"
+      },
       "RunProgressOut": {
         "properties": {
           "client_id": {
@@ -2169,6 +2222,65 @@
           }
         },
         "summary": "Upload Master Data",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/runs": {
+      "get": {
+        "description": "Latest runs that took in documents, newest first: the queue's run filter.",
+        "operationId": "get_runs_clients__client_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunOption"
+                  },
+                  "title": "Response Get Runs Clients  Client Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Runs",
         "tags": [
           "clients"
         ]

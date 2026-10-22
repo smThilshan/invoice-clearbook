@@ -1,13 +1,20 @@
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
-import type { DocumentSummary, QueueCategory, QueueQuery } from '@/api/client'
-import { useQueue, useRestaurants } from '@/api/queries'
+import type { DocumentSummary, QueueCategory, QueueQuery, RunOption } from '@/api/client'
+import { useQueue, useRestaurants, useRuns } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { RestaurantSelect } from '@/components/RestaurantSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -117,18 +124,8 @@ export function QueuePage() {
             </ToggleButton>
           ))}
         </Toggle>
-        {runId && (
-          <Badge variant="secondary" className="gap-1">
-            One run only
-            <button
-              type="button"
-              aria-label="Show all runs"
-              className="rounded-full hover:bg-muted"
-              onClick={() => update({ run: undefined })}
-            >
-              <X className="size-3" aria-hidden />
-            </button>
-          </Badge>
+        {clientId && (
+          <RunFilter clientId={clientId} runId={runId} onChange={(run) => update({ run })} />
         )}
       </div>
 
@@ -156,60 +153,136 @@ export function QueuePage() {
   )
 }
 
+const ALL_RUNS = 'all'
+
+/** Which run's documents to show: all, or one of the latest runs (task 4.11). */
+function RunFilter({
+  clientId,
+  runId,
+  onChange,
+}: {
+  clientId: string
+  runId: string | undefined
+  onChange: (runId: string | undefined) => void
+}) {
+  const runs = useRuns(clientId)
+  const options = runs.data ?? []
+  // A run from a link that is no longer among the latest still shows as chosen.
+  const known = runId === undefined || options.some((run) => run.run_id === runId)
+  return (
+    <Select
+      value={runId ?? ALL_RUNS}
+      onValueChange={(value) => onChange(value === ALL_RUNS ? undefined : value)}
+    >
+      <SelectTrigger aria-label="Run" className="w-72 max-w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ALL_RUNS}>All runs</SelectItem>
+        {!known && runId && <SelectItem value={runId}>One run (from a link)</SelectItem>}
+        {options.map((run) => (
+          <SelectItem key={run.run_id} value={run.run_id}>
+            {runLabel(run)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function runLabel(run: RunOption): string {
+  const folder = run.folder || 'All folders'
+  const count = `${run.documents} document${run.documents === 1 ? '' : 's'}`
+  return `${folder} · ${count} · ${formatDateTime(run.created_at)}`
+}
+
+/** Fits the page: fixed column widths, long text cut with … (full text on hover); the type,
+ * folder and file sit under the supplier. Narrow screens drop the number column. */
 function DocumentTable({ documents }: { documents: DocumentSummary[] }) {
   const navigate = useNavigate()
   return (
     <div className="rounded-lg border">
-      <Table aria-label="Documents">
+      <Table aria-label="Documents" className="table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead>Category</TableHead>
+            <TableHead className="w-28">Category</TableHead>
             <TableHead>Supplier</TableHead>
-            <TableHead>Number</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead className="text-right">Total</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Issues</TableHead>
-            <TableHead>File</TableHead>
-            <TableHead>Came in</TableHead>
+            <TableHead className="hidden w-40 lg:table-cell">Number</TableHead>
+            <TableHead className="w-28">Date</TableHead>
+            <TableHead className="w-32 text-right">Total</TableHead>
+            <TableHead className="w-36">Issues</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {documents.map((doc) => (
-            <TableRow
-              key={doc.document_id}
-              className="cursor-pointer"
-              onClick={() => void navigate(`/documents/${doc.document_id}`)}
-            >
-              <TableCell>
-                {doc.queue && (
-                  <Badge className={CATEGORY_STYLES[doc.queue]}>{QUEUE_LABELS[doc.queue]}</Badge>
-                )}
-              </TableCell>
-              <TableCell className="font-medium">
-                {/* The link makes each row reachable by keyboard; the row click is a shortcut. */}
-                <Link
-                  to={`/documents/${doc.document_id}`}
-                  className="underline-offset-4 hover:underline"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {doc.vendor_name ?? <span className="text-muted-foreground">Not read</span>}
-                </Link>
-              </TableCell>
-              <TableCell>{doc.invoice_number ?? ''}</TableCell>
-              <TableCell>{doc.invoice_date ? formatDate(doc.invoice_date) : ''}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {doc.total !== null ? `${doc.currency ?? ''} ${formatAmount(doc.total)}`.trim() : ''}
-              </TableCell>
-              <TableCell>{doc.document_type ? TYPE_LABELS[doc.document_type] : ''}</TableCell>
-              <TableCell className="text-muted-foreground">{issueSummary(doc)}</TableCell>
-              <TableCell className="text-muted-foreground">{doc.file}</TableCell>
-              <TableCell className="text-muted-foreground">{formatDateTime(doc.created_at)}</TableCell>
-            </TableRow>
-          ))}
+          {documents.map((doc) => {
+            const where = [doc.folder, doc.file].filter(Boolean).join(' / ')
+            const details = [doc.document_type ? TYPE_LABELS[doc.document_type] : null, where]
+              .filter(Boolean)
+              .join(' · ')
+            return (
+              <TableRow
+                key={doc.document_id}
+                className="cursor-pointer"
+                onClick={() => void navigate(`/documents/${doc.document_id}`)}
+              >
+                <TableCell>
+                  {doc.queue && (
+                    <Badge className={CATEGORY_STYLES[doc.queue]}>{QUEUE_LABELS[doc.queue]}</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {/* The link makes each row reachable by keyboard; the row click is a shortcut. */}
+                  <Link
+                    to={`/documents/${doc.document_id}`}
+                    title={doc.vendor_name ?? undefined}
+                    className="block truncate font-medium underline-offset-4 hover:underline"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {doc.vendor_name ?? <span className="text-muted-foreground">Supplier not read</span>}
+                  </Link>
+                  <span className="block truncate text-xs text-muted-foreground" title={details}>
+                    {details}
+                  </span>
+                </TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  <span className="block truncate tabular-nums" title={doc.invoice_number ?? undefined}>
+                    {doc.invoice_number ?? ''}
+                  </span>
+                </TableCell>
+                <TableCell className="tabular-nums">
+                  {doc.invoice_date ? formatDate(doc.invoice_date) : ''}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {doc.total !== null ? `${doc.currency ?? ''} ${formatAmount(doc.total)}`.trim() : ''}
+                </TableCell>
+                <TableCell>
+                  <IssueCounts errors={doc.errors} warnings={doc.warnings} />
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>
+  )
+}
+
+/** Errors in red, warnings in amber, one per line so the column stays narrow. */
+function IssueCounts({ errors, warnings }: { errors: number; warnings: number }) {
+  if (!errors && !warnings) return <span className="text-muted-foreground">None</span>
+  return (
+    <span className="flex flex-col text-xs leading-5">
+      {errors > 0 && (
+        <span className="font-medium text-destructive">
+          {errors} error{errors === 1 ? '' : 's'}
+        </span>
+      )}
+      {warnings > 0 && (
+        <span className="text-amber-700 dark:text-amber-300">
+          {warnings} warning{warnings === 1 ? '' : 's'}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -273,13 +346,6 @@ function ToggleButton({
       {children}
     </button>
   )
-}
-
-function issueSummary(doc: DocumentSummary): string {
-  const parts = []
-  if (doc.errors) parts.push(`${doc.errors} error${doc.errors === 1 ? '' : 's'}`)
-  if (doc.warnings) parts.push(`${doc.warnings} warning${doc.warnings === 1 ? '' : 's'}`)
-  return parts.join(' · ')
 }
 
 function asCategory(value: string | null): QueueCategory | undefined {

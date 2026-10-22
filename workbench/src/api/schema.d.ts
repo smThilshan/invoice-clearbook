@@ -76,6 +76,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{client_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Runs
+         * @description Latest runs that took in documents, newest first: the queue's run filter.
+         */
+        get: operations["get_runs_clients__client_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents": {
         parameters: {
             query?: never;
@@ -382,6 +402,8 @@ export interface components {
             failure_reason: string | null;
             /** File */
             file: string;
+            /** Folder */
+            folder: string;
             /** Folder Date */
             folder_date: string | null;
             invoice: components["schemas"]["Invoice-Output"] | null;
@@ -446,6 +468,8 @@ export interface components {
             errors: number;
             /** File */
             file: string;
+            /** Folder */
+            folder: string;
             /** Invoice Date */
             invoice_date: string | null;
             /** Invoice Number */
@@ -808,6 +832,25 @@ export interface components {
              */
             folder_date?: string | null;
         };
+        /** RunOption */
+        RunOption: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Documents */
+            documents: number;
+            /** Folder */
+            folder: string;
+            /** Folder Date */
+            folder_date: string | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
         /** RunProgressOut */
         RunProgressOut: {
             /** Client Id */
@@ -1026,6 +1069,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MasterDataImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_runs_clients__client_id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOption"][];
                 };
             };
             /** @description Validation Error */

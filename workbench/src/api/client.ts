@@ -10,6 +10,7 @@ export type Readiness = Schemas['Readiness']
 export type ModelStatus = Schemas['ModelStatus']
 export type Restaurant = Schemas['ClientOut']
 export type Folder = Schemas['Folder']
+export type RunOption = Schemas['RunOption']
 export type FolderListing = Schemas['FolderListing']
 export type RunCreate = Schemas['RunCreate']
 export type RunAccepted = Schemas['RunAccepted']
@@ -107,6 +108,8 @@ export const api = {
     request<FolderListing>(
       `/clients/${encodeURIComponent(clientId)}/folders?${new URLSearchParams({ path })}`,
     ),
+  /** Latest runs that took in documents, newest first (the queue's run filter). */
+  runs: (clientId: string) => request<RunOption[]>(`/clients/${encodeURIComponent(clientId)}/runs`),
   startRun: (body: RunCreate) => sendJson<RunAccepted>('POST', '/runs', body),
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
   /** Exception first, then Check, then Ready; oldest first inside each. */

@@ -5,6 +5,8 @@ Clients are added with `make add-client` until the admin screen exists (behind l
 No login yet: the API listens on localhost only.
 """
 
+import uuid
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -21,6 +23,7 @@ from app.pipeline import coding
 from app.pipeline.folders import InboxError, folder_date_from_path
 from app.services.clients import browse, get_client, list_clients
 from app.services.master_data import Counts, import_master_data
+from app.services.runs import recent_runs
 
 MAX_CSV_BYTES = 5 * 1024 * 1024  # per file; a chart of accounts or supplier list is far smaller
 
@@ -57,6 +60,14 @@ class MasterDataImportOut(BaseModel):
     contacts: ImportCounts | None
 
 
+class RunOption(BaseModel):
+    run_id: uuid.UUID
+    folder: str  # relative to the client's folder; "" = all of it
+    folder_date: date | None
+    created_at: datetime
+    documents: int
+
+
 class AccountOption(BaseModel):
     code: str
     name: str
@@ -79,6 +90,26 @@ class CodingOptions(BaseModel):
 @router.get("")
 def get_clients(session: Annotated[Session, Depends(get_session)]) -> list[ClientOut]:
     return [ClientOut(client_id=c.client_id, name=c.name) for c in list_clients(session)]
+
+
+@router.get("/{client_id}/runs")
+def get_runs(
+    client_id: str,
+    session: Annotated[Session, Depends(get_session)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[RunOption]:
+    """Latest runs that took in documents, newest first: the queue's run filter."""
+    _found(session, client_id)
+    return [
+        RunOption(
+            run_id=r.run.id,
+            folder=r.run.folder,
+            folder_date=r.run.folder_date,
+            created_at=r.run.created_at,
+            documents=r.documents,
+        )
+        for r in recent_runs(session, client_id, limit=limit)
+    ]
 
 
 @router.get("/{client_id}/folders")

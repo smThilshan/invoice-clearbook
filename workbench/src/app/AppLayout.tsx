@@ -49,7 +49,8 @@ export function AppLayout() {
           ))}
         </nav>
         <Separator orientation="vertical" />
-        <main className="flex-1 p-6">
+        {/* min-w-0: a wide table scrolls inside its own box instead of widening the page */}
+        <main className="min-w-0 flex-1 p-6">
           <Outlet />
         </main>
       </div>

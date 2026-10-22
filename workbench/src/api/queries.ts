@@ -16,6 +16,7 @@ export const queryKeys = {
   restaurants: ['restaurants'] as const,
   folders: (clientId: string, path: string) => ['folders', clientId, path] as const,
   run: (runId: string) => ['run', runId] as const,
+  runs: (clientId: string) => ['runs', clientId] as const,
   queue: (query: QueueQuery) => ['queue', query] as const,
   queues: ['queue'] as const,
   document: (id: string) => ['document', id] as const,
@@ -53,6 +54,16 @@ export function useFolders(clientId: string | undefined, path: string) {
 
 export function useStartRun() {
   return useMutation({ mutationFn: (body: RunCreate) => api.startRun(body) })
+}
+
+/** A restaurant's latest runs, for the queue filter; idle until a restaurant is picked. */
+export function useRuns(clientId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.runs(clientId ?? ''),
+    queryFn: () => api.runs(clientId ?? ''),
+    enabled: clientId !== undefined,
+    refetchInterval: QUEUE_REFRESH_MS, // a run started elsewhere shows up by itself
+  })
 }
 
 /** A run's progress, refreshed every few seconds until every file has settled. */
