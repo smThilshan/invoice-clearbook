@@ -77,7 +77,7 @@ interface FieldSpec {
   kind?: 'text' | 'date' | 'amount' | 'code'
 }
 
-const SECTIONS: { title: string; fields: FieldSpec[] }[] = [
+const SECTIONS: { title: string; fields: FieldSpec[]; checksOnly?: boolean }[] = [
   {
     title: 'Supplier and document',
     fields: [
@@ -86,7 +86,6 @@ const SECTIONS: { title: string; fields: FieldSpec[] }[] = [
       { name: 'invoice_number', kind: 'code' },
       { name: 'invoice_date', kind: 'date' },
       { name: 'due_date', kind: 'date' },
-      { name: 'po_number', kind: 'code' },
     ],
   },
   {
@@ -99,8 +98,11 @@ const SECTIONS: { title: string; fields: FieldSpec[] }[] = [
     ],
   },
   {
-    title: 'Customer (the client)',
-    fields: [{ name: 'recipient_name' }, { name: 'recipient_trn', kind: 'code' }],
+    // Never posted (the client is the books' owner): used by the checks only, so folded away
+    // unless one of them is flagged (task 4.15).
+    title: 'Customer and PO number (checks only, not posted)',
+    fields: [{ name: 'recipient_name' }, { name: 'recipient_trn', kind: 'code' }, { name: 'po_number', kind: 'code' }],
+    checksOnly: true,
   },
 ]
 
@@ -166,15 +168,15 @@ export function ReviewForm({
       onSubmit={handleSubmit((values) => onSave({ values, confirmed: [...confirmed] }))}
     >
       {document.invoice === null && (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-500/10 dark:text-amber-100">
+        <p className="rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
           The extracted data could not be read. Enter the document by hand.
         </p>
       )}
       <fieldset disabled={!editable} className="space-y-6">
-        <GeneralIssues issues={issues.general} />
+        <IssueSummary issues={document.issues} />
 
         <section className="grid gap-4 sm:grid-cols-2">
-          <SelectField label={FIELD_LABELS.document_type ?? ''} issues={issues.byField.get('document_type')}
+          <SelectField label={FIELD_LABELS.document_type ?? ''} field="document_type" issues={issues.byField.get('document_type')}
             correction={corrected.get('document_type')}>
             <Controller
               control={control}
@@ -197,6 +199,7 @@ export function ReviewForm({
           </SelectField>
           <SelectField
             label={FIELD_LABELS.amount_type ?? ''}
+            field="amount_type"
             issues={issues.byField.get('amount_type')}
             suggest={editable ? {
               label: (value) => AMOUNT_TYPE_LABELS[value as AmountType] ?? value,
@@ -227,8 +230,12 @@ export function ReviewForm({
         </section>
 
         {SECTIONS.map((section) => (
-          <section key={section.title} className="space-y-3">
-            <h3 className="text-sm font-semibold text-muted-foreground">{section.title}</h3>
+          <FoldableSection
+            key={section.title}
+            title={section.title}
+            folded={section.checksOnly === true}
+            flagged={section.fields.some((spec) => issues.byField.has(spec.name))}
+          >
             <div className="grid gap-4 sm:grid-cols-2">
               {section.fields.map((spec) => (
                 <HeaderInput
@@ -260,7 +267,7 @@ export function ReviewForm({
                 />
               )}
             </div>
-          </section>
+          </FoldableSection>
         ))}
 
         <Totals control={control} />
@@ -332,11 +339,11 @@ function HeaderInput({
   const level = worst(issues)
   const label = FIELD_LABELS[spec.name] ?? spec.name
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" data-field={spec.name}>
       <div className="flex items-center justify-between gap-2">
         <Label htmlFor={id}>{label}</Label>
         {verified && !level && (
-          <span className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-300">
+          <span className="flex items-center gap-1 text-xs text-success">
             <Check className="size-3" aria-hidden /> Checked
           </span>
         )}
@@ -348,7 +355,7 @@ function HeaderInput({
         aria-invalid={level === 'ERROR' || undefined}
         className={cn(
           spec.kind === 'amount' && 'text-right tabular-nums',
-          level === 'WARNING' && 'border-amber-400 bg-amber-50 dark:bg-amber-500/10',
+          level === 'WARNING' && 'border-warning/40 bg-warning-soft',
         )}
         onFocus={onFocus}
         {...register(spec.name)}
@@ -387,12 +394,14 @@ interface Suggest {
 
 function SelectField({
   label,
+  field,
   issues,
   correction,
   suggest,
   children,
 }: {
   label: string
+  field?: string
   issues: Issue[] | undefined
   correction?: Correction
   suggest?: Suggest
@@ -400,7 +409,7 @@ function SelectField({
 }) {
   const before = correction?.model_value
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" data-field={field}>
       <Label>{label}</Label>
       {children}
       {correction && (
@@ -446,31 +455,107 @@ const LINE_FIELD_LABELS: Record<string, string> = {
   tax_type: 'VAT',
 }
 
-function IssueNote({ issue, children }: { issue: Issue; children?: ReactNode }) {
+function IssueNote({ issue, prefix, children }: { issue: Issue; prefix?: string; children?: ReactNode }) {
   const error = issue.severity === 'ERROR'
   const Icon = error ? CircleAlert : TriangleAlert
   return (
     <div
       className={cn(
         'flex flex-wrap items-start gap-1.5 text-xs',
-        error ? 'text-destructive' : 'text-amber-800 dark:text-amber-200',
+        error ? 'text-destructive' : 'text-warning',
       )}
     >
       <Icon className="mt-0.5 size-3.5 shrink-0" aria-label={error ? 'Error' : 'Warning'} />
-      <span className="flex-1">{issue.message}</span>
+      <span className="flex-1">
+        {prefix && <span className="font-medium">{prefix}: </span>}
+        {issue.message}
+      </span>
       {children}
     </div>
   )
 }
 
-function GeneralIssues({ issues }: { issues: Issue[] }) {
+/** Every issue at the top, errors first (task 4.15): one with a field is a link that scrolls
+ * to the field and focuses it; one about the whole document is shown in full. */
+function IssueSummary({ issues }: { issues: Issue[] }) {
   if (issues.length === 0) return null
+  const sorted = [...issues].sort((a, b) => Number(b.severity === 'ERROR') - Number(a.severity === 'ERROR'))
+  const errors = issues.filter((i) => i.severity === 'ERROR').length
+  const warnings = issues.length - errors
   return (
-    <section aria-label="Document issues" className="space-y-1.5 rounded-lg border p-3">
-      {issues.map((issue) => (
-        <IssueNote key={`${issue.code}-${issue.message}`} issue={issue} />
-      ))}
+    <section aria-label="Document issues" className="space-y-2 rounded-lg border p-3">
+      <p className="text-sm font-medium">
+        {errors > 0 && <span className="text-destructive">{errors} error{errors === 1 ? '' : 's'}</span>}
+        {errors > 0 && warnings > 0 && ' · '}
+        {warnings > 0 && (
+          <span className="text-warning">{warnings} warning{warnings === 1 ? '' : 's'}</span>
+        )}
+        {errors > 0 && <span className="font-normal text-muted-foreground"> · errors must be fixed before approving</span>}
+      </p>
+      <ul className="space-y-1">
+        {sorted.map((issue) => (
+          <li key={`${issue.code}-${issue.field}-${issue.message}`}>
+            {issue.field ? (
+              <button type="button" className="w-full text-left hover:underline" onClick={() => jumpTo(issue.field ?? '')}>
+                <IssueNote issue={issue} prefix={fieldLabel(issue.field)} />
+              </button>
+            ) : (
+              <IssueNote issue={issue} />
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
+  )
+}
+
+function fieldLabel(field: string): string {
+  const line = /^lines\[(\d+)\](?:\.(\w+))?$/.exec(field)
+  if (line) {
+    const part = line[2] ? ` ${(LINE_FIELD_LABELS[line[2]] ?? line[2]).toLowerCase()}` : ''
+    return `Line ${Number(line[1]) + 1}${part}`
+  }
+  return FIELD_LABELS[field] ?? field
+}
+
+/** Scroll to the field an issue is about and focus it (the field, else its line or section). */
+function jumpTo(field: string) {
+  const tries = [field, field.replace(/\.[^.\]]+$/, ''), field.replace(/\[.*$/, '')]
+  for (const name of tries) {
+    const target = window.document.querySelector<HTMLElement>(`[data-field="${name}"]`)
+    if (!target) continue
+    if (target instanceof HTMLDetailsElement) target.open = true
+    target.closest('details')?.setAttribute('open', '')
+    target.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    target.querySelector<HTMLElement>('input, [role="combobox"], textarea, button')?.focus({ preventScroll: true })
+    return
+  }
+}
+
+function FoldableSection({
+  title,
+  folded,
+  flagged,
+  children,
+}: {
+  title: string
+  folded: boolean
+  flagged: boolean
+  children: ReactNode
+}) {
+  if (!folded) {
+    return (
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-muted-foreground">{title}</h3>
+        {children}
+      </section>
+    )
+  }
+  return (
+    <details open={flagged || undefined} className="group space-y-3 rounded-lg border p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">{title}</summary>
+      <div className="pt-3">{children}</div>
+    </details>
   )
 }
 
@@ -503,7 +588,7 @@ function Totals({ control }: { control: Control<FormValues> }) {
       {rows.map((row) => (
         <div key={row.label} className="flex flex-wrap items-center gap-2">
           {row.ok === true ? (
-            <Check className="size-4 text-emerald-600" aria-label="Adds up" />
+            <Check className="size-4 text-success" aria-label="Adds up" />
           ) : (
             <CircleAlert className="size-4 text-destructive" aria-label="Does not add up" />
           )}
@@ -567,11 +652,11 @@ function Lines({
   const taxTypes = options?.tax_types ?? []
 
   return (
-    <section className="space-y-3" aria-label="Lines">
+    <section className="space-y-3" aria-label="Lines" data-field="lines">
       <h3 className="text-sm font-semibold text-muted-foreground">Lines</h3>
       {editable && charges.length > 0 && !chargesAdded && (
         <div role="note" aria-label="Charges outside the lines"
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-500/10">
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm">
           <span className="flex-1">
             The total includes {charges.length === 1 ? 'a charge' : 'charges'} printed outside the
             lines:{' '}
@@ -621,7 +706,7 @@ function Lines({
               kind: name === 'description' ? 'text' : 'amount',
             })
           return (
-            <li key={field.id} aria-label={`Line ${index + 1}`} className="space-y-2 rounded-lg border p-3">
+            <li key={field.id} aria-label={`Line ${index + 1}`} data-field={`lines[${index}]`} className="space-y-2 rounded-lg border p-3">
               <div className="flex items-start gap-2">
                 <span className="pt-2 text-xs text-muted-foreground">{index + 1}</span>
                 <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_5rem_6rem_7rem]">

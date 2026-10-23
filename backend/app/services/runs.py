@@ -9,7 +9,7 @@ that earlier document instead of looking stuck.
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Final, Literal
@@ -38,6 +38,31 @@ FROM_FOLDER: Final[Literal["from_folder"]] = (
 )
 
 
+class Step(StrEnum):
+    """Where a file is right now, for the live progress page (task 4.14)."""
+
+    QUEUED = "queued"  # listed by the scan, not taken in yet
+    WAITING = "waiting"  # taken in, its next step is queued
+    READING = "reading"  # page text and pictures being made
+    WAITING_AI = "waiting_ai"  # in line for the AI model
+    AI = "ai"  # the AI model is reading it
+    CHECKS = "checks"  # coding and checks running
+    DONE = "done"  # in review, parked, duplicate or further
+    FAILED = "failed"
+    STOPPED = "stopped"  # its run was stopped before this file was done (task 4.19)
+
+
+# The marker each worker step sets (tasks._mark_working), and the status it works on.
+_ACTIVE = {
+    DocumentStatus.CAPTURED: ("read", Step.READING),
+    DocumentStatus.READ: ("extract", Step.AI),
+    DocumentStatus.EXTRACTED: ("verify", Step.CHECKS),
+    DocumentStatus.VERIFIED: ("verify", Step.CHECKS),
+}
+TYPICAL_SAMPLE = 20  # recent documents the typical time per file is taken from
+MARK_EXPIRES = timedelta(minutes=35)  # longer than the job time limit (30 min)
+
+
 class RunState(StrEnum):
     SCANNING = "scanning"  # folder not listed yet
     PROCESSING = "processing"  # some files are queued or between steps
@@ -54,6 +79,9 @@ class FileProgress:
     failure_reason: str | None
     from_earlier_run: bool  # already processed before; this run found it again
     timings: StepTimings | None = None  # None = not ingested yet
+    step: Step = Step.QUEUED
+    step_since: datetime | None = None  # when the current step started (working steps only)
+    queue_position: int | None = None  # waiting for the AI: 1 = next
 
     @property
     def status_label(self) -> str:
@@ -65,6 +93,7 @@ class RunProgress:
     run: Run
     state: RunState
     files: list[FileProgress]
+    typical_ms: int | None = None  # recent work time per file, for "time left"
 
     @property
     def counts(self) -> dict[str, int]:
@@ -74,8 +103,8 @@ class RunProgress:
     def status(self) -> RunStatus:
         """Derived, never stored twice: FAILED is set when the run could not proceed;
         otherwise COMPLETED once every file has settled."""
-        if self.run.status is RunStatus.FAILED:
-            return RunStatus.FAILED
+        if self.run.status in (RunStatus.FAILED, RunStatus.STOPPED):
+            return self.run.status
         return RunStatus.COMPLETED if self.state is RunState.FINISHED else RunStatus.RUNNING
 
 
@@ -134,9 +163,45 @@ def run_progress(session: Session, run: Run) -> RunProgress:
             by_path[document.source_path] = document
 
     timings = load_timings(session, list(by_path.values()))
-    files = [_file_progress(path, by_path.get(path), run.id, timings) for path in paths]
+    line = _ai_line(session)
+    stopped = run.status is RunStatus.STOPPED
+    files = [
+        _file_progress(path, by_path.get(path), run.id, timings, line, stopped) for path in paths
+    ]
     pending = any(f.status is None or f.status in IN_PROGRESS for f in files)
-    return RunProgress(run, RunState.PROCESSING if pending else RunState.FINISHED, files)
+    state = RunState.PROCESSING if pending else RunState.FINISHED
+    return RunProgress(run, state, files, typical_work_ms(session) if pending else None)
+
+
+def typical_work_ms(session: Session) -> int | None:
+    """Median work time of recently processed files (any client): for "time left"."""
+    recent = list(
+        session.scalars(
+            select(Document)
+            .where(Document.status.not_in(IN_PROGRESS), Document.page_count.is_not(None))
+            .order_by(Document.created_at.desc())
+            .limit(TYPICAL_SAMPLE)
+        )
+    )
+    work = sorted(
+        t.total_ms - t.waiting_ms
+        for t in load_timings(session, recent).values()
+        if t.total_ms is not None and t.waiting_ms is not None
+    )
+    return work[len(work) // 2] if work else None
+
+
+def _ai_line(session: Session) -> list[uuid.UUID]:
+    """Documents waiting for the AI model, oldest first: the worker takes them in this order.
+    All clients share the model, so the line is global (only its length is shown)."""
+    return list(
+        session.scalars(
+            select(Document.id)
+            .where(Document.status == DocumentStatus.READ)
+            .where((Document.working_step.is_(None)) | (Document.working_step != "extract"))
+            .order_by(Document.created_at)
+        )
+    )
 
 
 def _file_progress(
@@ -144,9 +209,17 @@ def _file_progress(
     document: Document | None,
     run_id: uuid.UUID,
     timings: dict[uuid.UUID, StepTimings],
+    ai_line: list[uuid.UUID],
+    run_stopped: bool = False,
 ) -> FileProgress:
     if document is None:
-        return FileProgress(path, None, None, None, None, None, from_earlier_run=False)
+        step = Step.STOPPED if run_stopped else Step.QUEUED
+        return FileProgress(path, None, None, None, None, None, from_earlier_run=False, step=step)
+    step, since = _step(document)
+    if run_stopped and step in (Step.WAITING, Step.WAITING_AI):
+        step = Step.STOPPED  # the one still being worked on keeps its step: it finishes first
+    waiting = step is Step.WAITING_AI and document.id in ai_line
+    position = ai_line.index(document.id) + 1 if waiting else None
     return FileProgress(
         path,
         document.id,
@@ -156,7 +229,25 @@ def _file_progress(
         document.failure_reason,
         from_earlier_run=document.run_id != run_id,
         timings=timings.get(document.id),
+        step=step,
+        step_since=since,
+        queue_position=position,
     )
+
+
+def _step(document: Document) -> tuple[Step, datetime | None]:
+    if document.status is DocumentStatus.FAILED:
+        return Step.FAILED, None
+    active = _ACTIVE.get(document.status)
+    if active is None:
+        return Step.DONE, None
+    marker, working = active
+    since = document.working_since
+    # A mark older than any job may run (the job time limit) is left by a crashed worker.
+    live = since is not None and datetime.now(UTC) - since < MARK_EXPIRES
+    if document.working_step == marker and live:
+        return working, since
+    return (Step.WAITING_AI if document.status is DocumentStatus.READ else Step.WAITING), None
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,3 +268,46 @@ def recent_runs(session: Session, client_id: str, *, limit: int) -> list[RunSumm
         .limit(limit)
     )
     return [RunSummary(run, documents) for run, documents in rows]
+
+
+class RunControlError(Exception):
+    """The run cannot be stopped or resumed in its current state."""
+
+
+@dataclass(frozen=True, slots=True)
+class ResumePlan:
+    """What a resumed run still needs (task 4.19): its scan, files not taken in, next steps."""
+
+    scan: bool
+    ingest: list[str]  # root-relative paths
+    steps: list[tuple[uuid.UUID, DocumentStatus]]
+
+
+def stop_run(run: Run) -> None:
+    """Stop a running run (task 4.19): every worker step checks it before starting, so files
+    not started stay as they are; a step already running finishes first. The caller commits."""
+    if run.status is not RunStatus.RUNNING:
+        raise RunControlError(f"only a running run can be stopped (this one is {run.status})")
+    run.status = RunStatus.STOPPED
+
+
+def resume_run(session: Session, run: Run) -> ResumePlan:
+    """Continue a stopped run from where each file is. The caller commits, then enqueues."""
+    if run.status is not RunStatus.STOPPED:
+        raise RunControlError(f"only a stopped run can be resumed (this one is {run.status})")
+    run.status = RunStatus.RUNNING
+    if run.files is None:
+        return ResumePlan(scan=True, ingest=[], steps=[])
+    progress = run_progress(session, run)
+    return ResumePlan(
+        scan=False,
+        ingest=[f.path for f in progress.files if f.document_id is None],
+        steps=[
+            (f.document_id, f.status)
+            for f in progress.files
+            if f.document_id is not None
+            and f.status in IN_PROGRESS
+            and not f.from_earlier_run
+            and f.step not in (Step.READING, Step.AI, Step.CHECKS)  # already being worked on
+        ],
+    )

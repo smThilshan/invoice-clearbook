@@ -63,3 +63,30 @@ def test_a_link_pointing_out_of_the_place_is_refused(places: Settings, tmp_path:
 def test_unknown_place_is_refused(places: Settings) -> None:
     with pytest.raises(InboxError):
         find_place(places, None, "p9")
+
+
+def test_a_folder_counts_invoice_files_with_its_sub_folders(
+    places: Settings, tmp_path: Path
+) -> None:
+    (tmp_path / "home" / "Invoices" / "May 5" / "bill.pdf").write_bytes(b"%PDF")
+    (tmp_path / "home" / "Invoices" / "May 5" / ".hidden").mkdir()
+    (tmp_path / "home" / "Invoices" / "May 5" / ".hidden" / "x.pdf").write_bytes(b"%PDF")
+
+    top = browse(find_place(places, None, "p0"), "")
+    inside = browse(find_place(places, None, "p0"), "Invoices")
+
+    assert top.folder_files == {"Invoices": 3}  # 2 directly + 1 in May 5; hidden folder skipped
+    assert (inside.total_files, inside.folder_files) == (3, {"May 5": 1})
+
+
+def test_a_folder_too_big_to_count_quickly_says_so(
+    places: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.services.places as module
+
+    monkeypatch.setattr(module, "COUNT_ENTRY_BUDGET", 2)
+
+    listing = browse(find_place(places, None, "p0"), "")
+
+    assert listing.folder_files == {"Invoices": None}
+    assert listing.total_files is None

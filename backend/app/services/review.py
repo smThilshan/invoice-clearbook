@@ -67,6 +67,10 @@ class NotEditableError(ReviewError):
 class QueuePage:
     documents: list[Document]
     total: int
+    # Task 4.16: documents per category for the same filters (every category, whatever is
+    # selected), and the client's documents still being processed (not in the list yet).
+    counts: dict[QueueCategory, int]
+    processing: int
 
 
 def list_queue(
@@ -76,19 +80,53 @@ def list_queue(
     status: DocumentStatus = DocumentStatus.IN_REVIEW,
     queue: QueueCategory | None = None,
     run_id: uuid.UUID | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> QueuePage:
-    query = select(Document).where(Document.client_id == client_id, Document.status == status)
-    if queue is not None:
-        query = query.where(Document.queue == queue)
+    base = select(Document).where(Document.client_id == client_id, Document.status == status)
     if run_id is not None:
-        query = query.where(Document.run_id == run_id)
+        base = base.where(Document.run_id == run_id)
+    if search and search.strip():
+        base = base.where(_matches(search.strip()))
+    counts = {
+        category: count
+        for category, count in session.execute(
+            base.with_only_columns(Document.queue, func.count()).group_by(Document.queue)
+        )
+        if category is not None
+    }
+    query = base.where(Document.queue == queue) if queue is not None else base
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
     documents = session.scalars(
         query.order_by(_QUEUE_ORDER, Document.created_at, Document.id).limit(limit).offset(offset)
     ).all()
-    return QueuePage(list(documents), total)
+    still = select(func.count()).where(
+        Document.client_id == client_id, Document.status.in_(PROCESSING)
+    )
+    if run_id is not None:
+        still = still.where(Document.run_id == run_id)
+    return QueuePage(list(documents), total, counts, session.scalar(still) or 0)
+
+
+# Statuses whose pipeline step is still to come or running: not in the review queue yet.
+PROCESSING = (
+    DocumentStatus.CAPTURED,
+    DocumentStatus.READ,
+    DocumentStatus.EXTRACTED,
+    DocumentStatus.VERIFIED,
+)
+
+
+def _matches(search: str) -> Any:
+    """Supplier name, invoice number or file name containing the text (any case)."""
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return (
+        Document.invoice["vendor_name"].astext.ilike(pattern, escape="\\")
+        | Document.invoice["invoice_number"].astext.ilike(pattern, escape="\\")
+        | Document.source_path.ilike(pattern, escape="\\")
+    )
 
 
 def get_document(

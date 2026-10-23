@@ -150,3 +150,29 @@ def test_unreachable_folder_fails_the_run_with_a_reason(
 
     assert (run.status, run.files) == (RunStatus.FAILED, [])
     assert run.failure_reason is not None and "folder not found" in run.failure_reason
+
+
+def test_a_stopped_run_takes_no_further_step(
+    session: Session, tmp_path: Path, pipeline: Fakes
+) -> None:
+    """Task 4.19: stopped while a file waits for the AI, nothing more happens to it; Resume
+    continues it from there."""
+    from app.models import RunStatus
+
+    run = drop_invoice(session, tmp_path)
+    run.status = RunStatus.STOPPED
+
+    tasks.scan_run.delay(str(run.id))  # stopped before the scan: nothing is listed
+    assert run.files is None
+
+    run.status = RunStatus.RUNNING
+    tasks.scan_run.delay(str(run.id))
+    doc = only_document(session)
+    doc.status = S.READ  # pretend it was stopped right after reading
+    run.status = RunStatus.STOPPED
+    session.flush()
+    calls_before = len(pipeline["llm"].requests)
+
+    assert tasks.extract_document.delay(str(doc.id)).get() == "stopped"
+    assert doc.status is S.READ
+    assert len(pipeline["llm"].requests) == calls_before  # the AI was not asked again

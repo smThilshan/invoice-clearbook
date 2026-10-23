@@ -10,6 +10,7 @@ import {
   type QueueQuery,
   type RejectBody,
   type RunCreate,
+  type RunProgress,
 } from './client'
 
 export const queryKeys = {
@@ -73,6 +74,10 @@ export function useFolder(clientId: string | undefined, place: string | undefine
   })
 }
 
+export function useTypicalTime() {
+  return useQuery({ queryKey: ['typical-time'], queryFn: api.typicalTime, staleTime: 60_000 })
+}
+
 export function useStartRun() {
   return useMutation({ mutationFn: (body: RunCreate) => api.startRun(body) })
 }
@@ -93,7 +98,12 @@ export function useRun(runId: string) {
     queryKey: queryKeys.run(runId),
     queryFn: () => api.run(runId),
     refetchInterval: (query) => {
-      if (query.state.data?.state === 'finished') return false
+      const data = query.state.data
+      if (data?.state === 'finished') return false
+      // Stopped and nothing still finishing its step: nothing will change until Resume.
+      if (data?.status === 'STOPPED' && !data.files.some((f) => ['reading', 'ai', 'checks'].includes(f.step))) {
+        return false
+      }
       if (query.state.error instanceof ApiError && query.state.error.status === 404) return false
       return RUN_REFRESH_MS
     },
@@ -144,6 +154,32 @@ export function useUpdateDocument() {
 
 export function useApproveDocument() {
   return useDocumentChange<null>((id) => api.approveDocument(id))
+}
+
+/** Stop or resume a run (task 4.19); the run page shows the answer straight away. */
+function useRunControl(control: (runId: string) => Promise<RunProgress>) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: control,
+    onSuccess: (progress) => client.setQueryData(queryKeys.run(progress.run_id), progress),
+  })
+}
+
+export function useStopRun() {
+  return useRunControl(api.stopRun)
+}
+
+export function useResumeRun() {
+  return useRunControl(api.resumeRun)
+}
+
+/** Retry a failed file; the run it belongs to refreshes. */
+export function useRetryDocument() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.retryDocument(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['run'] }),
+  })
 }
 
 export function useRejectDocument() {

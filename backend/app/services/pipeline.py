@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import can_transition, transition
-from app.models import Document
+from app.models import Document, Run, RunStatus
 
 
 class Step(StrEnum):
@@ -65,9 +65,11 @@ def stalled_documents(session: Session, *, idle_for: timedelta, now: datetime) -
     return list(
         session.scalars(
             select(Document)
+            .join(Run, Run.id == Document.run_id)
             .where(
                 Document.status.in_(tuple(NEXT_STEP)),
                 Document.updated_at < now - idle_for,
+                Run.status != RunStatus.STOPPED,  # stopped by the user: only Resume continues it
             )
             .order_by(Document.created_at)
         )

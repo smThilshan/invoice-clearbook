@@ -101,9 +101,9 @@ export function PageViewer({
               data-exact={place.exact}
               aria-hidden
               className={cn(
-                'pointer-events-none absolute rounded-sm border-2 border-amber-500 bg-amber-300/30',
-                !place.exact && 'border-dashed bg-amber-300/15',
-                index === 0 && 'ring-2 ring-amber-500/40',
+                'pointer-events-none absolute rounded-sm border-2 border-warning/40 bg-warning',
+                !place.exact && 'border-dashed bg-warning',
+                index === 0 && 'ring-2 ring-warning/50',
               )}
               style={boxStyle(place.box)}
             />

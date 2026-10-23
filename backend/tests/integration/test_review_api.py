@@ -458,3 +458,45 @@ def test_locate_returns_where_a_value_is_printed(
                    ).status_code == 422  # fmt: skip
     assert api.get(f"/documents/{uuid.uuid4()}/locate",
                    params={"kind": "text", "value": "x"}).status_code == 404  # fmt: skip
+
+
+def test_a_failed_document_is_retried_from_the_start(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    from app.api.documents import get_enqueue_step
+    from app.domain.enums import DocumentStatus
+    from tests.integration.factories import make_document
+
+    queued: list[tuple[str, DocumentStatus]] = []
+    api.app.dependency_overrides[get_enqueue_step] = lambda: lambda i, s: queued.append((i, s))  # type: ignore[attr-defined]
+    failed = make_document(session, status=S.FAILED, failure_reason="read: cannot open PDF")
+    ready = in_review(session, storage)
+
+    body = ok(api.post(f"/documents/{failed.id}/retry"))
+
+    assert (body["status"], body["failure_reason"]) == ("CAPTURED", None)
+    assert queued == [(str(failed.id), DocumentStatus.CAPTURED)]
+    assert api.post(f"/documents/{ready.id}/retry").status_code == 409
+
+
+def test_queue_counts_every_category_searches_and_says_what_is_still_processing(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    from tests.integration.factories import make_document
+
+    in_review(session, storage, "INV-00301")  # Ready
+    in_review(session, storage, "INV-00303", total=Decimal("1060.00"))  # Exception
+    make_document(session, status=S.READ)  # still being processed
+
+    only_ready = ok(api.get("/documents", params={"client_id": CLIENT, "queue": "READY"}))
+    found = ok(api.get("/documents", params={"client_id": CLIENT, "search": "inv-00303"}))
+    nothing = ok(api.get("/documents", params={"client_id": CLIENT, "search": "100%"}))
+
+    assert only_ready["counts"] == {"READY": 1, "EXCEPTION": 1}  # all categories, one shown
+    assert only_ready["processing"] == 1
+    assert [d["invoice_number"] for d in found["documents"]] == ["INV-00303"]
+    assert nothing["total"] == 0  # "%" is plain text, not a wildcard

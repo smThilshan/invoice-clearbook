@@ -4,10 +4,11 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import { routes } from '@/app/routes'
 
-/** The real app routes in memory, with a fresh query cache per test. */
-export function renderApp(path = '/') {
+/** The real app routes in memory, with a fresh query cache per test. `state`: what the page
+ * was opened with (e.g. the list a review came from). */
+export function renderApp(path = '/', state?: unknown) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter(routes, { initialEntries: [path] })
+  const router = createMemoryRouter(routes, { initialEntries: [{ pathname: path.split('?')[0], search: path.includes('?') ? `?${path.split('?')[1]}` : '', state }] })
   render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />

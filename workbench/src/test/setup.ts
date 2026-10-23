@@ -1,7 +1,11 @@
 import '@testing-library/jest-dom/vitest'
 
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach } from 'vitest'
+
+// Pages load their code when first opened (task 4.15); in tests the first load of a page can
+// take longer than Testing Library's default one second.
+configure({ asyncUtilTimeout: 3000 })
 
 // Testing Library cleans up automatically only with Vitest globals, which we keep off.
 afterEach(() => {

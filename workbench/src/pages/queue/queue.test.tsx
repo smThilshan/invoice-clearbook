@@ -38,6 +38,8 @@ const PAGE: QueuePage = {
   total: 3,
   limit: 50,
   offset: 0,
+  counts: { EXCEPTION: 1, CHECK: 1, READY: 1 },
+  processing: 0,
   documents: [
     doc('d1', { queue: 'EXCEPTION', errors: 2, warnings: 1, total: '1234567.5' }),
     doc('d2', { queue: 'CHECK', warnings: 1, vendor_name: null }),
@@ -111,14 +113,14 @@ describe('review queue', () => {
     const router = renderApp('/queue?client=cafe-al-noor')
 
     await screen.findByRole('table', { name: 'Documents' })
-    await user.click(screen.getByRole('button', { name: 'Exception' }))
+    await user.click(screen.getByRole('button', { name: /^Exception/ }))
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&queue=EXCEPTION'))
     await user.click(screen.getByRole('button', { name: 'Parked (not postable)' }))
 
     await waitFor(() =>
       expect(queueCalls(api).at(-1)).toMatchObject({ queue: 'EXCEPTION', status: 'NON_POSTABLE' }),
     )
-    expect(screen.getByRole('button', { name: 'Exception' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /^Exception/ })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('shows one run when coming from the run screen, and can show all again', async () => {
@@ -197,15 +199,54 @@ describe('review queue', () => {
     const table = await screen.findByRole('table', { name: 'Documents' })
     await user.click(within(table).getAllByRole('row')[3]!.querySelector('td')!)
 
-    expect(router.state.location.pathname).toBe('/documents/d3')
+    await waitFor(() => expect(router.state.location.pathname).toBe('/documents/d3'))
+    expect(router.state.location.state).toEqual({
+      from: '/queue?client=cafe-al-noor', ids: ['d1', 'd2', 'd3'],
+    })  // prettier-ignore
     expect(await screen.findByText('This document could not be loaded')).toBeInTheDocument()
   })
 
-  it('says when there is nothing to review', async () => {
-    backend({ ...PAGE, total: 0, documents: [] })
+  it('says when there is nothing to review, and how to get documents', async () => {
+    backend({ ...PAGE, total: 0, documents: [], counts: {} })
     renderApp('/queue?client=cafe-al-noor')
 
     expect(await screen.findByText('Nothing to review.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Start a run' })).toHaveAttribute('href', '/run')
+  })
+
+  it('shows how many documents each category holds', async () => {
+    backend({ ...PAGE, counts: { EXCEPTION: 3, CHECK: 4 } })
+    renderApp('/queue?client=cafe-al-noor')
+
+    await screen.findByRole('table', { name: 'Documents' })
+    const categories = screen.getByRole('group', { name: 'Category' })
+    expect(within(categories).getByRole('button', { name: /^All/ })).toHaveTextContent('All7')
+    expect(within(categories).getByRole('button', { name: /^Exception/ })).toHaveTextContent('Exception3')
+    expect(within(categories).getByRole('button', { name: /^Ready/ })).toHaveTextContent('Ready0')
+  })
+
+  it('searches by supplier or number, kept in the address', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor')
+
+    await user.type(await screen.findByRole('searchbox', { name: 'Search' }), 'fresh')
+
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&q=fresh'))
+    await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ search: 'fresh' }))
+  })
+
+  it('says what is still being processed, and offers to clear filters that match nothing', async () => {
+    backend({ ...PAGE, total: 0, documents: [], counts: {}, processing: 2 })
+    const user = userEvent.setup()
+    const router = renderApp(`/queue?client=cafe-al-noor&queue=READY&run=${RUN_ID}`)
+
+    expect(await screen.findByRole('note', { name: 'Still processing' })).toHaveTextContent(
+      '2 documents are still being processed',
+    )
+    expect(screen.getByRole('link', { name: 'See progress' })).toHaveAttribute('href', `/run/${RUN_ID}`)
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
   })
 
   it('says why the queue could not be loaded', async () => {

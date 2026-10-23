@@ -14,6 +14,7 @@ class RunStatus(StrEnum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    STOPPED = "STOPPED"  # the user stopped it (task 4.19); Resume continues it
 
 
 class Run(UuidPk, ClientScoped, Timestamps, Base):

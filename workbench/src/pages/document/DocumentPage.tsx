@@ -1,6 +1,6 @@
-import { ArrowLeft, CircleCheck } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { useBlocker, useNavigate, useParams } from 'react-router'
+import { useBlocker, useLocation, useNavigate, useParams } from 'react-router'
 
 import { type DocumentDetail, type DocumentStatus } from '@/api/client'
 import {
@@ -15,7 +15,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { QUEUE_LABELS, statusLabel, TYPE_LABELS } from '@/lib/labels'
+import { neighbours, type ReviewContext, reviewContext } from '@/lib/reviewList'
 import { formatDuration, workMs } from '@/lib/timings'
+import { usePageTitle } from '@/lib/usePageTitle'
 
 import { toInvoiceInput } from './formModel'
 import { type Highlight, PageViewer } from './PageViewer'
@@ -39,13 +41,23 @@ export function DocumentPage() {
   const [target, setTarget] = useState<FieldTarget | null>(null)
   const onTarget = useCallback((next: FieldTarget | null) => setTarget(next), [])
   const located = useLocate(documentId, target)
+  const context = reviewContext(useLocation().state)
+  const { previous, next, position, total } = neighbours(context, documentId)
+  usePageTitle(document.data ? `Review · ${document.data.file}` : 'Review')
+
+  // Back returns to the list this review was opened from; a direct link goes to the client's
+  // queue instead of leaving the Workbench (task 4.15).
+  const listAddress = (clientId?: string) =>
+    context?.from ?? (clientId ? `/queue?client=${encodeURIComponent(clientId)}` : '/queue')
+  const open = (id: string, flash?: string) =>
+    void navigate(`/documents/${id}`, { state: { ...(context as ReviewContext), flash } })
 
   if (document.isPending) return <Skeleton className="h-96 w-full" />
   if (document.isError) {
     return (
       <div className="max-w-xl space-y-4">
         <ErrorAlert title="This document could not be loaded" error={document.error} />
-        <BackButton onBack={() => void navigate(-1)} />
+        <BackButton onBack={() => void navigate(listAddress())} />
       </div>
     )
   }
@@ -53,13 +65,38 @@ export function DocumentPage() {
   const doc = document.data
   const editable = EDITABLE.has(doc.status)
 
+  function approveAndContinue() {
+    approve.mutate(
+      { id: doc.document_id, body: null },
+      {
+        onSuccess: () => {
+          const flash = `Approved: ${doc.file}`
+          if (next) open(next, flash)
+          else void navigate(listAddress(doc.client_id), { state: { flash } })
+        },
+      },
+    )
+  }
+
   function onSave({ values, confirmed }: ReviewSubmit) {
     save.mutate({ id: doc.document_id, body: { invoice: toInvoiceInput(values), confirmed } })
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <Header document={doc} onBack={() => void navigate(-1)} />
+      <Header
+        document={doc}
+        onBack={() => void navigate(listAddress(doc.client_id))}
+        onPrevious={previous ? () => open(previous) : undefined}
+        onNext={next ? () => open(next) : undefined}
+        position={position && total ? `${position} of ${total}` : null}
+      />
+      {context?.flash && (
+        <p role="status" aria-label="Done" className="flex items-center gap-2 text-sm font-medium text-success">
+          <CircleCheck className="size-4" aria-hidden />
+          {context.flash}
+        </p>
+      )}
       {!editable && (
         <p className="text-sm text-muted-foreground">
           This document is {statusLabel(doc.status).toLowerCase()}: it can no longer be changed
@@ -69,7 +106,7 @@ export function DocumentPage() {
       {save.isError && <ErrorAlert title="Not saved" error={save.error} />}
       {approve.isError && <ErrorAlert title="Not approved" error={approve.error} />}
       {doc.status === 'APPROVED' && (
-        <p role="status" className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+        <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
           <CircleCheck className="size-4" aria-hidden />
           Approved: waiting to be posted.
         </p>
@@ -106,7 +143,8 @@ export function DocumentPage() {
                     dirty ? 'Save your changes first' : doc.errors > 0 ? 'Fix the errors first' : null
                   }
                   pending={approve.isPending}
-                  onApprove={() => approve.mutate({ id: doc.document_id, body: null })}
+                  label={next ? 'Approve & next' : 'Approve'}
+                  onApprove={approveAndContinue}
                 />
                 <RejectDialog documentId={doc.document_id} />
               </>
@@ -129,10 +167,33 @@ function highlightFor(
   return { label: target.label, state: places.length ? 'found' : 'not-found', places }
 }
 
-function Header({ document: doc, onBack }: { document: DocumentDetail; onBack: () => void }) {
+function Header({
+  document: doc,
+  onBack,
+  onPrevious,
+  onNext,
+  position,
+}: {
+  document: DocumentDetail
+  onBack: () => void
+  onPrevious?: () => void
+  onNext?: () => void
+  position: string | null
+}) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <BackButton onBack={onBack} />
+      {position && (
+        <nav aria-label="Documents in this list" className="flex items-center gap-1">
+          <Button variant="ghost" size="icon-sm" aria-label="Previous document" disabled={!onPrevious} onClick={onPrevious}>
+            <ChevronLeft />
+          </Button>
+          <span className="text-sm tabular-nums text-muted-foreground">{position}</span>
+          <Button variant="ghost" size="icon-sm" aria-label="Next document" disabled={!onNext} onClick={onNext}>
+            <ChevronRight />
+          </Button>
+        </nav>
+      )}
       <h2 className="text-lg font-semibold">{doc.file}</h2>
       <Badge variant="outline">{statusLabel(doc.status)}</Badge>
       {doc.queue && <Badge variant="secondary">{QUEUE_LABELS[doc.queue]}</Badge>}
@@ -158,22 +219,24 @@ function Header({ document: doc, onBack }: { document: DocumentDetail; onBack: (
 function ApproveButton({
   blockedBy,
   pending,
+  label,
   onApprove,
 }: {
   blockedBy: string | null
   pending: boolean
+  label: string
   onApprove: () => void
 }) {
   return (
     <>
       <Button
         type="button"
-        className="bg-emerald-600 text-white hover:bg-emerald-700"
+        className="bg-success text-background hover:bg-success/90"
         disabled={blockedBy !== null || pending}
         onClick={onApprove}
       >
         <CircleCheck aria-hidden />
-        {pending ? 'Approving…' : 'Approve'}
+        {pending ? 'Approving…' : label}
       </Button>
       {blockedBy && <span className="text-sm text-muted-foreground">{blockedBy}</span>}
     </>

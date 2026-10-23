@@ -5,9 +5,9 @@ No login yet (task 4.1): the API listens on localhost only.
 
 import uuid
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
-from typing import Annotated
+from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -15,12 +15,22 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.domain.enums import DocumentType
+from app.domain.enums import DocumentStatus, DocumentType
 from app.models import Run, RunStatus
 from app.pipeline.folders import InboxError
 from app.services.clients import get_client
 from app.services.places import find_place
-from app.services.runs import FROM_FOLDER, RunState, run_progress, start_run
+from app.services.runs import (
+    FROM_FOLDER,
+    RunControlError,
+    RunState,
+    Step,
+    resume_run,
+    run_progress,
+    start_run,
+    stop_run,
+    typical_work_ms,
+)
 from app.services.timings import StepTimings
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -72,6 +82,9 @@ class FileStatus(BaseModel):
     failure_reason: str | None
     from_earlier_run: bool
     timings: StepTimingsOut | None
+    step: Step  # where the file is now (task 4.14)
+    step_since: datetime | None  # when the current step started; null when not working
+    queue_position: int | None  # waiting for the AI: 1 = next
 
 
 class RunProgressOut(BaseModel):
@@ -86,6 +99,18 @@ class RunProgressOut(BaseModel):
     files_found: int
     counts: dict[str, int]
     files: list[FileStatus]
+    typical_ms: int | None  # recent work time per file (for time left); null when finished
+    server_time: datetime  # so the screen's timers use the server's clock
+
+
+class TypicalTime(BaseModel):
+    typical_ms: int | None  # recent work time per file; null before any file was measured
+
+
+@router.get("/typical-time")
+def get_typical_time(session: Annotated[Session, Depends(get_session)]) -> TypicalTime:
+    """For "about 30 min" on the Run screen before a run starts (task 4.17)."""
+    return TypicalTime(typical_ms=typical_work_ms(session))
 
 
 def get_enqueue_scan() -> Callable[[str], object]:
@@ -123,9 +148,81 @@ def create_run(
 @router.get("/{run_id}")
 def get_run(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]) -> RunProgressOut:
     """Live progress, per file the scan found."""
-    run = session.get(Run, run_id)
+    return _progress_out(session, _found_run(session, run_id))
+
+
+class RunQueue(Protocol):
+    """Where a resumed run's work is queued (the worker; a fake in tests)."""
+
+    def scan(self, run_id: str) -> object: ...
+    def ingest(self, run_id: str, path: str) -> object: ...
+    def step(self, document_id: str, status: DocumentStatus) -> object: ...
+
+
+class _WorkerQueue:
+    def scan(self, run_id: str) -> object:
+        from app.workers.tasks import scan_run  # imported lazily: the API does not need a worker
+
+        return scan_run.delay(run_id)
+
+    def ingest(self, run_id: str, path: str) -> object:
+        from app.workers.tasks import ingest_file
+
+        return ingest_file.delay(run_id, path)
+
+    def step(self, document_id: str, status: DocumentStatus) -> object:
+        from app.workers.tasks import enqueue_next
+
+        return enqueue_next(document_id, status)
+
+
+def get_run_queue() -> RunQueue:
+    return _WorkerQueue()
+
+
+@router.post("/{run_id}/stop")
+def stop(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]) -> RunProgressOut:
+    """Stop a running run (task 4.19): files not started stay as they are; a step already
+    running finishes first. 409 if the run is not running."""
+    run = _found_run(session, run_id, for_update=True)
+    try:
+        stop_run(run)
+    except RunControlError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    return _progress_out(session, run)
+
+
+@router.post("/{run_id}/resume")
+def resume(
+    run_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+    queue: Annotated[RunQueue, Depends(get_run_queue)],
+) -> RunProgressOut:
+    """Continue a stopped run from where each file is. 409 if the run is not stopped."""
+    run = _found_run(session, run_id, for_update=True)
+    try:
+        plan = resume_run(session, run)
+    except RunControlError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()  # before queueing: the worker must see the run running again
+    if plan.scan:
+        queue.scan(str(run.id))
+    for path in plan.ingest:
+        queue.ingest(str(run.id), path)
+    for document_id, document_status in plan.steps:
+        queue.step(str(document_id), document_status)
+    return _progress_out(session, run)
+
+
+def _found_run(session: Session, run_id: uuid.UUID, *, for_update: bool = False) -> Run:
+    run = session.get(Run, run_id, with_for_update=for_update)
     if run is None or get_client(session, run.client_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    return run
+
+
+def _progress_out(session: Session, run: Run) -> RunProgressOut:
     progress = run_progress(session, run)
     return RunProgressOut(
         run_id=run.id,
@@ -138,6 +235,8 @@ def get_run(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]
         created_at=run.created_at,
         files_found=len(progress.files),
         counts=progress.counts,
+        typical_ms=progress.typical_ms,
+        server_time=datetime.now(UTC),
         files=[
             FileStatus(
                 file=_inside(run.folder, f.path),
@@ -148,6 +247,9 @@ def get_run(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]
                 failure_reason=f.failure_reason,
                 from_earlier_run=f.from_earlier_run,
                 timings=StepTimingsOut.of(f.timings),
+                step=f.step,
+                step_since=f.step_since,
+                queue_position=f.queue_position,
             )
             for f in progress.files
         ],

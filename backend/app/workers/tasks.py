@@ -18,6 +18,7 @@ from contextlib import closing
 from pathlib import Path
 
 from celery import Task
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -63,6 +64,8 @@ def scan_run(run_id: str) -> int:
         if run is None:
             logger.error("scan_run: run %s not found", run_id)
             return 0
+        if run.status is RunStatus.STOPPED:
+            return 0  # stopped by the user (task 4.19): Resume scans again
         try:
             relative_paths = ingest.scan_run(session, run, _client_root(session, run))
         except InboxError as exc:
@@ -84,6 +87,8 @@ def ingest_file(self: "Task[[str, str], str]", run_id: str, relative_path: str) 
         if run is None:
             logger.error("ingest_file: run %s not found", run_id)
             return "run_not_found"
+        if run.status is RunStatus.STOPPED:
+            return STOPPED  # left for Resume
         try:
             result = ingest.ingest_file(
                 session,
@@ -111,6 +116,9 @@ def ingest_file(self: "Task[[str, str], str]", run_id: str, relative_path: str) 
 def read_document(document_id: str) -> str:
     """Page images + text for a CAPTURED document; skips documents already past that."""
     settings = get_settings()
+    if _run_stopped(document_id):
+        return STOPPED  # the run was stopped (task 4.19): left as it is for Resume
+    _mark_working(document_id, Step.READ)
     try:
         with session_scope() as session:
             document = session.get(Document, uuid.UUID(document_id))
@@ -151,6 +159,9 @@ def read_document(document_id: str) -> str:
 def extract_document(self: "Task[[str], str]", document_id: str) -> str:
     """Model extraction for a READ document; retried if the model server fails."""
     settings = get_settings()
+    if _run_stopped(document_id):
+        return STOPPED  # the run was stopped (task 4.19): left as it is for Resume
+    _mark_working(document_id, Step.EXTRACT)
     try:
         with session_scope() as session, closing(get_extraction_client(settings)) as client:
             document = session.get(Document, uuid.UUID(document_id))
@@ -190,6 +201,9 @@ def verify_document(document_id: str) -> str:
     """All Phase 3 checks for an EXTRACTED document, then the review queue. Coding may call
     the model; if it is down, coding degrades to a warning instead of failing verification."""
     settings = get_settings()
+    if _run_stopped(document_id):
+        return STOPPED  # the run was stopped (task 4.19): left as it is for Resume
+    _mark_working(document_id, Step.VERIFY)
     try:
         with session_scope() as session, closing(get_extraction_client(settings)) as client:
             document = session.get(Document, uuid.UUID(document_id))
@@ -222,6 +236,34 @@ def verify_document(document_id: str) -> str:
         result.warnings,
     )
     return result.outcome.value
+
+
+STOPPED = "stopped"
+
+
+def _run_stopped(document_id: str) -> bool:
+    """Has the user stopped this document's run? (task 4.19) Checked before every step."""
+    with session_scope() as session:
+        status = session.scalar(
+            select(Run.status)
+            .join(Document, Document.run_id == Run.id)
+            .where(Document.id == uuid.UUID(document_id))
+        )
+    return status is RunStatus.STOPPED
+
+
+def _mark_working(document_id: str, step: Step) -> None:
+    """Live progress (task 4.14): this step starts now. Its own short transaction, so the run
+    page sees it while the step runs. Never blocks the step: a failure here is only logged."""
+    try:
+        with session_scope() as session:
+            session.execute(
+                update(Document)
+                .where(Document.id == uuid.UUID(document_id))
+                .values(working_step=step.value, working_since=func.now())
+            )
+    except Exception:
+        logger.warning("document %s: could not mark step %s as started", document_id, step)
 
 
 def enqueue_next(document_id: str, status: DocumentStatus) -> bool:

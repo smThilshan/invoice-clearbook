@@ -689,9 +689,35 @@
             ],
             "title": "Pages"
           },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "step": {
+            "$ref": "#/components/schemas/Step"
+          },
+          "step_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Since"
           },
           "timings": {
             "anyOf": [
@@ -712,7 +738,10 @@
           "pages",
           "failure_reason",
           "from_earlier_run",
-          "timings"
+          "timings",
+          "step",
+          "step_since",
+          "queue_position"
         ],
         "title": "FileStatus",
         "type": "object"
@@ -781,6 +810,17 @@
             ],
             "title": "Date"
           },
+          "invoice_files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Files"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -793,7 +833,8 @@
         "required": [
           "name",
           "path",
-          "date"
+          "date",
+          "invoice_files"
         ],
         "title": "FolderOut",
         "type": "object"
@@ -1610,13 +1651,25 @@
           "place": {
             "title": "Place",
             "type": "string"
+          },
+          "total_files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Files"
           }
         },
         "required": [
           "place",
           "path",
           "folders",
-          "invoice_files"
+          "invoice_files",
+          "total_files"
         ],
         "title": "PlaceListing",
         "type": "object"
@@ -1656,6 +1709,16 @@
       },
       "QueuePageOut": {
         "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/QueueCategory"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
           "documents": {
             "items": {
               "$ref": "#/components/schemas/DocumentSummary"
@@ -1671,6 +1734,10 @@
             "title": "Offset",
             "type": "integer"
           },
+          "processing": {
+            "title": "Processing",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -1680,7 +1747,9 @@
           "total",
           "limit",
           "offset",
-          "documents"
+          "documents",
+          "counts",
+          "processing"
         ],
         "title": "QueuePageOut",
         "type": "object"
@@ -1943,11 +2012,27 @@
             "title": "Run Id",
             "type": "string"
           },
+          "server_time": {
+            "format": "date-time",
+            "title": "Server Time",
+            "type": "string"
+          },
           "state": {
             "$ref": "#/components/schemas/RunState"
           },
           "status": {
             "$ref": "#/components/schemas/RunStatus"
+          },
+          "typical_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typical Ms"
           }
         },
         "required": [
@@ -1961,7 +2046,9 @@
           "created_at",
           "files_found",
           "counts",
-          "files"
+          "files",
+          "typical_ms",
+          "server_time"
         ],
         "title": "RunProgressOut",
         "type": "object"
@@ -1979,7 +2066,8 @@
         "enum": [
           "RUNNING",
           "COMPLETED",
-          "FAILED"
+          "FAILED",
+          "STOPPED"
         ],
         "title": "RunStatus",
         "type": "string"
@@ -2029,6 +2117,22 @@
         ],
         "title": "Span",
         "type": "object"
+      },
+      "Step": {
+        "description": "Where a file is right now, for the live progress page (task 4.14).",
+        "enum": [
+          "queued",
+          "waiting",
+          "reading",
+          "waiting_ai",
+          "ai",
+          "checks",
+          "done",
+          "failed",
+          "stopped"
+        ],
+        "title": "Step",
+        "type": "string"
       },
       "StepTimingsOut": {
         "description": "Milliseconds per step (task 4.9); null = not measured or not run yet.",
@@ -2138,6 +2242,26 @@
         ],
         "title": "TaxType",
         "type": "string"
+      },
+      "TypicalTime": {
+        "properties": {
+          "typical_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typical Ms"
+          }
+        },
+        "required": [
+          "typical_ms"
+        ],
+        "title": "TypicalTime",
+        "type": "object"
       },
       "ValidationError": {
         "properties": {
@@ -2514,6 +2638,23 @@
                 }
               ],
               "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
             }
           },
           {
@@ -2932,6 +3073,50 @@
         ]
       }
     },
+    "/documents/{document_id}/retry": {
+      "post": {
+        "description": "A FAILED document starts over from reading (task 4.14). 409 if it is not FAILED.",
+        "operationId": "retry_failed_document_documents__document_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Failed Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/folders": {
       "get": {
         "operationId": "get_folder_folders_get",
@@ -3149,6 +3334,28 @@
         ]
       }
     },
+    "/runs/typical-time": {
+      "get": {
+        "description": "For \"about 30 min\" on the Run screen before a run starts (task 4.17).",
+        "operationId": "get_typical_time_runs_typical_time_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypicalTime"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Typical Time",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/runs/{run_id}": {
       "get": {
         "description": "Live progress, per file the scan found.",
@@ -3188,6 +3395,94 @@
           }
         },
         "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/{run_id}/resume": {
+      "post": {
+        "description": "Continue a stopped run from where each file is. 409 if the run is not stopped.",
+        "operationId": "resume_runs__run_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunProgressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/{run_id}/stop": {
+      "post": {
+        "description": "Stop a running run (task 4.19): files not started stay as they are; a step already\nrunning finishes first. 409 if the run is not running.",
+        "operationId": "stop_runs__run_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunProgressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop",
         "tags": [
           "runs"
         ]

@@ -19,3 +19,31 @@ export function rememberClient(clientId: string): void {
     // not remembered this time; nothing else depends on it
   }
 }
+
+/** The folder last run or opened for a client (task 4.17): its place and the path to it. */
+export interface RememberedFolder {
+  place: string
+  crumbs: { name: string; path: string; date: string | null }[]
+}
+
+const LAST_FOLDER = 'clearbook.lastFolder.'
+
+export function lastFolder(clientId: string): RememberedFolder | undefined {
+  try {
+    const saved = localStorage.getItem(LAST_FOLDER + clientId)
+    const parsed: unknown = saved ? JSON.parse(saved) : undefined
+    if (typeof parsed !== 'object' || parsed === null) return undefined
+    const { place, crumbs } = parsed as Partial<RememberedFolder>
+    return typeof place === 'string' && Array.isArray(crumbs) ? { place, crumbs } : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function rememberFolder(clientId: string, folder: RememberedFolder): void {
+  try {
+    localStorage.setItem(LAST_FOLDER + clientId, JSON.stringify(folder))
+  } catch {
+    // not remembered this time; nothing else depends on it
+  }
+}

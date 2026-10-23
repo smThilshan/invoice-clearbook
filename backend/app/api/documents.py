@@ -5,6 +5,7 @@ for the Workbench; they are never logged.
 """
 
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import PurePosixPath
@@ -30,6 +31,7 @@ from app.pipeline.verify.step import working_copy
 from app.services import approval, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
+from app.services.pipeline import retry_document
 from app.services.review import RejectReason, ReviewError
 from app.services.timings import load_timings
 
@@ -74,6 +76,8 @@ class QueuePageOut(BaseModel):
     limit: int
     offset: int
     documents: list[DocumentSummary]
+    counts: dict[QueueCategory, int]  # per category for the same filters (task 4.16)
+    processing: int  # the client's documents still being processed: not in the list yet
 
 
 class CorrectionOut(BaseModel):
@@ -150,6 +154,7 @@ def get_queue(
     client_id: str,
     queue: QueueCategory | None = None,
     run_id: uuid.UUID | None = None,
+    search: Annotated[str | None, Query(max_length=100)] = None,
     status_: Annotated[DocumentStatus, Query(alias="status")] = DocumentStatus.IN_REVIEW,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -158,12 +163,14 @@ def get_queue(
     if get_client(session, client_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     page = review.list_queue(session, client_id=client_id, status=status_, queue=queue,
-                             run_id=run_id, limit=limit, offset=offset)  # fmt: skip
+                             run_id=run_id, search=search, limit=limit, offset=offset)  # fmt: skip
     return QueuePageOut(
         total=page.total,
         limit=limit,
         offset=offset,
         documents=[_summary(document) for document in page.documents],
+        counts=page.counts,
+        processing=page.processing,
     )
 
 
@@ -277,6 +284,28 @@ def approve_document(
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
+    return _detail(session, document)
+
+
+def get_enqueue_step() -> Callable[[str, DocumentStatus], object]:
+    from app.workers.tasks import enqueue_next  # imported lazily: the API does not need a worker
+
+    return enqueue_next
+
+
+@router.post("/{document_id}/retry")
+def retry_failed_document(
+    document_id: uuid.UUID,
+    session: SessionDep,
+    enqueue: Annotated[Callable[[str, DocumentStatus], object], Depends(get_enqueue_step)],
+) -> DocumentDetail:
+    """A FAILED document starts over from reading (task 4.14). 409 if it is not FAILED."""
+    document = _found(session, document_id, for_update=True)
+    if document.status is not DocumentStatus.FAILED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "only a failed document can be retried")
+    retry_document(session, document, actor="workbench")
+    session.commit()
+    enqueue(str(document.id), document.status)  # after commit: the worker finds it CAPTURED
     return _detail(session, document)
 
 

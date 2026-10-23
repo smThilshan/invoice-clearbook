@@ -3,16 +3,19 @@ import { type FormEvent, useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import type { Client, Folder, FolderPlace } from '@/api/client'
-import { useCreateClient, useFolder, usePlaces, useStartRun } from '@/api/queries'
+import { useCreateClient, useFolder, usePlaces, useStartRun, useTypicalTime } from '@/api/queries'
 import { ClientSelect } from '@/components/ClientSelect'
 import { ErrorAlert } from '@/components/ErrorAlert'
+import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDate } from '@/lib/labels'
-import { rememberClient } from '@/lib/remember'
+import { lastFolder, rememberClient, rememberFolder } from '@/lib/remember'
+import { formatDuration } from '@/lib/timings'
+import { usePageTitle } from '@/lib/usePageTitle'
 import { cn } from '@/lib/utils'
 
 /** The client's own folder; the top of any other place (this Mac, shared drives) is too big
@@ -31,24 +34,33 @@ interface Crumb {
 export function RunPage() {
   const [client, setClient] = useState<Client>()
   const [chosenPlace, setChosenPlace] = useState<FolderPlace>()
+  const [savedPlace, setSavedPlace] = useState<string>()
   const [crumbs, setCrumbs] = useState<Crumb[]>([])
   const [date, setDate] = useState('')
   const places = usePlaces(client?.client_id)
+  usePageTitle('Run')
   const startRun = useStartRun()
   const navigate = useNavigate()
 
   // The first place (the client's own folder when it has one) is open until another is picked.
-  const place = chosenPlace ?? places.data?.[0]
+  // A remembered folder (task 4.17) opens in its place when that place is still there.
+  const place = chosenPlace ?? places.data?.find((p) => p.key === savedPlace) ?? places.data?.[0]
   const trail = crumbs.length > 0 ? crumbs : place ? [{ name: place.label, path: '', date: null }] : []
   const current = trail.at(-1)
   const folderDate = current?.date ?? null
   const tooBig = place !== undefined && place.key !== CLIENT_PLACE && current?.path === ''
+  const listing = useFolder(client?.client_id, place?.key, current?.path ?? '')
+  const typical = useTypicalTime().data?.typical_ms ?? null
+  const files = listing.data?.total_files
+  const estimate = files && typical ? files * typical : null
 
   function pickClient(picked: Client) {
+    const saved = lastFolder(picked.client_id)
     setClient(picked)
     setChosenPlace(undefined)
-    setCrumbs([])
-    setDate('')
+    setSavedPlace(saved?.place)
+    setCrumbs(saved?.crumbs ?? [])
+    setDate(saved?.crumbs.at(-1)?.date ?? '')
     startRun.reset()
   }
 
@@ -57,12 +69,14 @@ export function RunPage() {
     setCrumbs([])
     setDate('')
     startRun.reset()
+    if (client) rememberFolder(client.client_id, { place: picked.key, crumbs: [] })
   }
 
   function goTo(next: Crumb[]) {
     setCrumbs(next)
     setDate(next.at(-1)?.date ?? '')
     startRun.reset()
+    if (client && place) rememberFolder(client.client_id, { place: place.key, crumbs: next })
   }
 
   function run() {
@@ -75,13 +89,10 @@ export function RunPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Run</h2>
-        <p className="text-sm text-muted-foreground">
-          Pick a client and a folder (on this Mac or a shared drive), confirm the date, and start
-          processing. Sub-folders are included.
-        </p>
-      </div>
+      <PageHeader
+        title="Run"
+        description="Pick a client and a folder (on this Mac or a shared drive), confirm the date, and start processing. Sub-folders are included."
+      />
 
       <Card>
         <CardHeader>
@@ -154,12 +165,22 @@ export function RunPage() {
       {client && place && current && (
         <div className="space-y-3">
           {startRun.isError && <ErrorAlert title="The run did not start" error={startRun.error} />}
+          <RunSummary
+            client={client.name}
+            folder={trail.map((c) => c.name).join(' / ')}
+            date={date}
+            files={files}
+            estimate={estimate}
+          />
           {tooBig && (
             <p className="text-sm text-muted-foreground">
               Open a folder inside {place.label} first: the whole of it is too much to run.
             </p>
           )}
-          <Button size="lg" onClick={run} disabled={startRun.isPending || tooBig}>
+          {!tooBig && files === 0 && (
+            <p className="text-sm text-muted-foreground">No invoice files in this folder or below it.</p>
+          )}
+          <Button size="lg" onClick={run} disabled={startRun.isPending || tooBig || files === 0}>
             <Play aria-hidden />
             {startRun.isPending
               ? 'Starting…'
@@ -302,14 +323,11 @@ function FolderList({
   if (listing.isError) {
     return <ErrorAlert title="This folder could not be opened" error={listing.error} />
   }
-  const files = listing.data.invoice_files
   return (
     <div className="space-y-2">
       <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="file-count">
         <FileText className="size-4" aria-hidden />
-        {files === 0
-          ? 'No invoice files directly in this folder.'
-          : `${files} invoice file${files === 1 ? '' : 's'} (PDF or photo) directly in this folder.`}
+        {fileCountText(listing.data.invoice_files, listing.data.total_files)}
       </p>
       {listing.data.folders.length === 0 ? (
         <p className="text-sm text-muted-foreground">No sub-folders here.</p>
@@ -324,8 +342,15 @@ function FolderList({
               >
                 <FolderIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="flex-1 truncate">{folder.name}</span>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {folder.invoice_files === null
+                    ? 'many files'
+                    : folder.invoice_files > 0
+                      ? `${folder.invoice_files} invoice${folder.invoice_files === 1 ? '' : 's'}`
+                      : ''}
+                </span>
                 {folder.date && (
-                  <span className="text-xs text-muted-foreground">{formatDate(folder.date)}</span>
+                  <span className="w-24 text-right text-xs text-muted-foreground">{formatDate(folder.date)}</span>
                 )}
               </button>
             </li>
@@ -333,6 +358,54 @@ function FolderList({
         </ul>
       )}
     </div>
+  )
+}
+
+/** What a run would take in, said plainly (task 4.17). */
+function fileCountText(direct: number, total: number | null): string {
+  if (total === null) return 'Too many files below this folder to count: open a folder inside it.'
+  if (total === 0) return 'No invoice files here or in its sub-folders.'
+  const inside = total - direct
+  const plural = (n: number) => `${n} invoice file${n === 1 ? '' : 's'}`
+  if (inside === 0) return `${plural(total)} (PDF or photo) in this folder.`
+  if (direct === 0) return `${plural(total)} in its sub-folders: a run takes them all.`
+  return `${plural(total)}: ${direct} here and ${inside} in its sub-folders.`
+}
+
+/** The choices so far, and what a run will take: files and roughly how long on this computer. */
+function RunSummary({
+  client,
+  folder,
+  date,
+  files,
+  estimate,
+}: {
+  client: string
+  folder: string
+  date: string
+  files: number | null | undefined
+  estimate: number | null
+}) {
+  return (
+    <dl aria-label="Run summary" className="grid gap-x-4 gap-y-1 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-[auto_1fr]">
+      <dt className="text-muted-foreground">Client</dt>
+      <dd className="font-medium">{client}</dd>
+      <dt className="text-muted-foreground">Folder</dt>
+      <dd className="truncate font-medium" title={folder}>{folder}</dd>
+      <dt className="text-muted-foreground">Date</dt>
+      <dd className="font-medium">{date ? formatDate(date) : 'none (period check skipped)'}</dd>
+      {files !== undefined && files !== null && files > 0 && (
+        <>
+          <dt className="text-muted-foreground">Files</dt>
+          <dd className="font-medium">
+            {files} invoice file{files === 1 ? '' : 's'}
+            {estimate !== null && (
+              <span className="font-normal text-muted-foreground"> · about {formatDuration(estimate)} on this computer</span>
+            )}
+          </dd>
+        </>
+      )}
+    </dl>
   )
 }
 

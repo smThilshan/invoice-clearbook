@@ -31,8 +31,9 @@ function items(readiness: Readiness): Item[] {
   ]
 }
 
-/** Is everything the Workbench needs running? (backed by GET /health/ready) */
-export function SystemStatus() {
+/** Is everything the Workbench needs running? (backed by GET /health/ready) `compact`: one
+ * green dot when all is well (task 4.18); the full list still shows as soon as something is down. */
+export function SystemStatus({ compact = false }: { compact?: boolean }) {
   const { data, isPending, isError } = useReadiness()
 
   if (isPending) {
@@ -45,9 +46,19 @@ export function SystemStatus() {
       </Badge>
     )
   }
+  const all = items(data)
+  if (compact && all.every((item) => item.ok)) {
+    return (
+      <span title={all.map((i) => `${i.name}: ${i.label}`).join(' · ')}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="size-2 rounded-full bg-success" aria-hidden />
+        All systems ready
+      </span>
+    )
+  }
   return (
     <ul className="flex flex-wrap items-center gap-2" aria-label="System status">
-      {items(data).map((item) => (
+      {all.map((item) => (
         <li key={item.name}>
           <Badge variant={item.ok ? 'secondary' : 'destructive'}>
             {item.name}: {item.label}

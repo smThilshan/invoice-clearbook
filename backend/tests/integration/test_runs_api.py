@@ -178,8 +178,9 @@ def test_places_and_folders_can_be_browsed(anywhere: TestClient, tmp_path: Path)
     assert [p["key"] for p in places] == ["client", "p0"]
     assert places[1]["path"] == str(tmp_path / "mac")
     assert listing["folders"] == [
-        {"name": "May 5", "path": "Invoice tests/May 5", "date": "2026-05-05"}
+        {"name": "May 5", "path": "Invoice tests/May 5", "date": "2026-05-05", "invoice_files": 1}
     ]
+    assert listing["total_files"] == 1
     assert anywhere.get("/folders", params={"place": "p0", "path": ".."}).status_code == 404
 
 
@@ -216,3 +217,40 @@ def test_the_worker_reads_a_run_from_its_place(
     assert _client_root(session, session.get_one(Run, own.json()["run_id"])) == (
         tmp_path / "Cafe Al Noor"
     )
+
+
+def test_the_typical_time_per_file_is_offered_before_a_run(client: TestClient) -> None:
+    response = client.get("/runs/typical-time")
+
+    assert response.status_code == 200
+    assert response.json() == {"typical_ms": None}  # nothing measured yet in this database
+
+
+def test_a_run_is_stopped_and_resumed_from_the_workbench(
+    client: TestClient, session: Session, enqueued: list[str]
+) -> None:
+    from app.api.runs import get_run_queue
+
+    queued: list[tuple[str, ...]] = []
+
+    class FakeQueue:
+        def scan(self, run_id: str) -> None:
+            queued.append(("scan", run_id))
+
+        def ingest(self, run_id: str, path: str) -> None:
+            queued.append(("ingest", path))
+
+        def step(self, document_id: str, status: object) -> None:
+            queued.append(("step", document_id))
+
+    client.app.dependency_overrides[get_run_queue] = FakeQueue  # type: ignore[attr-defined]
+    run_id = start(client, folder="October 2026/21")["run_id"]
+
+    stopped = client.post(f"/runs/{run_id}/stop")
+    again = client.post(f"/runs/{run_id}/stop")
+    resumed = client.post(f"/runs/{run_id}/resume")
+
+    assert (stopped.status_code, stopped.json()["status"]) == (200, "STOPPED")
+    assert again.status_code == 409
+    assert (resumed.status_code, resumed.json()["status"]) == (200, "RUNNING")
+    assert queued == [("scan", run_id)]  # it had not been scanned yet

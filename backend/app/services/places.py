@@ -7,6 +7,7 @@ and links pointing out of a place are refused. Folders are only ever read.
 """
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,7 +30,17 @@ class Place:
 @dataclass(frozen=True, slots=True)
 class Listing:
     folders: list[str]  # names of the folders directly inside
-    invoice_files: int  # invoice files directly inside (sub-folders are run too, not counted)
+    invoice_files: int  # invoice files directly inside
+    # Task 4.17: invoice files a run of this folder would take in (sub-folders included), and
+    # per sub-folder. None = too many entries to count quickly (e.g. a whole home folder).
+    total_files: int | None
+    folder_files: dict[str, int | None]
+
+
+# Counting stops after this many folder entries per folder, and after this long in all: a
+# listing of a big place (the home folder) must stay quick.
+COUNT_ENTRY_BUDGET = 3000
+COUNT_SECONDS = 1.5
 
 
 def list_places(settings: Settings, client: Client | None = None) -> list[Place]:
@@ -54,7 +65,35 @@ def browse(place: Place, relative: str = "") -> Listing:
     folder = resolve_inside(place.path, relative)
     if not folder.is_dir():
         raise InboxError(f"folder not found: {relative or place.label}")
-    return Listing(list_subfolders(folder), _count_invoice_files(folder))
+    names = list_subfolders(folder)
+    deadline = time.monotonic() + COUNT_SECONDS
+    per_folder = {name: count_with_subfolders(folder / name, deadline) for name in names}
+    direct = _count_invoice_files(folder)
+    totals = list(per_folder.values())
+    total = None if None in totals else direct + sum(t for t in totals if t is not None)
+    return Listing(names, direct, total, per_folder)
+
+
+def count_with_subfolders(folder: Path, deadline: float) -> int | None:
+    """Invoice files in `folder` and below (hidden folders and links skipped, like a run);
+    None when it holds too many entries to count before the deadline."""
+    count = entries = 0
+    try:
+        for directory, subdirs, names in os.walk(folder, followlinks=False):
+            subdirs[:] = [d for d in subdirs if not d.startswith((".", "~$"))]
+            entries += len(subdirs) + len(names)
+            if entries > COUNT_ENTRY_BUDGET or time.monotonic() > deadline:
+                return None
+            count += sum(
+                1
+                for name in names
+                if not name.startswith((".", "~$"))
+                and Path(name).suffix.lower() in INVOICE_EXTENSIONS
+                and not Path(directory, name).is_symlink()
+            )
+    except OSError:
+        return None
+    return count
 
 
 def _count_invoice_files(folder: Path) -> int:

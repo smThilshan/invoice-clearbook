@@ -127,11 +127,14 @@ describe('review screen', () => {
     expect(screen.getByLabelText('Supplier')).toHaveValue('Fresh Farms Trading LLC')
     expect(screen.getByLabelText('Total')).toHaveValue('1050.00')
     expect(screen.getByLabelText('Supplier VAT registration no')).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByText(/supplier VAT registration no printed on the document is/)).toBeInTheDocument()
+    const summary = screen.getByRole('region', { name: 'Document issues' })
+    expect(within(summary).getByText(/supplier VAT registration no printed on the document is/))
+      .toBeInTheDocument()  // also under the field itself
     expect(within(screen.getByRole('region', { name: 'Document issues' })).getByText(/looks blurry/))
       .toBeInTheDocument()
     expect(screen.getByText('Checked')).toBeInTheDocument() // invoice_date already verified
-    expect(screen.getByText('Choose an account for this line.')).toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: 'Line 2' })).getByText('Choose an account for this line.'))
+      .toBeInTheDocument()
   })
 
   it('adds charges printed outside the lines as lines, with the subtotal, in one click', async () => {
@@ -154,6 +157,27 @@ describe('review screen', () => {
     expect(lines.at(-1)).toMatchObject({ description: 'Delivery charge', amount: '15.99' })
     expect(sent(api).invoice.subtotal).toBe('1015.99')
     expect(screen.queryByRole('note', { name: 'Charges outside the lines' })).not.toBeInTheDocument()
+  })
+
+  it('lists every issue at the top and jumps to its field', async () => {
+    await open()
+    const user = userEvent.setup()
+
+    const summary = screen.getByRole('region', { name: 'Document issues' })
+    expect(summary).toHaveTextContent('2 errors · 2 warnings')
+    await user.click(within(summary).getByText('Supplier VAT registration no:'))
+
+    expect(screen.getByLabelText('Supplier VAT registration no')).toHaveFocus()
+  })
+
+  it('goes back to the list it was opened from', async () => {
+    backend()
+    const user = userEvent.setup()
+    const router = renderApp(`/documents/${ID}`, { from: '/queue?client=cafe&queue=EXCEPTION', ids: [ID] })
+
+    await user.click(await screen.findByRole('button', { name: 'Back' }))
+
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe&queue=EXCEPTION'))
   })
 
   it('names the line columns once above the lines', async () => {
@@ -535,17 +559,30 @@ describe('approve', () => {
     })
   }
 
-  it('approves a document without errors, which then can no longer be changed', async () => {
+  it('approves a document opened directly, then goes to its client\'s queue', async () => {
     const api = approveBackend(detail({ status: 'APPROVED', updated_at: '2026-10-21T09:00:00Z' }))
     const user = userEvent.setup()
-    renderApp(`/documents/${ID}`)
+    const router = renderApp(`/documents/${ID}`)
 
     await user.click(await screen.findByRole('button', { name: 'Approve' }))
 
-    expect(await screen.findByText('Approved: waiting to be posted.')).toBeInTheDocument()
+    await waitFor(() => expect(router.state.location.pathname).toBe('/queue'))
+    expect(router.state.location.search).toBe('?client=cafe')
     expect(api.calls).toContain(`POST /documents/${ID}/approve`)
-    expect(screen.getByLabelText('Supplier')).toBeDisabled()
-    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: 'Done' })).toHaveTextContent(/^Approved: /)
+  })
+
+  it('approves and opens the next document of the list it came from', async () => {
+    const api = approveBackend(detail({ status: 'APPROVED', updated_at: '2026-10-21T09:00:00Z' }))
+    const user = userEvent.setup()
+    const router = renderApp(`/documents/${ID}`, { from: '/queue?client=cafe&queue=CHECK', ids: [ID, 'next-doc'] })
+
+    expect(await screen.findByRole('navigation', { name: 'Documents in this list' })).toHaveTextContent('1 of 2')
+    await user.click(screen.getByRole('button', { name: 'Approve & next' }))
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/documents/next-doc'))
+    expect(router.state.location.state).toMatchObject({ from: '/queue?client=cafe&queue=CHECK', flash: expect.stringMatching(/^Approved: /) })
+    expect(api.calls).toContain(`POST /documents/${ID}/approve`)
   })
 
   it('cannot approve while errors remain', async () => {

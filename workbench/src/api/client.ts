@@ -18,6 +18,7 @@ export type RunCreate = Schemas['RunCreate']
 export type RunAccepted = Schemas['RunAccepted']
 export type RunProgress = Schemas['RunProgressOut']
 export type FileStatus = Schemas['FileStatus']
+export type FileStep = Schemas['Step']
 export type StepTimings = Schemas['StepTimingsOut']
 export type DocumentStatus = Schemas['DocumentStatus']
 export type DocumentType = Schemas['DocumentType']
@@ -46,6 +47,7 @@ export interface QueueQuery {
   queue?: QueueCategory
   status?: DocumentStatus
   run_id?: string
+  search?: string
   limit: number
   offset: number
 }
@@ -116,8 +118,13 @@ export const api = {
     request<PlaceListing>(`/folders?${new URLSearchParams({ client_id: clientId, place, path })}`),
   /** Latest runs that took in documents, newest first (the queue's run filter). */
   runs: (clientId: string) => request<RunOption[]>(`/clients/${encodeURIComponent(clientId)}/runs`),
+  /** Recent work time per file, for the estimate before a run (task 4.17). */
+  typicalTime: () => request<{ typical_ms: number | null }>('/runs/typical-time'),
   startRun: (body: RunCreate) => sendJson<RunAccepted>('POST', '/runs', body),
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
+  /** Stop a run (task 4.19): files not started stay as they are; the current step finishes. */
+  stopRun: (runId: string) => sendJson<RunProgress>('POST', `/runs/${encodeURIComponent(runId)}/stop`, {}),
+  resumeRun: (runId: string) => sendJson<RunProgress>('POST', `/runs/${encodeURIComponent(runId)}/resume`, {}),
   /** Exception first, then Check, then Ready; oldest first inside each. */
   queue: (query: QueueQuery) => request<QueuePage>(`/documents?${searchParams(query)}`),
   document: (id: string) => request<DocumentDetail>(documentPath(id)),
@@ -129,6 +136,8 @@ export const api = {
     request<Located>(`${documentPath(id)}/locate?${new URLSearchParams({ kind, value })}`),
   /** Re-check, then APPROVED + outbox in one transaction (task 4.8); the document as last saved. */
   approveDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/approve`, {}),
+  /** A failed document starts over from reading (task 4.14). */
+  retryDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/retry`, {}),
   rejectDocument: (id: string, body: RejectBody) =>
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
   /** Accounts and tax codes the review form may use (the client's active master data). */

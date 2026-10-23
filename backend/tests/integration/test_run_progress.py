@@ -166,3 +166,119 @@ def test_files_carry_their_step_timings(session: Session) -> None:
 
     assert timed.timings == StepTimings(34_000, 6_000, 200_000, 15_000, 1_000, 256_000)
     assert queued.timings is None
+
+
+# --- live progress (task 4.14) -------------------------------------------------------------
+
+
+def test_each_file_says_where_it_is_now(session: Session) -> None:
+    from datetime import UTC, datetime
+
+    from app.services.runs import Step
+
+    since = datetime.now(UTC) - timedelta(minutes=1)  # a live mark (older ones expire)
+    run = scanned(session, "a.pdf", "b.pdf", "c.pdf", "d.pdf", "e.pdf", "f.pdf")
+    doc(session, run, "a.pdf", S.IN_REVIEW)
+    doc(session, run, "b.pdf", S.READ, working_step="extract", working_since=since)  # the AI
+    doc(session, run, "c.pdf", S.READ)  # next in line
+    doc(session, run, "d.pdf", S.FAILED, failure_reason="read: cannot open PDF")
+    doc(session, run, "e.pdf", S.EXTRACTED, working_step="extract", working_since=since)
+
+    files = {f.path.rsplit("/", 1)[1]: f for f in run_progress(session, run).files}
+
+    assert files["a.pdf"].step is Step.DONE
+    assert (files["b.pdf"].step, files["b.pdf"].step_since) == (Step.AI, since)
+    assert (files["c.pdf"].step, files["c.pdf"].queue_position) == (Step.WAITING_AI, 1)
+    assert files["d.pdf"].step is Step.FAILED
+    assert files["e.pdf"].step is Step.WAITING  # an old marker does not count after the step
+    assert files["f.pdf"].step is Step.QUEUED
+
+
+def test_files_wait_for_the_ai_in_the_order_they_came_in(session: Session) -> None:
+    run = scanned(session, "a.pdf", "b.pdf")
+    doc(session, run, "a.pdf", S.READ)
+    doc(session, run, "b.pdf", S.READ)
+
+    files = run_progress(session, run).files
+
+    assert [f.queue_position for f in files] == [1, 2]
+
+
+def test_a_mark_left_by_a_crashed_worker_does_not_count(session: Session) -> None:
+    from datetime import UTC, datetime
+
+    from app.services.runs import Step
+
+    run = scanned(session, "a.pdf")
+    doc(session, run, "a.pdf", S.READ, working_step="extract",
+        working_since=datetime.now(UTC) - timedelta(hours=2))  # fmt: skip
+
+    [file] = run_progress(session, run).files
+
+    assert file.step is Step.WAITING_AI
+
+
+# --- stop and resume (task 4.19) -------------------------------------------------------------
+
+
+def test_a_stopped_run_shows_its_waiting_files_as_stopped(session: Session) -> None:
+    from datetime import UTC, datetime
+
+    from app.services.runs import Step, stop_run
+
+    run = scanned(session, "a.pdf", "b.pdf", "c.pdf", "d.pdf")
+    doc(session, run, "a.pdf", S.IN_REVIEW)
+    doc(session, run, "b.pdf", S.READ, working_step="extract", working_since=datetime.now(UTC))
+    doc(session, run, "c.pdf", S.READ)  # was waiting for the AI
+
+    stop_run(run)
+    progress = run_progress(session, run)
+
+    assert progress.status is RunStatus.STOPPED
+    assert [f.step for f in progress.files] == [Step.DONE, Step.AI, Step.STOPPED, Step.STOPPED]
+
+
+def test_resume_continues_each_file_from_where_it_is(session: Session) -> None:
+    from datetime import UTC, datetime
+
+    from app.services.runs import resume_run, stop_run
+
+    run = scanned(session, "a.pdf", "b.pdf", "c.pdf", "d.pdf")
+    doc(session, run, "a.pdf", S.IN_REVIEW)
+    doc(session, run, "b.pdf", S.READ, working_step="extract", working_since=datetime.now(UTC))
+    doc(session, run, "c.pdf", S.EXTRACTED)
+    stop_run(run)
+
+    plan = resume_run(session, run)
+
+    assert run.status is RunStatus.RUNNING
+    assert plan.ingest == [f"{FOLDER}/d.pdf"]  # never taken in
+    assert [status for _, status in plan.steps] == [S.EXTRACTED]  # b.pdf is still being read
+    assert plan.scan is False
+
+
+def test_only_a_running_run_stops_and_only_a_stopped_one_resumes(session: Session) -> None:
+    from app.services.runs import RunControlError, resume_run, stop_run
+
+    run = scanned(session, "a.pdf")
+
+    with pytest.raises(RunControlError):
+        resume_run(session, run)
+    stop_run(run)
+    with pytest.raises(RunControlError):
+        stop_run(run)
+
+
+def test_recovery_never_restarts_a_stopped_run(session: Session) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.pipeline import stalled_documents
+    from app.services.runs import stop_run
+
+    run = scanned(session, "a.pdf")
+    doc(session, run, "a.pdf", S.READ)
+    stop_run(run)
+    session.flush()
+
+    later = datetime.now(UTC) + timedelta(hours=2)
+    assert stalled_documents(session, idle_for=timedelta(minutes=30), now=later) == []

@@ -29,6 +29,7 @@ class FolderOut(BaseModel):
     name: str
     path: str  # relative to the place; send it back as the run's `folder`
     date: str | None  # the date this folder stands for, if its name holds one
+    invoice_files: int | None  # with its sub-folders; null = too many to count quickly
 
 
 class PlaceListing(BaseModel):
@@ -36,6 +37,7 @@ class PlaceListing(BaseModel):
     path: str
     folders: list[FolderOut]
     invoice_files: int  # PDF / image files directly in this folder
+    total_files: int | None  # what a run of this folder takes in; null = too many to count
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -72,9 +74,20 @@ def get_folder(
     for name in listing.folders:
         relative = f"{prefix}{name}"
         when = folder_date_from_path(relative, today=today)
-        folders.append(FolderOut(name=name, path=relative, date=when.isoformat() if when else None))
+        folders.append(
+            FolderOut(
+                name=name,
+                path=relative,
+                date=when.isoformat() if when else None,
+                invoice_files=listing.folder_files.get(name),
+            )
+        )
     return PlaceListing(
-        place=place, path=path, folders=folders, invoice_files=listing.invoice_files
+        place=place,
+        path=path,
+        folders=folders,
+        invoice_files=listing.invoice_files,
+        total_files=listing.total_files,
     )
 
 

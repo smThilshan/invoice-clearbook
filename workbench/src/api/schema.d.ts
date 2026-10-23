@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/documents/{document_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Failed Document
+         * @description A FAILED document starts over from reading (task 4.14). 409 if it is not FAILED.
+         */
+        post: operations["retry_failed_document_documents__document_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/folders": {
         parameters: {
             query?: never;
@@ -333,6 +353,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/typical-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Typical Time
+         * @description For "about 30 min" on the Run screen before a run starts (task 4.17).
+         */
+        get: operations["get_typical_time_runs_typical_time_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -347,6 +387,47 @@ export interface paths {
         get: operations["get_run_runs__run_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{run_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume
+         * @description Continue a stopped run from where each file is. 409 if the run is not stopped.
+         */
+        post: operations["resume_runs__run_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop
+         * @description Stop a running run (task 4.19): files not started stay as they are; a step already
+         *     running finishes first. 409 if the run is not running.
+         */
+        post: operations["stop_runs__run_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -569,8 +650,13 @@ export interface components {
             from_earlier_run: boolean;
             /** Pages */
             pages: number | null;
+            /** Queue Position */
+            queue_position: number | null;
             /** Status */
             status: string;
+            step: components["schemas"]["Step"];
+            /** Step Since */
+            step_since: string | null;
             timings: components["schemas"]["StepTimingsOut"] | null;
         };
         /** Folder */
@@ -593,6 +679,8 @@ export interface components {
         FolderOut: {
             /** Date */
             date: string | null;
+            /** Invoice Files */
+            invoice_files: number | null;
             /** Name */
             name: string;
             /** Path */
@@ -831,6 +919,8 @@ export interface components {
             path: string;
             /** Place */
             place: string;
+            /** Total Files */
+            total_files: number | null;
         };
         /** PlaceOut */
         PlaceOut: {
@@ -849,12 +939,18 @@ export interface components {
         QueueCategory: "READY" | "CHECK" | "EXCEPTION";
         /** QueuePageOut */
         QueuePageOut: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
             /** Documents */
             documents: components["schemas"]["DocumentSummary"][];
             /** Limit */
             limit: number;
             /** Offset */
             offset: number;
+            /** Processing */
+            processing: number;
             /** Total */
             total: number;
         };
@@ -969,8 +1065,15 @@ export interface components {
              * Format: uuid
              */
             run_id: string;
+            /**
+             * Server Time
+             * Format: date-time
+             */
+            server_time: string;
             state: components["schemas"]["RunState"];
             status: components["schemas"]["RunStatus"];
+            /** Typical Ms */
+            typical_ms: number | null;
         };
         /**
          * RunState
@@ -981,7 +1084,7 @@ export interface components {
          * RunStatus
          * @enum {string}
          */
-        RunStatus: "RUNNING" | "COMPLETED" | "FAILED";
+        RunStatus: "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
         /** Span */
         Span: {
             /** Box */
@@ -996,6 +1099,12 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * Step
+         * @description Where a file is right now, for the live progress page (task 4.14).
+         * @enum {string}
+         */
+        Step: "queued" | "waiting" | "reading" | "waiting_ai" | "ai" | "checks" | "done" | "failed" | "stopped";
         /**
          * StepTimingsOut
          * @description Milliseconds per step (task 4.9); null = not measured or not run yet.
@@ -1025,6 +1134,11 @@ export interface components {
          * @enum {string}
          */
         TaxType: "STANDARD_5" | "ZERO" | "EXEMPT" | "REVERSE_CHARGE" | "NONE";
+        /** TypicalTime */
+        TypicalTime: {
+            /** Typical Ms */
+            typical_ms: number | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -1244,6 +1358,7 @@ export interface operations {
                 client_id: string;
                 queue?: components["schemas"]["QueueCategory"] | null;
                 run_id?: string | null;
+                search?: string | null;
                 status?: components["schemas"]["DocumentStatus"];
                 limit?: number;
                 offset?: number;
@@ -1504,6 +1619,37 @@ export interface operations {
             };
         };
     };
+    retry_failed_document_documents__document_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_folder_folders_get: {
         parameters: {
             query: {
@@ -1650,7 +1796,89 @@ export interface operations {
             };
         };
     };
+    get_typical_time_runs_typical_time_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypicalTime"];
+                };
+            };
+        };
+    };
     get_run_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunProgressOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_runs__run_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunProgressOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_runs__run_id__stop_post: {
         parameters: {
             query?: never;
             header?: never;

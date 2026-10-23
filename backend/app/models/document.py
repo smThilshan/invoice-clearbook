@@ -66,6 +66,11 @@ class Document(UuidPk, ClientScoped, Timestamps, Base):
         ForeignKey("contacts.id", ondelete="SET NULL")
     )
     failure_reason: Mapped[str | None] = mapped_column(Text)
+    # The pipeline step a worker is running on this document now, and since when (task 4.14,
+    # live progress). Set just before the step starts; it only counts while the status is still
+    # the one that step works on: a later status means the step is done.
+    working_step: Mapped[str | None] = mapped_column(String(16))
+    working_since: Mapped[datetime | None]
     external_id: Mapped[str | None] = mapped_column(
         String(64), comment="ID of the posted document in the accounting system"
     )
