@@ -199,7 +199,7 @@ Xero adapter sub-steps, each result saved so a failure resumes from the failed s
   2. Create contact if new vendor
   3. Create bill / credit note / bank transaction with idempotency key
   4. Allocate credit note to original
-  5. Add history note ("created by automation, reviewed by X")
+  5. Attach the original file (decision 41), then add history note ("created by automation, reviewed by X")
   6. Save Xero ID as `external_id` → `POSTED`
 - MVP posts everything to Xero as `SUBMITTED` (Awaiting Approval).
 - Errors: temporary (429, timeout, down) → retry with backoff respecting Xero's wait; business (locked period, inactive account) → back to review with Xero's message; token expired → pause posting + alert; unknown → dead-letter.
@@ -214,7 +214,7 @@ Daily reconciliation: count + total per day vs the accounting system.
 - **[MVP]** `Storage` interface backed by the local filesystem (`data/store/`). Originals copied there; page images and OCR output saved.
 - **[LATER]** MinIO (encrypted bucket) with lifecycle: `tmp/` 7 days, `originals/` ~90 days after posting, `exceptions/` until resolved + 90 days, `golden/` long-term.
 - Metadata (hashes, keys, extracted data) stays in Postgres permanently.
-- The accounting system receives data only, no attachment. Missan's folders remain the official archive.
+- The original file is attached to the posted document in the accounting system (decision 41, replacing "data only, no attachment"). Missan's folders remain the official archive.
 
 ## 15. Security
 - **[MVP]** Everything local; model via local Ollama; secrets in `.env` (not committed); no sensitive values in logs.

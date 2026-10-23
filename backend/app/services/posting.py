@@ -18,15 +18,17 @@ import logging
 import uuid
 from collections.abc import Callable, MutableMapping
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import PurePosixPath
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import (
+    Attachment,
     PostingBill,
     PostingLine,
     PostingRefused,
@@ -34,6 +36,8 @@ from app.adapters.accounting.base import (
     PostingUnavailable,
 )
 from app.adapters.accounting.xero.auth import XeroAuth
+from app.adapters.storage import Storage
+from app.adapters.storage.base import NotFoundError
 from app.core.config import Settings
 from app.domain.enums import AccountingProvider, DocumentStatus, DocumentType
 from app.domain.invoice import Invoice, Line
@@ -83,13 +87,14 @@ def send_next(
     settings: Settings,
     auth: XeroAuth,
     system: SystemFactory,
+    storage: Storage,
     *,
     outbox_id: str | None = None,
     client_id: str | None = None,
 ) -> Outcome | None:
     """Post the next due row (that one row, or any of the client's, or any). None = none due."""
     with sessions() as session:
-        claim = _claim(session, settings, auth, outbox_id=outbox_id, client_id=client_id)
+        claim = _claim(session, settings, auth, storage, outbox_id=outbox_id, client_id=client_id)
     if claim is None:
         return None
     if claim.refusal is not None:
@@ -124,6 +129,8 @@ def send_next(
         transition(session, document, DocumentStatus.POSTED, actor=ACTOR, details={
             "external_id": posted.external_id,
             "contact_created": posted.contact_created,
+            "due_date_from": posted.due_date_from,
+            "attached": posted.attached,
             "total_matches": matches,  # flag, never fix (rule 8): Xero's total is not changed
         })  # fmt: skip
         outbox.status, outbox.step, outbox.last_error = OutboxStatus.DONE, "posted", None
@@ -144,6 +151,7 @@ def _claim(
     session: Session,
     settings: Settings,
     auth: XeroAuth,
+    storage: Storage,
     *,
     outbox_id: str | None,
     client_id: str | None,
@@ -191,6 +199,8 @@ def _claim(
     invoice = working_copy(document)
     chart = load_chart(session, client_id=outbox.client_id, provider=AccountingProvider.XERO)
     bill, refusal = _bill(session, document, invoice, chart)
+    if bill is not None:
+        bill = replace(bill, attachment=_original(storage, document))
     token = tenant_id = unavailable = None
     if bill is not None:
         try:
@@ -264,6 +274,18 @@ def _bill(
         ),
         None,
     )
+
+
+def _original(storage: Storage, document: Document) -> Attachment | None:
+    """The original file as captured (decision 41); None if it cannot be read: the bill is
+    still posted, and its note says the file is in Missan's folders."""
+    try:
+        content = storage.get(document.storage_key)
+    except NotFoundError:
+        logger.warning("document %s: original not found in storage", document.id)
+        return None
+    name = PurePosixPath(document.source_path).name or f"{document.id}"
+    return Attachment(name, document.mime_type, content)
 
 
 def _quantity_and_unit(line: Line) -> tuple[Decimal, Decimal]:

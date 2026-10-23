@@ -58,13 +58,18 @@ class XeroClient:
             headers["Idempotency-Key"] = key
         return self._send("PUT", resource, params=params, content=to_json(body), headers=headers)
 
+    def put_file(self, resource: str, content: bytes, mime_type: str) -> dict[str, Any]:
+        """Upload a file as the raw request body (Xero attachments)."""
+        return self._send("PUT", resource, params={}, content=content,
+                          headers={"Content-Type": mime_type})  # fmt: skip
+
     def _send(
         self,
         method: str,
         resource: str,
         *,
         params: dict[str, Any],
-        content: str | None = None,
+        content: str | bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         try:

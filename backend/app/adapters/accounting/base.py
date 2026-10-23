@@ -81,6 +81,15 @@ class PostingLine:
 
 
 @dataclass(frozen=True, slots=True)
+class Attachment:
+    """The original file, attached to the posted document (decision 41)."""
+
+    file_name: str
+    mime_type: str
+    content: bytes = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class PostingBill:
     """An approved supplier bill, checked against the client's master data."""
 
@@ -94,6 +103,7 @@ class PostingBill:
     amount_type: AmountType
     lines: Sequence[PostingLine]
     note: str  # history note: who created and approved it
+    attachment: Attachment | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +112,8 @@ class Posted:
     total: Decimal | None  # as the accounting system computed it
     contact_external_id: str
     contact_created: bool
+    due_date_from: str = "document"  # or the payment terms it was set from (decision 40)
+    attached: bool = False  # the original file is on the posted document (decision 41)
 
 
 class PostingRefused(Exception):  # noqa: N818 - a business outcome, not a program error

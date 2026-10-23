@@ -313,6 +313,7 @@ def send_posting(outbox_id: str | None = None, client_id: str | None = None) -> 
             settings,
             XeroAuth(settings),
             XeroAccountingSystem,
+            get_storage(settings),
             outbox_id=outbox_id,
             client_id=client_id,
         )

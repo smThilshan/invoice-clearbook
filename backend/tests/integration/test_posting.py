@@ -60,6 +60,13 @@ class FakePosting:
         return Posted("xero-bill-1", Decimal("1050.00"), progress["contact_id"], True)
 
 
+class FakeStorage:
+    """Every original is the same small made-up file."""
+
+    def get(self, key: str) -> bytes:
+        return b"%PDF-1.4 made-up"
+
+
 @pytest.fixture
 def xero(session: Session, tmp_path: Path) -> FakePosting:
     fake_auth = FakeXero()
@@ -110,7 +117,8 @@ def send(session: Session, fake: FakePosting, **only: str) -> posting.Outcome | 
         yield session
         session.flush()
 
-    return posting.send_next(sessions, SETTINGS, FakeXero(), fake.system, **only)  # type: ignore[arg-type]
+    storage = FakeStorage()
+    return posting.send_next(sessions, SETTINGS, FakeXero(), fake.system, storage, **only)  # type: ignore[arg-type]
 
 
 def test_an_approved_bill_is_posted_and_its_supplier_remembered(
@@ -129,6 +137,8 @@ def test_an_approved_bill_is_posted_and_its_supplier_remembered(
     ]  # fmt: skip
     assert (bill.supplier_name, bill.amount_type, bill.due_date) == (
         "Made-up Foods LLC", AmountType.EXCLUSIVE, None)  # fmt: skip
+    assert bill.attachment is not None
+    assert (bill.attachment.file_name, bill.attachment.mime_type) == ("inv.pdf", "application/pdf")
     session.refresh(doc)
     session.refresh(outbox)
     assert (doc.status, doc.external_id) == (S.POSTED, "xero-bill-1")
