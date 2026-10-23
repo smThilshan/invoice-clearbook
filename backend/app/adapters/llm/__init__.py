@@ -7,6 +7,7 @@ from app.adapters.llm.base import (
     ExtractionError,
     ExtractionRequest,
     ExtractionResult,
+    ExtractionStopped,
     ModelStatus,
 )
 from app.adapters.llm.ollama import OllamaExtractionClient
@@ -17,6 +18,7 @@ __all__ = [
     "ExtractionError",
     "ExtractionRequest",
     "ExtractionResult",
+    "ExtractionStopped",
     "ModelStatus",
     "get_extraction_client",
 ]

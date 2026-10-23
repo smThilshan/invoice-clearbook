@@ -181,3 +181,63 @@ def test_check_missing_model() -> None:
 )
 def test_check_unreachable(response: httpx.Response | Exception) -> None:
     assert checked(response) == "unreachable"
+
+
+# --- force stop (task 4.20) ------------------------------------------------------------------
+
+
+def stoppable(handler: Callable[[httpx.Request], httpx.Response]) -> OllamaExtractionClient:
+    def factory() -> httpx.Client:
+        return httpx.Client(base_url="http://ollama.test", transport=httpx.MockTransport(handler))
+
+    return OllamaExtractionClient(
+        base_url="http://ollama.test", model="qwen3-vl:4b-instruct", context_tokens=16384,
+        timeout_seconds=600, client_factory=factory,
+    )  # fmt: skip
+
+
+def test_a_stoppable_call_gives_the_same_answer_and_figures() -> None:
+    sent: list[dict[str, Any]] = []
+    plain = make_client(capture(sent)).extract(ExtractionRequest(prompt="x", json_schema=SCHEMA))
+    checked = stoppable(capture(sent)).extract(
+        ExtractionRequest(prompt="x", json_schema=SCHEMA), should_stop=lambda: False
+    )
+
+    assert sent[0]["json"] == sent[1]["json"]  # the very same request
+
+    def figures(r: Any) -> tuple[Any, ...]:
+        return (r.raw_output, r.prompt_tokens, r.output_tokens, r.reading_ms, r.writing_ms)
+
+    assert figures(checked) == figures(plain)
+
+
+def test_a_force_stop_ends_the_wait_within_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    import time
+
+    import app.adapters.llm.ollama as module
+    from app.adapters.llm import ExtractionStopped
+
+    monkeypatch.setattr(module, "STOP_CHECK_SECONDS", 0.05)
+    release = threading.Event()
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        release.wait(10)  # the model "reading" for a long time
+        return httpx.Response(200, json=OK_BODY)
+
+    started = time.monotonic()
+    with pytest.raises(ExtractionStopped):
+        stoppable(slow).extract(ExtractionRequest(prompt="x", json_schema=SCHEMA),
+                                should_stop=lambda: time.monotonic() - started > 0.2)  # fmt: skip
+    release.set()
+
+    assert time.monotonic() - started < 2
+
+
+def test_a_model_error_in_a_stoppable_call_is_still_an_extraction_error() -> None:
+    def broken(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="model not found")
+
+    with pytest.raises(ExtractionError, match="HTTP 500"):
+        stoppable(broken).extract(ExtractionRequest(prompt="x", json_schema=SCHEMA),
+                                  should_stop=lambda: False)  # fmt: skip

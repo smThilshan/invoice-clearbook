@@ -25,6 +25,7 @@ from app.services.runs import (
     RunControlError,
     RunState,
     Step,
+    force_stop_run,
     resume_run,
     run_progress,
     start_run,
@@ -100,6 +101,7 @@ class RunProgressOut(BaseModel):
     counts: dict[str, int]
     files: list[FileStatus]
     typical_ms: int | None  # recent work time per file (for time left); null when finished
+    force_stop: bool  # force stop asked: the read under way is being abandoned (task 4.20)
     server_time: datetime  # so the screen's timers use the server's clock
 
 
@@ -193,6 +195,21 @@ def stop(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]) -
     return _progress_out(session, run)
 
 
+@router.post("/{run_id}/force-stop")
+def force_stop(
+    run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]
+) -> RunProgressOut:
+    """Abandon the model read still under way in a stopped run, within a few seconds (task
+    4.20). 409 if the run is not stopped."""
+    run = _found_run(session, run_id, for_update=True)
+    try:
+        force_stop_run(run)
+    except RunControlError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    return _progress_out(session, run)
+
+
 @router.post("/{run_id}/resume")
 def resume(
     run_id: uuid.UUID,
@@ -236,6 +253,7 @@ def _progress_out(session: Session, run: Run) -> RunProgressOut:
         files_found=len(progress.files),
         counts=progress.counts,
         typical_ms=progress.typical_ms,
+        force_stop=run.force_stop,
         server_time=datetime.now(UTC),
         files=[
             FileStatus(

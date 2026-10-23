@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 
 import { routes } from '@/app/routes'
+import { startTheme } from '@/lib/theme'
 
 import './index.css'
 
@@ -14,11 +15,8 @@ const queryClient = new QueryClient({
 })
 const router = createBrowserRouter(routes)
 
-// Dark mode follows the computer's setting, also when it changes while the Workbench is open.
-const darkScheme = window.matchMedia('(prefers-color-scheme: dark)')
-const applyScheme = () => document.documentElement.classList.toggle('dark', darkScheme.matches)
-applyScheme()
-darkScheme.addEventListener('change', applyScheme)
+// Light by default; dark or "match this computer" when chosen in the header.
+startTheme()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('index.html has no #root element')

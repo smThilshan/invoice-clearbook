@@ -70,6 +70,25 @@ describe('sidebar', () => {
   })
 })
 
+describe('theme', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('is light unless dark is chosen, and remembers the choice', async () => {
+    mockReadiness(ALL_OK)
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    const theme = await screen.findByRole('group', { name: 'Theme' })
+    expect(within(theme).getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(within(theme).getByRole('button', { name: 'Dark' }))
+
+    expect(document.documentElement).toHaveClass('dark')
+    expect(localStorage.getItem('clearbook.theme')).toBe('dark')
+    await user.click(within(theme).getByRole('button', { name: 'Light' }))
+    expect(document.documentElement).not.toHaveClass('dark')
+  })
+})
+
 describe('system status', () => {
   it('shows every dependency as ready', async () => {
     mockReadiness(ALL_OK)

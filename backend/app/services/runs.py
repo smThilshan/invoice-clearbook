@@ -291,11 +291,20 @@ def stop_run(run: Run) -> None:
     run.status = RunStatus.STOPPED
 
 
+def force_stop_run(run: Run) -> None:
+    """Task 4.20: also abandon the model read still under way in a stopped run (within a few
+    seconds; nothing of it is kept, Resume reads that document again). The caller commits."""
+    if run.status is not RunStatus.STOPPED:
+        raise RunControlError("stop the run first; force stop only ends the read under way")
+    run.force_stop = True
+
+
 def resume_run(session: Session, run: Run) -> ResumePlan:
     """Continue a stopped run from where each file is. The caller commits, then enqueues."""
     if run.status is not RunStatus.STOPPED:
         raise RunControlError(f"only a stopped run can be resumed (this one is {run.status})")
     run.status = RunStatus.RUNNING
+    run.force_stop = False
     if run.files is None:
         return ResumePlan(scan=True, ingest=[], steps=[])
     progress = run_progress(session, run)

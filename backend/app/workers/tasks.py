@@ -18,11 +18,14 @@ from contextlib import closing
 from pathlib import Path
 
 from celery import Task
+from celery.signals import worker_ready
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.adapters.llm import ExtractionError, get_extraction_client
+from app.adapters.accounting.xero.auth import XeroAuth
+from app.adapters.accounting.xero.master_data import XeroAccountingSystem
+from app.adapters.llm import ExtractionError, ExtractionStopped, get_extraction_client
 from app.adapters.ocr import get_ocr_engine
 from app.adapters.storage import get_storage
 from app.core.config import get_settings
@@ -33,6 +36,7 @@ from app.models import Document, Run, RunStatus
 from app.pipeline import extract, ingest, read
 from app.pipeline.folders import InboxError
 from app.pipeline.verify import step as verify
+from app.services import posting
 from app.services.clients import get_client, run_root
 from app.services.pipeline import NEXT_STEP, Step, fail_document
 from app.workers.celery_app import celery_app
@@ -174,8 +178,14 @@ def extract_document(self: "Task[[str], str]", document_id: str) -> str:
                 client,
                 document,
                 max_images=settings.extract_max_images,
+                should_stop=lambda: _force_stop_asked(document_id),
             )
             status = document.status
+    except ExtractionStopped:
+        # Force stop (task 4.20): nothing was saved; the document stays READ for Resume.
+        logger.info("document %s: extract force-stopped by the user", document_id)
+        _clear_working(document_id)
+        return STOPPED
     except ExtractionError as exc:
         if self.request.retries < MODEL_MAX_RETRIES:
             logger.warning("document %s: extraction failed (%s), will retry", document_id, exc)
@@ -252,6 +262,27 @@ def _run_stopped(document_id: str) -> bool:
     return status is RunStatus.STOPPED
 
 
+def _force_stop_asked(document_id: str) -> bool:
+    """Did the user force-stop this document's run? (task 4.20) Asked every few seconds."""
+    with session_scope() as session:
+        asked = session.scalar(
+            select(Run.force_stop)
+            .join(Document, Document.run_id == Run.id)
+            .where(Document.id == uuid.UUID(document_id))
+        )
+    return asked is True
+
+
+def _clear_working(document_id: str) -> None:
+    """The step stopped: the document is no longer being worked on."""
+    with session_scope() as session:
+        session.execute(
+            update(Document)
+            .where(Document.id == uuid.UUID(document_id))
+            .values(working_step=None, working_since=None)
+        )
+
+
 def _mark_working(document_id: str, step: Step) -> None:
     """Live progress (task 4.14): this step starts now. Its own short transaction, so the run
     page sees it while the step runs. Never blocks the step: a failure here is only logged."""
@@ -264,6 +295,43 @@ def _mark_working(document_id: str, step: Step) -> None:
             )
     except Exception:
         logger.warning("document %s: could not mark step %s as started", document_id, step)
+
+
+MAX_POSTS_PER_JOB = 50  # a sweep posts this many, then queues itself again
+
+
+@celery_app.task(name="posting.send")
+def send_posting(outbox_id: str | None = None, client_id: str | None = None) -> int:
+    """Post one approved document (`outbox_id`), or every due one (of `client_id`, or of all
+    clients). Safe to re-run: rows are claimed with SKIP LOCKED and resume from saved progress.
+    A temporary failure queues the row again after its wait."""
+    settings = get_settings()
+    posted = 0
+    for _ in range(MAX_POSTS_PER_JOB):
+        outcome = posting.send_next(
+            session_scope,
+            settings,
+            XeroAuth(settings),
+            XeroAccountingSystem,
+            outbox_id=outbox_id,
+            client_id=client_id,
+        )
+        if outcome is None:
+            return posted
+        logger.info("outbox %s: %s", outcome.outbox_id, outcome.result)
+        posted += outcome.result == "posted"
+        if outcome.retry_in is not None:
+            send_posting.apply_async(args=(outcome.outbox_id,), countdown=outcome.retry_in)
+        if outbox_id:
+            return posted
+    send_posting.delay(None, client_id)  # more are due: continue in a new job
+    return posted
+
+
+@worker_ready.connect
+def _post_waiting_on_start(**_: object) -> None:
+    """Approved documents left waiting while no worker ran (or before a retry was due)."""
+    send_posting.delay()
 
 
 def enqueue_next(document_id: str, status: DocumentStatus) -> bool:

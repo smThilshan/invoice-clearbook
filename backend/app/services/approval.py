@@ -59,6 +59,7 @@ def approve_document(
     sync_corrections(session, document, corrected_by=ACTOR)
     summary = {"queue": assessment.queue.value, "warnings": assessment.warnings}
     transition(session, document, DocumentStatus.APPROVED, actor=ACTOR, details=summary)
+    document.failure_reason = None  # an earlier "not sent to Xero" reason is now answered
     outbox = Outbox(client_id=document.client_id, document_id=document.id)
     session.add(outbox)
     _learn_supplier_coding(session, document, invoice)
@@ -81,7 +82,10 @@ def _learn_supplier_coding(session: Session, document: Document, invoice: Invoic
         )
     ).first()
     if mapping is None:
-        mapping = VendorMapping(client_id=document.client_id, vendor_key=document.vendor_key)
+        # The column default only applies on insert: count from 0 here, before the first save.
+        mapping = VendorMapping(
+            client_id=document.client_id, vendor_key=document.vendor_key, consistent_approvals=0
+        )
         session.add(mapping)
     if _same_choice(mapping, account, tax_type):
         mapping.consistent_approvals += 1

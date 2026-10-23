@@ -55,6 +55,38 @@ export function useCreateClient() {
   })
 }
 
+export function useAccounting(clientId: string) {
+  return useQuery({ queryKey: ['accounting', clientId], queryFn: () => api.accounting(clientId) })
+}
+
+export function useDisconnectAccounting() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.disconnectAccounting(clientId),
+    onSuccess: (status, clientId) => client.setQueryData(['accounting', clientId], status),
+  })
+}
+
+export function useSendWaiting() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.sendWaiting(clientId),
+    onSuccess: (status, clientId) => client.setQueryData(['accounting', clientId], status),
+  })
+}
+
+/** After a sync, coding uses the client's Xero accounts and VAT rates. */
+export function useSyncAccounting() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.syncAccounting(clientId),
+    onSuccess: (_result, clientId) => {
+      void client.invalidateQueries({ queryKey: ['accounting', clientId] })
+      void client.invalidateQueries({ queryKey: queryKeys.codingOptions(clientId) })
+    },
+  })
+}
+
 /** Where a folder may be picked; idle until a client is picked. */
 export function usePlaces(clientId: string | undefined) {
   return useQuery({
@@ -167,6 +199,10 @@ function useRunControl(control: (runId: string) => Promise<RunProgress>) {
 
 export function useStopRun() {
   return useRunControl(api.stopRun)
+}
+
+export function useForceStopRun() {
+  return useRunControl(api.forceStopRun)
 }
 
 export function useResumeRun() {

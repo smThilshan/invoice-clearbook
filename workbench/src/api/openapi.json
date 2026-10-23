@@ -35,6 +35,71 @@
         "title": "AccountOption",
         "type": "object"
       },
+      "AccountingStatus": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "master_data_from": {
+            "title": "Master Data From",
+            "type": "string"
+          },
+          "organisation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organisation"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "configured",
+          "connected",
+          "provider",
+          "organisation",
+          "connected_at",
+          "master_data_from",
+          "waiting"
+        ],
+        "title": "AccountingStatus",
+        "type": "object"
+      },
       "AmountType": {
         "description": "Whether line amounts include VAT.",
         "enum": [
@@ -2007,6 +2072,10 @@
             ],
             "title": "Folder Date"
           },
+          "force_stop": {
+            "title": "Force Stop",
+            "type": "boolean"
+          },
           "run_id": {
             "format": "uuid",
             "title": "Run Id",
@@ -2048,6 +2117,7 @@
           "counts",
           "files",
           "typical_ms",
+          "force_stop",
           "server_time"
         ],
         "title": "RunProgressOut",
@@ -2213,6 +2283,91 @@
           "total_ms"
         ],
         "title": "StepTimingsOut",
+        "type": "object"
+      },
+      "SyncCounts": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "unchanged": {
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "unchanged"
+        ],
+        "title": "SyncCounts",
+        "type": "object"
+      },
+      "SyncOut": {
+        "properties": {
+          "accounts": {
+            "$ref": "#/components/schemas/SyncCounts"
+          },
+          "contacts": {
+            "$ref": "#/components/schemas/SyncCounts"
+          },
+          "deactivated": {
+            "title": "Deactivated",
+            "type": "integer"
+          },
+          "tax_mapping": {
+            "items": {
+              "$ref": "#/components/schemas/TaxMappingOut"
+            },
+            "title": "Tax Mapping",
+            "type": "array"
+          },
+          "tax_rates": {
+            "$ref": "#/components/schemas/SyncCounts"
+          }
+        },
+        "required": [
+          "accounts",
+          "tax_rates",
+          "contacts",
+          "deactivated",
+          "tax_mapping"
+        ],
+        "title": "SyncOut",
+        "type": "object"
+      },
+      "TaxMappingOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tax_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaxType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "tax_type"
+        ],
+        "title": "TaxMappingOut",
         "type": "object"
       },
       "TaxOption": {
@@ -2383,6 +2538,176 @@
         "summary": "Create Client",
         "tags": [
           "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/accounting": {
+      "get": {
+        "operationId": "accounting_status_clients__client_id__accounting_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accounting Status",
+        "tags": [
+          "accounting connection"
+        ]
+      }
+    },
+    "/clients/{client_id}/accounting/disconnect": {
+      "post": {
+        "operationId": "disconnect_accounting_clients__client_id__accounting_disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect Accounting",
+        "tags": [
+          "accounting connection"
+        ]
+      }
+    },
+    "/clients/{client_id}/accounting/send": {
+      "post": {
+        "description": "Ask the posting worker to send this client's approved documents now (task 5.1).",
+        "operationId": "send_waiting_clients__client_id__accounting_send_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Waiting",
+        "tags": [
+          "accounting connection"
+        ]
+      }
+    },
+    "/clients/{client_id}/accounting/sync": {
+      "post": {
+        "description": "Read accounts, tax rates and contacts from the connected Xero organisation. All or\nnothing; afterwards coding and checks use Xero's master data.",
+        "operationId": "sync_accounting_clients__client_id__accounting_sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Accounting",
+        "tags": [
+          "accounting connection"
         ]
       }
     },
@@ -2815,7 +3140,7 @@
     },
     "/documents/{document_id}/approve": {
       "post": {
-        "description": "Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:\napproval takes the document as last saved. 422 if errors remain; nothing changes then.",
+        "description": "Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:\napproval takes the document as last saved. 422 if errors remain; nothing changes then.\nAfter the commit the posting worker is asked to send it (task 5.1).",
         "operationId": "approve_document_documents__document_id__approve_post",
         "parameters": [
           {
@@ -3400,6 +3725,50 @@
         ]
       }
     },
+    "/runs/{run_id}/force-stop": {
+      "post": {
+        "description": "Abandon the model read still under way in a stopped run, within a few seconds (task\n4.20). 409 if the run is not stopped.",
+        "operationId": "force_stop_runs__run_id__force_stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunProgressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Force Stop",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/runs/{run_id}/resume": {
       "post": {
         "description": "Continue a stopped run from where each file is. 409 if the run is not stopped.",
@@ -3485,6 +3854,115 @@
         "summary": "Stop",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/xero/callback": {
+      "get": {
+        "description": "Xero sends the user back here; they are sent on to the Workbench.",
+        "operationId": "callback_xero_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "accounting connection"
+        ]
+      }
+    },
+    "/xero/connect": {
+      "get": {
+        "description": "Start the Xero sign-in for this client.",
+        "operationId": "connect_xero_connect_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "accounting connection"
         ]
       }
     }

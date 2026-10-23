@@ -67,6 +67,9 @@ add-client: ## Register a client with its own folder: make add-client ID=cafe-al
 	@test -n "$(ID)" -a -n "$(NAME)" -a -n "$(INBOX)" || { echo 'usage: make add-client ID=<id> NAME="<name>" INBOX=<folder>'; exit 1; }
 	@$(UV) python scripts/manage_clients.py add "$(ID)" "$(NAME)" "$(INBOX)" --base "$(CURDIR)"
 
+secret-key: ## Print a new TOKEN_KEY for .env (encrypts stored accounting system tokens)
+	@$(UV) python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
 list-clients: ## List registered clients
 	@$(UV) python scripts/manage_clients.py list
 

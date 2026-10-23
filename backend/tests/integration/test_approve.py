@@ -52,6 +52,7 @@ def test_approve_moves_to_approved_with_an_outbox_row(
     assert body["status"] == "APPROVED"
     [row] = outbox_rows(session, doc)
     assert (row.status, row.attempts, row.client_id) == (OutboxStatus.PENDING, 0, CLIENT)
+    assert api.app.state.posting_asked == [str(row.id)]  # type: ignore[attr-defined]  # after commit
     last = session.scalars(
         select(AuditLog).where(AuditLog.document_id == doc.id).order_by(AuditLog.id.desc())
     ).first()
@@ -146,3 +147,21 @@ def test_mixed_accounts_teach_nothing(
     ok(approve(api, doc))
 
     assert (mapping(session).account_code, mapping(session).consistent_approvals) == ("5000", 3)
+
+
+def test_a_suppliers_first_approval_starts_its_memory(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    """Regression: the first approval of a supplier with no memory yet crashed (500)."""
+    doc = in_review(session, storage)  # coded 5000
+    session.delete(mapping(session))  # a supplier never approved before
+    session.flush()
+
+    ok(approve(api, doc))
+
+    learned = mapping(session)
+    assert (learned.account_code, learned.tax_type, learned.consistent_approvals) == (
+        "5000", TaxType.STANDARD_5, 1
+    )  # fmt: skip

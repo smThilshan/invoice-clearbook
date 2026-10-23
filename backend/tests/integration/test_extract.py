@@ -45,7 +45,9 @@ class FakeClient:
         self.raw, self.fail = raw, fail
         self.requests: list[ExtractionRequest] = []
 
-    def extract(self, request: ExtractionRequest) -> ExtractionResult:
+    def extract(
+        self, request: ExtractionRequest, *, should_stop: object = None
+    ) -> ExtractionResult:
         self.requests.append(request)
         if self.fail:
             raise ExtractionError("model timed out after 600s")

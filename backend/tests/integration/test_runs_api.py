@@ -254,3 +254,24 @@ def test_a_run_is_stopped_and_resumed_from_the_workbench(
     assert again.status_code == 409
     assert (resumed.status_code, resumed.json()["status"]) == (200, "RUNNING")
     assert queued == [("scan", run_id)]  # it had not been scanned yet
+
+
+def test_force_stop_only_on_a_stopped_run_and_resume_clears_it(client: TestClient) -> None:
+    from app.api.runs import get_run_queue
+
+    class NoQueue:
+        def scan(self, run_id: str) -> None: ...
+        def ingest(self, run_id: str, path: str) -> None: ...
+        def step(self, document_id: str, status: object) -> None: ...
+
+    client.app.dependency_overrides[get_run_queue] = NoQueue  # type: ignore[attr-defined]
+    run_id = start(client, folder="October 2026/21")["run_id"]
+
+    too_early = client.post(f"/runs/{run_id}/force-stop")
+    client.post(f"/runs/{run_id}/stop")
+    forced = client.post(f"/runs/{run_id}/force-stop")
+    resumed = client.post(f"/runs/{run_id}/resume")
+
+    assert too_early.status_code == 409
+    assert (forced.status_code, forced.json()["force_stop"]) == (200, True)
+    assert resumed.json()["force_stop"] is False

@@ -78,11 +78,11 @@ Done when: full review and approval works from the browser.
 Goal: folder → review → posted works for bills, credit notes and receipts, with no connection (export) and with Xero.
 **MVP complete.**
 
-- [ ] **5.1 Posting worker + port** — `AccountingSystem` posting methods; outbox pickup (`FOR UPDATE SKIP LOCKED`), resumable sub-steps, status `POSTING`, dispatch to the client's adapter
+- [ ] **5.1 Posting worker + port** — `AccountingSystem` posting methods; outbox pickup (`FOR UPDATE SKIP LOCKED`), resumable sub-steps, status `POSTING`, dispatch to the client's adapter (decision 39; built and tested with a fake Xero: to tick after the first real bill reaches Xero)
 - [ ] **5.2 Manual adapter: export** — approved documents → export file (CSV/JSON) in `data/export/`; `POSTED` with export reference
-- [ ] **5.3 Xero adapter: auth** — OAuth2 flow, token storage + refresh, connect to Demo Company
-- [ ] **5.4 Xero adapter: master data sync** — accounts, tax rates, contacts → the same neutral tables; `POST /master-data/sync`
-- [ ] **5.5 Xero bills** — lookup (contact + number), create contact if new, create ACCPAY `SUBMITTED` with idempotency key, history note, save external ID → `POSTED`
+- [x] **5.3 Xero adapter: auth** — OAuth2 flow, token storage + refresh, connect to Demo Company (decision 38; Clients page with Connect Xero / Disconnect, encrypted tokens, renewal; connected for real to a test organisation, 2026-10-23)
+- [x] **5.4 Xero adapter: master data sync** — accounts, tax rates, contacts → the same neutral tables; `POST /clients/{id}/accounting/sync` ("Sync from Xero" on the Clients page; rows gone from Xero become inactive; Xero VAT rates matched to ours and shown; the client then uses Xero's master data. Real sync of a UAE test organisation, 2026-10-23)
+- [ ] **5.5 Xero bills** — lookup (contact + number), create contact if new, create ACCPAY `SUBMITTED` with idempotency key, history note, save external ID → `POSTED` (decision 39; built: to tick after the first real bill reaches Xero)
 - [ ] **5.6 Xero error handling** — retry/backoff for 429/timeouts, business errors → `POST_ERROR` back to review with Xero message, token expiry pauses posting, rate limiter
 - [ ] **5.7 Xero credit notes** — ACCPAYCREDIT + allocation to original
 - [ ] **5.8 Xero receipts** — BankTransaction SPEND

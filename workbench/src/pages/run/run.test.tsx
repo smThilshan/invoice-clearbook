@@ -84,6 +84,7 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
     files_found: 4,
     counts: { IN_REVIEW: 1, READ: 2, FAILED: 1 },
     typical_ms: 240_000,
+    force_stop: false,
     server_time: '2026-10-21T08:05:00Z',
     files: [
       { file: 'inv-1.pdf', status: 'IN_REVIEW', document_id: 'd1', document_type: 'BILL',
@@ -414,6 +415,23 @@ describe('run progress', () => {
     expect(await screen.findByText(/Stopping: finishing the current file/)).toBeInTheDocument()
     expect(screen.getByRole('listitem', { name: 'inv-3.pdf' })).toHaveTextContent('Stopped: Resume continues it')
     expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument()
+  })
+
+  it('force-stops the AI read still under way, after asking', async () => {
+    const stopping = progress({ status: 'STOPPED',
+      files: progress().files.map((f) => (f.step === 'waiting_ai' ? { ...f, step: 'stopped' as const } : f)) })  // prettier-ignore
+    const api = backend({ [`/runs/${RUN_ID}`]: stopping,
+      [`POST /runs/${RUN_ID}/force-stop`]: { ...stopping, force_stop: true } })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp(`/run/${RUN_ID}`)
+
+    await user.click(await screen.findByRole('button', { name: 'Force stop now' }))
+    const dialog = await screen.findByRole('dialog', { name: 'End the AI reading now?' })
+    await user.click(within(dialog).getByRole('button', { name: 'Force stop now' }))
+
+    await waitFor(() => expect(api.calls).toContain(`POST /runs/${RUN_ID}/force-stop`))
+    expect(await screen.findByText(/Force stopping: ending the AI read now/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Force stopping/ })).toBeDisabled()
   })
 
   it('resumes a stopped run', async () => {

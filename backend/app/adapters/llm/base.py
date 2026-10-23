@@ -4,7 +4,7 @@ Transport only. The client does not interpret the answer: the pipeline validates
 with `Invoice.model_validate_json` (exact Decimals) and turns schema errors into review issues.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
@@ -46,11 +46,21 @@ class ExtractionError(Exception):
     """
 
 
+class ExtractionStopped(Exception):  # noqa: N818 - a stop, deliberately not an error
+    """The user force-stopped the run while the model was reading (task 4.20). Not an error:
+    nothing of the answer is used, nothing is retried; Resume reads the document again."""
+
+
 class ExtractionClient(Protocol):
     @property
     def model(self) -> str: ...
 
-    def extract(self, request: ExtractionRequest) -> ExtractionResult: ...
+    def extract(
+        self, request: ExtractionRequest, *, should_stop: Callable[[], bool] | None = None
+    ) -> ExtractionResult:
+        """`should_stop` (task 4.20) is asked every few seconds while waiting for the model;
+        when it answers True the call is abandoned and ExtractionStopped is raised."""
+        ...
 
     def check(self) -> ModelStatus:
         """Cheap readiness check: no generation, a few seconds at most."""

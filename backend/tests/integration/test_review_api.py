@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage.keys import page_image_key
 from app.adapters.storage.local import LocalStorage
-from app.api.documents import get_review_storage
+from app.api.documents import get_enqueue_posting, get_review_storage
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountingProvider, DocumentType, QueueCategory
@@ -50,6 +50,8 @@ def api(session: Session, storage: LocalStorage, tmp_path: Path) -> Iterator[Tes
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_review_storage] = lambda: storage
     app.dependency_overrides[get_settings] = lambda: settings
+    app.state.posting_asked = []  # outbox ids the worker was asked to post (task 5.1)
+    app.dependency_overrides[get_enqueue_posting] = lambda: app.state.posting_asked.append
     with TestClient(app) as test_client:
         yield test_client
 

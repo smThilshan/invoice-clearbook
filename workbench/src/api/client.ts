@@ -10,6 +10,8 @@ export type Readiness = Schemas['Readiness']
 export type ModelStatus = Schemas['ModelStatus']
 export type Client = Schemas['ClientOut']
 export type ClientCreate = Schemas['ClientCreate']
+export type AccountingStatus = Schemas['AccountingStatus']
+export type SyncResult = Schemas['SyncOut']
 export type FolderPlace = Schemas['PlaceOut']
 export type Folder = Schemas['FolderOut']
 export type PlaceListing = Schemas['PlaceListing']
@@ -108,6 +110,17 @@ export const api = {
   /** Readiness answers 503 (with the same body) when Postgres or Redis is down. */
   readiness: () => request<Readiness>('/health/ready', { acceptStatuses: [503] }),
   clients: () => request<Client[]>('/clients'),
+  /** Is the client connected to its accounting system (task 5.3)? */
+  accounting: (clientId: string) =>
+    request<AccountingStatus>(`/clients/${encodeURIComponent(clientId)}/accounting`),
+  disconnectAccounting: (clientId: string) =>
+    sendJson<AccountingStatus>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/disconnect`, {}),
+  /** Read accounts, VAT rates and suppliers from the connected Xero organisation (task 5.4). */
+  syncAccounting: (clientId: string) =>
+    sendJson<SyncResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/sync`, {}),
+  /** Ask the worker to post the client's approved documents now (task 5.1). */
+  sendWaiting: (clientId: string) =>
+    sendJson<AccountingStatus>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, {}),
   /** A new client from just a name; its id is made from the name (decision 35). */
   createClient: (body: ClientCreate) => sendJson<Client>('POST', '/clients', body),
   /** Where the Run screen may pick a folder: the client's own folder, this Mac, shared drives. */
@@ -124,6 +137,9 @@ export const api = {
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
   /** Stop a run (task 4.19): files not started stay as they are; the current step finishes. */
   stopRun: (runId: string) => sendJson<RunProgress>('POST', `/runs/${encodeURIComponent(runId)}/stop`, {}),
+  /** Abandon the AI read still under way in a stopped run (task 4.20). */
+  forceStopRun: (runId: string) =>
+    sendJson<RunProgress>('POST', `/runs/${encodeURIComponent(runId)}/force-stop`, {}),
   resumeRun: (runId: string) => sendJson<RunProgress>('POST', `/runs/${encodeURIComponent(runId)}/resume`, {}),
   /** Exception first, then Check, then Ready; oldest first inside each. */
   queue: (query: QueueQuery) => request<QueuePage>(`/documents?${searchParams(query)}`),

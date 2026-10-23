@@ -15,7 +15,14 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 
 import type { FileStatus, FileStep, RunProgress } from '@/api/client'
-import { useClients, useResumeRun, useRetryDocument, useRun, useStopRun } from '@/api/queries'
+import {
+  useClients,
+  useForceStopRun,
+  useResumeRun,
+  useRetryDocument,
+  useRun,
+  useStopRun,
+} from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageHeader } from '@/components/PageHeader'
 import { ProgressBar } from '@/components/ProgressBar'
@@ -109,7 +116,14 @@ export function RunProgressPage() {
           </>
         }
         actions={
-          running ? <StopRunButton runId={progress.run_id} /> : stopped ? <ResumeRunButton runId={progress.run_id} /> : null
+          running ? (
+            <StopRunButton runId={progress.run_id} />
+          ) : stopped ? (
+            <>
+              {finishing && <ForceStopButton runId={progress.run_id} asked={progress.force_stop} />}
+              <ResumeRunButton runId={progress.run_id} />
+            </>
+          ) : null
         }
       />
 
@@ -128,7 +142,9 @@ export function RunProgressPage() {
           <div role="status" className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
             <span className="font-medium">
               {finishing
-                ? 'Stopping: finishing the current file'
+                ? progress.force_stop
+                  ? 'Force stopping: ending the AI read now'
+                  : 'Stopping: finishing the current file'
                 : `${finished ? 'Finished' : stopped ? 'Stopped' : 'Processing'}: ${settled} of ${total} file${total === 1 ? '' : 's'} done`}
               {failed > 0 && <span className="text-destructive"> · {failed} failed</span>}
               {paused > 0 && <span className="text-muted-foreground"> · {paused} stopped</span>}
@@ -369,6 +385,52 @@ function StopRunButton({ runId }: { runId: string }) {
             onClick={() => stop.mutate(runId, { onSuccess: () => setOpen(false) })}
           >
             {stop.isPending ? 'Stopping…' : 'Stop run'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Task 4.20: end the AI read still under way now instead of waiting for it. */
+function ForceStopButton({ runId, asked }: { runId: string; asked: boolean }) {
+  const force = useForceStopRun()
+  const [open, setOpen] = useState(false)
+  if (asked) {
+    return (
+      <Button variant="outline" disabled>
+        <LoaderCircle className="animate-spin" aria-hidden />
+        Force stopping…
+      </Button>
+    )
+  }
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <Square aria-hidden />
+          Force stop now
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>End the AI reading now?</DialogTitle>
+          <DialogDescription>
+            The file the AI is reading is abandoned within a few seconds. Nothing of it is
+            saved: it is read again from the start when you resume. Other files are not affected.
+          </DialogDescription>
+        </DialogHeader>
+        {force.isError && <ErrorAlert title="Not force-stopped" error={force.error} />}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Let it finish
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={force.isPending}
+            onClick={() => force.mutate(runId, { onSuccess: () => setOpen(false) })}
+          >
+            Force stop now
           </Button>
         </DialogFooter>
       </DialogContent>

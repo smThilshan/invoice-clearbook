@@ -47,5 +47,8 @@ class Run(UuidPk, ClientScoped, Timestamps, Base):
     # Why the run could not proceed (e.g. the shared folder was unreachable); null = fine.
     failure_reason: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[datetime | None]
+    # Force stop (task 4.20): the user asked to abandon the model read under way; only on a
+    # stopped run, cleared by Resume.
+    force_stop: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     __table_args__ = (Index(None, "client_id", "folder_date"),)

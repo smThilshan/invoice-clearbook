@@ -176,3 +176,32 @@ def test_a_stopped_run_takes_no_further_step(
     assert tasks.extract_document.delay(str(doc.id)).get() == "stopped"
     assert doc.status is S.READ
     assert len(pipeline["llm"].requests) == calls_before  # the AI was not asked again
+
+
+def test_a_force_stop_during_the_ai_read_saves_nothing(
+    session: Session, tmp_path: Path, pipeline: Fakes
+) -> None:
+    """Task 4.20: asked while the model reads, the call is abandoned; the document stays READ,
+    not failed, its working mark cleared (it shows as stopped); Resume reads it again."""
+    from app.adapters.llm import ExtractionStopped
+
+    class ForceStoppedWhileReading:
+        model = "fake"
+
+        def extract(self, request: object, *, should_stop: object = None) -> object:
+            assert callable(should_stop) and should_stop()  # asked while waiting
+            raise ExtractionStopped("stopped by the user")
+
+        def close(self) -> None:
+            pass
+
+    run = drop_invoice(session, tmp_path)
+    tasks.scan_run.delay(str(run.id))
+    doc = only_document(session)
+    doc.status = S.READ  # the AI read is about to start
+    run.force_stop = True  # asked during that read
+    pipeline["llm"] = ForceStoppedWhileReading()  # type: ignore[assignment]
+    session.flush()
+
+    assert tasks.extract_document.delay(str(doc.id)).get() == "stopped"
+    assert (doc.status, doc.failure_reason, doc.working_step) == (S.READ, None, None)

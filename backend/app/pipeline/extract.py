@@ -13,6 +13,7 @@ compares the folder with what the content says, so the model must not be told th
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -147,7 +148,10 @@ def extract_document(
     document: Document,
     *,
     max_images: int,
+    should_stop: Callable[[], bool] | None = None,
 ) -> ExtractResult:
+    """`should_stop` (task 4.20): asked while the model reads; True abandons the call with
+    ExtractionStopped before anything is saved."""
     if document.status is not DocumentStatus.READ:
         return ExtractResult(ExtractOutcome.SKIPPED)
 
@@ -157,7 +161,9 @@ def extract_document(
         storage.get(page_image_key(document.client_id, document.id, number))
         for number in range(1, min(len(pages), max_images) + 1)
     ]
-    llm = client.extract(build_request(pages, images))  # ExtractionError -> task retries
+    request = build_request(pages, images)
+    # ExtractionError -> the task retries; ExtractionStopped -> the user force-stopped the run
+    llm = client.extract(request, should_stop=should_stop)
     invoice, error = validate_answer(llm)
 
     attempt = (

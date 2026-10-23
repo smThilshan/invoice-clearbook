@@ -1,5 +1,6 @@
 """SQLAlchemy tables. Every table has client_id."""
 
+from app.models.accounting_connection import AccountingConnection
 from app.models.audit_log import AuditLog
 from app.models.base import Base
 from app.models.client import Client
@@ -10,6 +11,7 @@ from app.models.run import Run, RunStatus
 from app.models.vendor_mapping import VendorMapping
 
 __all__ = [
+    "AccountingConnection",
     "AuditLog",
     "Base",
     "Client",

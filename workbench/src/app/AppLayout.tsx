@@ -1,8 +1,9 @@
-import { FileSearch, FolderInput, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Building2, FileSearch, FolderInput, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router'
 
 import { SystemStatus } from '@/components/SystemStatus'
+import { ThemeSwitch } from '@/components/ThemeSwitch'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
@@ -10,6 +11,7 @@ const NAV = [
   { to: '/run', label: 'Run', icon: FolderInput, also: [] },
   // Reviewing a document is part of the review queue (task 4.15).
   { to: '/queue', label: 'Review queue', icon: FileSearch, also: ['/documents/'] },
+  { to: '/clients', label: 'Clients', icon: Building2, also: [] },
 ]
 
 const SIDEBAR_KEY = 'clearbook.sidebar' // "open" / "closed": the user's own choice
@@ -82,7 +84,10 @@ export function AppLayout() {
           <h1 className="text-lg font-semibold tracking-tight">Clearbook</h1>
           {!reviewing && <p className="text-xs text-muted-foreground">Missan invoice workbench</p>}
         </div>
-        <SystemStatus compact={reviewing} />
+        <div className="flex items-center gap-3">
+          <SystemStatus compact={reviewing} />
+          <ThemeSwitch />
+        </div>
       </header>
       <Separator />
       <div className="flex flex-1">

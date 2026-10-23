@@ -26,6 +26,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{client_id}/accounting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Accounting Status */
+        get: operations["accounting_status_clients__client_id__accounting_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/accounting/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect Accounting */
+        post: operations["disconnect_accounting_clients__client_id__accounting_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/accounting/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Waiting
+         * @description Ask the posting worker to send this client's approved documents now (task 5.1).
+         */
+        post: operations["send_waiting_clients__client_id__accounting_send_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/accounting/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Accounting
+         * @description Read accounts, tax rates and contacts from the connected Xero organisation. All or
+         *     nothing; afterwards coding and checks use Xero's master data.
+         */
+        post: operations["sync_accounting_clients__client_id__accounting_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{client_id}/coding-options": {
         parameters: {
             query?: never;
@@ -155,6 +230,7 @@ export interface paths {
          * Approve Document
          * @description Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
          *     approval takes the document as last saved. 422 if errors remain; nothing changes then.
+         *     After the commit the posting worker is asked to send it (task 5.1).
          */
         post: operations["approve_document_documents__document_id__approve_post"];
         delete?: never;
@@ -393,6 +469,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/{run_id}/force-stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force Stop
+         * @description Abandon the model read still under way in a stopped run, within a few seconds (task
+         *     4.20). 409 if the run is not stopped.
+         */
+        post: operations["force_stop_runs__run_id__force_stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/{run_id}/resume": {
         parameters: {
             query?: never;
@@ -434,6 +531,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/xero/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Callback
+         * @description Xero sends the user back here; they are sent on to the Workbench.
+         */
+        get: operations["callback_xero_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/xero/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Connect
+         * @description Start the Xero sign-in for this client.
+         */
+        get: operations["connect_xero_connect_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -451,6 +588,23 @@ export interface components {
             code: string;
             /** Name */
             name: string;
+        };
+        /** AccountingStatus */
+        AccountingStatus: {
+            /** Configured */
+            configured: boolean;
+            /** Connected */
+            connected: boolean;
+            /** Connected At */
+            connected_at: string | null;
+            /** Master Data From */
+            master_data_from: string;
+            /** Organisation */
+            organisation: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Waiting */
+            waiting: number;
         };
         /**
          * AmountType
@@ -1060,6 +1214,8 @@ export interface components {
             folder: string;
             /** Folder Date */
             folder_date: string | null;
+            /** Force Stop */
+            force_stop: boolean;
             /**
              * Run Id
              * Format: uuid
@@ -1122,6 +1278,33 @@ export interface components {
             total_ms: number | null;
             /** Waiting Ms */
             waiting_ms: number | null;
+        };
+        /** SyncCounts */
+        SyncCounts: {
+            /** Created */
+            created: number;
+            /** Unchanged */
+            unchanged: number;
+            /** Updated */
+            updated: number;
+        };
+        /** SyncOut */
+        SyncOut: {
+            accounts: components["schemas"]["SyncCounts"];
+            contacts: components["schemas"]["SyncCounts"];
+            /** Deactivated */
+            deactivated: number;
+            /** Tax Mapping */
+            tax_mapping: components["schemas"]["TaxMappingOut"][];
+            tax_rates: components["schemas"]["SyncCounts"];
+        };
+        /** TaxMappingOut */
+        TaxMappingOut: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            tax_type: components["schemas"]["TaxType"] | null;
         };
         /** TaxOption */
         TaxOption: {
@@ -1206,6 +1389,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClientOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accounting_status_clients__client_id__accounting_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_accounting_clients__client_id__accounting_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_waiting_clients__client_id__accounting_send_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_accounting_clients__client_id__accounting_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncOut"];
                 };
             };
             /** @description Validation Error */
@@ -1847,6 +2154,37 @@ export interface operations {
             };
         };
     };
+    force_stop_runs__run_id__force_stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunProgressOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resume_runs__run_id__resume_post: {
         parameters: {
             query?: never;
@@ -1896,6 +2234,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunProgressOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_xero_callback_get: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connect_xero_connect_get: {
+        parameters: {
+            query: {
+                client_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -114,6 +114,20 @@ class Settings(BaseSettings):
     # An invoice dated more than this many days after today is an error (misread date).
     future_date_slack_days: int = Field(default=1, ge=0)
 
+    # Xero (task 5.3): the app registered in the Xero developer portal. Secrets only in .env.
+    xero_client_id: str = ""
+    xero_client_secret: SecretStr = SecretStr("")
+    xero_redirect_uri: str = "http://localhost:8000/xero/callback"
+    # Apps created after 2 March 2026 must ask for granular scopes (Xero, 2026).
+    xero_scopes: str = (
+        "offline_access accounting.settings accounting.contacts accounting.invoices "
+        "accounting.payments accounting.banktransactions accounting.attachments"
+    )
+    # Encrypts the accounting system tokens stored in the database (`make secret-key`).
+    token_key: SecretStr = SecretStr("")
+    # Where the browser returns after connecting an accounting system.
+    workbench_url: str = "http://127.0.0.1:5173"
+
     # Accounting system of the (single, for now) client: whose master data is matched against.
     # Moves to a per-client record when there are several clients (decision 20).
     accounting_provider: AccountingProvider = AccountingProvider.MANUAL

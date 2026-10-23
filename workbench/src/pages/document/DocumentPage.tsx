@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router'
 
@@ -11,6 +11,7 @@ import {
   useUpdateDocument,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -105,10 +106,24 @@ export function DocumentPage() {
       )}
       {save.isError && <ErrorAlert title="Not saved" error={save.error} />}
       {approve.isError && <ErrorAlert title="Not approved" error={approve.error} />}
+      {doc.status === 'IN_REVIEW' && doc.failure_reason && (
+        // Sent back by posting (task 5.1): the reason says what to change before approving again.
+        <Alert variant="destructive">
+          <Undo2 aria-hidden />
+          <AlertTitle>Sent back: not posted</AlertTitle>
+          <AlertDescription>{doc.failure_reason}</AlertDescription>
+        </Alert>
+      )}
       {doc.status === 'APPROVED' && (
         <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
           <CircleCheck className="size-4" aria-hidden />
           Approved: waiting to be posted.
+        </p>
+      )}
+      {doc.status === 'POSTED' && (
+        <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
+          <CircleCheck className="size-4" aria-hidden />
+          Posted to Xero as Awaiting approval.
         </p>
       )}
       {save.isSuccess && !save.isPending && (

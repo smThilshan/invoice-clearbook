@@ -313,6 +313,14 @@ describe('review screen', () => {
     expect(screen.getByLabelText('Supplier')).toHaveValue('')
   })
 
+  it('says why a bill came back from posting', async () => {
+    const reason = "Not sent to Xero: line 1: account 5010 is not in Xero's chart of accounts: choose another"
+    await open(backend(detail({ failure_reason: reason })))
+
+    expect(screen.getByText('Sent back: not posted')).toBeInTheDocument()
+    expect(screen.getByText(reason)).toBeInTheDocument()
+  })
+
   it('cannot change a document that is no longer in review', async () => {
     await open(backend(detail({ status: 'REJECTED' })))
 

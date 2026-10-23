@@ -4,6 +4,7 @@ No login yet (decision 26): the API listens on localhost only. Responses carry i
 for the Workbench; they are never logged.
 """
 
+import logging
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime
@@ -34,6 +35,8 @@ from app.services.corrections import corrections_of
 from app.services.pipeline import retry_document
 from app.services.review import RejectReason, ReviewError
 from app.services.timings import load_timings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -270,20 +273,35 @@ def reject_document(
     return _detail(session, document)
 
 
+def get_enqueue_posting() -> Callable[[str], object]:
+    from app.workers.tasks import send_posting  # imported lazily: the API does not need a worker
+
+    return lambda outbox_id: send_posting.delay(outbox_id)
+
+
 @router.post("/{document_id}/approve")
 def approve_document(
-    document_id: uuid.UUID, session: SessionDep, storage: StorageDep, settings: SettingsDep
+    document_id: uuid.UUID,
+    session: SessionDep,
+    storage: StorageDep,
+    settings: SettingsDep,
+    enqueue_posting: Annotated[Callable[[str], object], Depends(get_enqueue_posting)],
 ) -> DocumentDetail:
     """Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
-    approval takes the document as last saved. 422 if errors remain; nothing changes then."""
+    approval takes the document as last saved. 422 if errors remain; nothing changes then.
+    After the commit the posting worker is asked to send it (task 5.1)."""
     document = _found(session, document_id, for_update=True)
     try:
         with session.begin_nested():
-            approval.approve_document(session, storage, document, settings=settings,
-                                      today=settings.business_today())  # fmt: skip
+            outbox = approval.approve_document(session, storage, document, settings=settings,
+                                               today=settings.business_today())  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
+    try:
+        enqueue_posting(str(outbox.id))
+    except Exception:  # approved and safe in the outbox: the worker's start-up sweep sends it
+        logger.warning("outbox %s: could not ask the worker to post it now", outbox.id)
     return _detail(session, document)
 
 
