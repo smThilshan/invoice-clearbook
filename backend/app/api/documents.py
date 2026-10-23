@@ -36,12 +36,18 @@ from app.services.timings import load_timings
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+class ChargeOut(BaseModel):
+    label: str  # as printed, e.g. "Delivery fee"
+    amount: Decimal  # negative for a discount
+
+
 class IssueOut(BaseModel):
     code: str
     severity: Literal["ERROR", "WARNING"]
     field: str | None
     message: str
     suggestion: str | None = None  # the value printed on the document, to offer in review
+    charges: list[ChargeOut] | None = None  # charges outside the lines, to add as lines (4.13)
 
 
 class DocumentSummary(BaseModel):

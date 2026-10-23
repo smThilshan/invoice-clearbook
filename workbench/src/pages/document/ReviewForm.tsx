@@ -11,7 +11,15 @@ import {
   useWatch,
 } from 'react-hook-form'
 
-import type { AmountType, CodingOptions, Correction, DocumentDetail, Issue, ValueKind } from '@/api/client'
+import type {
+  AmountType,
+  Charge,
+  CodingOptions,
+  Correction,
+  DocumentDetail,
+  Issue,
+  ValueKind,
+} from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -125,7 +133,7 @@ export function ReviewForm({
   onTarget?: (target: FieldTarget | null) => void
   actions?: ReactNode
 }) {
-  const { register, control, handleSubmit, setValue, formState } = useForm<FormValues>({
+  const { register, control, handleSubmit, setValue, getValues, formState } = useForm<FormValues>({
     defaultValues: toFormValues(document.invoice),
   })
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
@@ -261,6 +269,14 @@ export function ReviewForm({
           control={control}
           register={register}
           issues={issues}
+          charges={issues.byField.get('total')?.find((i) => i.code === 'total_has_charges')?.charges ?? []}
+          onChargesAdded={(added) => {
+            // The subtotal, as printed, left the charges out: it now covers the new lines too.
+            const subtotal = parseAmount(getValues('subtotal'))
+            if (subtotal !== null) {
+              setValue('subtotal', formatScaled(subtotal + added).replace(/,/g, ''), { shouldDirty: true })
+            }
+          }}
           options={options}
           coding={document.coding}
           corrected={corrected}
@@ -521,10 +537,14 @@ function Lines({
   corrected,
   editable,
   onFocusField,
+  charges,
+  onChargesAdded,
 }: {
   control: Control<FormValues>
   register: UseFormRegister<FormValues>
   issues: IssueMap
+  charges: Charge[]
+  onChargesAdded: (total: bigint) => void
   options: CodingOptions | undefined
   coding: DocumentDetail['coding']
   corrected: Map<string, Correction>
@@ -532,6 +552,16 @@ function Lines({
   onFocusField: (field: ActiveField) => void
 }) {
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
+  const [chargesAdded, setChargesAdded] = useState(false)
+
+  /** Task 4.13: the charges the checks found outside the lines become lines (one click). */
+  function addCharges() {
+    for (const charge of charges) {
+      append({ ...emptyLine(), description: charge.label, amount: charge.amount })
+    }
+    onChargesAdded(sumAmounts(charges.map((c) => c.amount)) ?? 0n)
+    setChargesAdded(true)
+  }
   const lineValues = useWatch({ control, name: 'lines' })
   const accounts = options?.accounts ?? []
   const taxTypes = options?.tax_types ?? []
@@ -539,6 +569,21 @@ function Lines({
   return (
     <section className="space-y-3" aria-label="Lines">
       <h3 className="text-sm font-semibold text-muted-foreground">Lines</h3>
+      {editable && charges.length > 0 && !chargesAdded && (
+        <div role="note" aria-label="Charges outside the lines"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-500/10">
+          <span className="flex-1">
+            The total includes {charges.length === 1 ? 'a charge' : 'charges'} printed outside the
+            lines:{' '}
+            <span className="font-medium">
+              {charges.map((c) => `${c.label} ${c.amount}`).join(' · ')}
+            </span>
+          </span>
+          <Button type="button" size="sm" onClick={addCharges}>
+            Add {charges.length === 1 ? 'it' : 'them'} as lines
+          </Button>
+        </div>
+      )}
       {fields.length === 0 && <p className="text-sm text-muted-foreground">No lines.</p>}
       {fields.length > 0 && (
         // Column headings, lined up with the boxes below by the same layout: invisible copies

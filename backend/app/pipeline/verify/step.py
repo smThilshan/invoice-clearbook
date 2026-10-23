@@ -20,7 +20,7 @@ itself never needs the model to succeed.
 import json
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.llm import ExtractionClient
+from app.adapters.ocr import OcrEngine
 from app.adapters.storage import Storage
 from app.core.config import Settings
 from app.domain.enums import AccountingProvider, DocumentStatus, QueueCategory
@@ -38,7 +39,8 @@ from app.domain.state_machine import transition
 from app.models import Client, Document, Extraction
 from app.pipeline import coding
 from app.pipeline.page_quality import quality_issues
-from app.pipeline.read import load_page_texts
+from app.pipeline.read import PageText, decode_image, load_page_texts
+from app.pipeline.verify.charges import ensure_charge_text, find_charges, load_charge_text
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_key
 from app.pipeline.verify.grounding import check_grounding
 from app.pipeline.verify.issues import Issue, Severity
@@ -83,7 +85,10 @@ def verify_document(
     *,
     settings: Settings,
     today: date,
+    ocr: Callable[[], OcrEngine] | None = None,
 ) -> VerifyResult:
+    """`ocr` (made only if needed): our own OCR for documents whose total does not add up,
+    to find charges outside the lines (task 4.13)."""
     if document.status is not DocumentStatus.EXTRACTED:
         return VerifyResult(VerifyOutcome.SKIPPED)
 
@@ -108,6 +113,13 @@ def verify_document(
         invoice = coded.apply(invoice)
         coding_issues = coded.issues
         document.coding = [line.to_json() for line in coded.lines]
+        if ocr is not None:
+            try:  # best effort: without it the totals error simply stays as it is
+                ensure_charge_text(storage, document, invoice, load_page_texts(storage, document),
+                                   ocr, settings.charge_hint_words, decode_image)  # fmt: skip
+            except Exception as exc:
+                logger.warning("document %s: charge OCR failed (%s)", document.id,
+                               type(exc).__name__)  # fmt: skip
 
     result = assess(
         session, storage, document, invoice, chart, provider,
@@ -207,6 +219,9 @@ def assess(
         issues += types.issues
         park = types.park
 
+    if invoice is not None:
+        issues = _explain_total(storage, document, invoice, pages, issues, settings)
+
     errors = sum(issue.severity is Severity.ERROR for issue in issues)
     warnings = len(issues) - errors
     queue = (
@@ -219,6 +234,40 @@ def assess(
     document.issues = [issue.to_json() for issue in issues]
     document.queue = queue
     return Assessment(queue, errors, warnings, park)
+
+
+TOTAL_GAP_CODES = frozenset({"totals_mismatch", "lines_sum_mismatch"})
+
+
+def _explain_total(
+    storage: Storage,
+    document: Document,
+    invoice: Invoice,
+    pages: list[PageText],
+    issues: list[Issue],
+    settings: Settings,
+) -> list[Issue]:
+    """Task 4.13: a total that does not add up because of charges printed outside the lines
+    (delivery fee, service fee, discount...) gets one error naming them, with the charges to
+    add as lines; when nothing explains it, the totals issues stay as they are."""
+    if not any(issue.code in TOTAL_GAP_CODES for issue in issues):
+        return issues
+    charges = find_charges(invoice, [pages, load_charge_text(storage, document)],
+                           settings.charge_hint_words)  # fmt: skip
+    if charges is None:
+        return issues
+    named = " + ".join(f"{c.label} {c.amount:.2f}" for c in charges)
+    kind = "charge" if len(charges) == 1 else "charges"
+    return [i for i in issues if i.code not in TOTAL_GAP_CODES] + [
+        Issue(
+            "total_has_charges",
+            Severity.ERROR,
+            "total",
+            f"The total includes {kind} printed outside the lines: {named}. They add up exactly "
+            "to the difference: add them as lines.",
+            charges=[{"label": c.label, "amount": f"{c.amount:.2f}"} for c in charges],
+        )
+    ]
 
 
 def working_copy(document: Document) -> Invoice | None:

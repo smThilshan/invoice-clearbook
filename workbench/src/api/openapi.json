@@ -87,6 +87,24 @@
         "title": "Body_upload_master_data_clients__client_id__master_data_post",
         "type": "object"
       },
+      "ChargeOut": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "amount"
+        ],
+        "title": "ChargeOut",
+        "type": "object"
+      },
       "ClientCreate": {
         "properties": {
           "name": {
@@ -1199,6 +1217,20 @@
       },
       "IssueOut": {
         "properties": {
+          "charges": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ChargeOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Charges"
+          },
           "code": {
             "title": "Code",
             "type": "string"

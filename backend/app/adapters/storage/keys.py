@@ -32,6 +32,11 @@ def ocr_key(client_id: str, document_id: uuid.UUID, page: int) -> str:
     return validate_key(f"{client_id}/ocr/{document_id}/{_page(page)}.json")
 
 
+def charge_ocr_key(client_id: str, document_id: uuid.UUID, page: int) -> str:
+    """Our own OCR of a page picture, made only to find charges outside the lines (task 4.13)."""
+    return validate_key(f"{client_id}/ocr-charges/{document_id}/{_page(page)}.json")
+
+
 def _page(page: int) -> str:
     if page < 1:
         raise ValueError("pages are numbered from 1")

@@ -155,6 +155,22 @@ def read_pages(
     return result
 
 
+def decode_image(data: bytes) -> Image:
+    """A stored page picture (PNG) back to pixels."""
+    image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise UnreadableError("cannot decode the page picture")
+    return np.asarray(image, dtype=np.uint8)
+
+
+def ocr_page(engine: OcrEngine, image: Image, number: int) -> PageText:
+    """Our own OCR of one page picture, with the light evened out when needed (decision 30)."""
+    quality = measure(image)
+    text = _ocr(engine, prepare_for_ocr(image, quality), number)
+    text.quality = quality
+    return text
+
+
 def load_page_texts(storage: Storage, document: Document) -> list[PageText]:
     """Text of every page, as saved by `read_document` (used by Extract)."""
     return [

@@ -24,6 +24,9 @@ class Issue:
     # The value printed on the document, when a check read it itself (e.g. the supplier TRN):
     # offered to the accountant in review, never applied automatically (rule 8).
     suggestion: str | None = None
+    # Charges outside the lines that explain the total (task 4.13), offered as new lines:
+    # [{"label": "Delivery fee", "amount": "5.99"}]. Never applied automatically.
+    charges: list[dict[str, str]] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)

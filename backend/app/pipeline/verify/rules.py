@@ -216,17 +216,24 @@ def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     base = _amount_before_vat(invoice)
     if vat is None or base is None or base == 0:
         return []
-    foreign_or_unregistered = invoice.vendor_trn is None or (
-        invoice.currency is not None and invoice.currency != HOME_CURRENCY
-    )
+    foreign = invoice.currency is not None and invoice.currency != HOME_CURRENCY
     if vat == 0:
-        if foreign_or_unregistered:
+        if foreign:
             return [
                 _warning(
                     "vat_zero_possible_reverse_charge",
                     "vat",
-                    "No VAT charged by a foreign or unregistered supplier: possibly reverse "
-                    "charge. Check the tax code.",
+                    "No VAT charged by a foreign supplier: possibly reverse charge. Check the "
+                    "tax code.",
+                )
+            ]
+        if invoice.vendor_trn is None:
+            return [
+                _warning(
+                    "vat_zero_no_tax_invoice",
+                    "vat",
+                    "No VAT and no supplier VAT registration no on the document: it is not a "
+                    "tax invoice, so no input VAT can be reclaimed. Check the tax code.",
                 )
             ]
         return [

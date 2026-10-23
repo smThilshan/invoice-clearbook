@@ -386,6 +386,13 @@ export interface components {
             /** Tax Rates */
             tax_rates?: string | null;
         };
+        /** ChargeOut */
+        ChargeOut: {
+            /** Amount */
+            amount: string;
+            /** Label */
+            label: string;
+        };
         /** ClientCreate */
         ClientCreate: {
             /** Name */
@@ -705,6 +712,8 @@ export interface components {
         };
         /** IssueOut */
         IssueOut: {
+            /** Charges */
+            charges?: components["schemas"]["ChargeOut"][] | null;
             /** Code */
             code: string;
             /** Field */

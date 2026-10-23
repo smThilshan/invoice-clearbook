@@ -203,6 +203,7 @@ def verify_document(document_id: str) -> str:
                 document,
                 settings=settings,
                 today=settings.business_today(),
+                ocr=get_ocr_engine,  # loaded only for a total that does not add up (4.13)
             )
     except SUPERSEDED:
         logger.info("document %s: verify superseded by another worker", document_id)

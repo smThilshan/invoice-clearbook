@@ -48,6 +48,33 @@ class Settings(BaseSettings):
     # limit, or a slow job would be handed to a second worker while the first still runs it.
     job_visibility_timeout_seconds: int = Field(default=3600, gt=0)
 
+    # Charges outside the item lines (task 4.13): words that mark one when it is not printed
+    # between the subtotal and the total. Configuration, so a new kind needs no code change.
+    charge_hint_words: list[str] = Field(
+        default_factory=lambda: [
+            "delivery",
+            "service",
+            "fee",
+            "charge",
+            "packaging",
+            "packing",
+            "handling",
+            "freight",
+            "shipping",
+            "tip",
+            "rounding",
+            "round off",
+            "discount",
+            "promo",
+            "voucher",
+            "coupon",
+            "توصيل",
+            "خدمة",
+            "رسوم",
+            "خصم",
+        ]
+    )
+
     # Places the Run screen may browse and run from (decision 35): only folders inside these
     # are ever read. A client's own folder is offered too. Missing places are left out.
     folder_places: list[Path] = Field(default_factory=lambda: [Path.home(), Path("/Volumes")])

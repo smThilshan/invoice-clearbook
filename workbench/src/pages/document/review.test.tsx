@@ -134,6 +134,28 @@ describe('review screen', () => {
     expect(screen.getByText('Choose an account for this line.')).toBeInTheDocument()
   })
 
+  it('adds charges printed outside the lines as lines, with the subtotal, in one click', async () => {
+    const charged = detail({
+      invoice: { ...detail().invoice!, total: '1065.99' },
+      issues: [{ code: 'total_has_charges', severity: 'ERROR', field: 'total',
+        message: 'The total includes charge printed outside the lines: Delivery charge 15.99.',
+        suggestion: null, charges: [{ label: 'Delivery charge', amount: '15.99' }] }],
+    })  // prettier-ignore
+    const api = await open(backend(charged))
+    const user = userEvent.setup()
+
+    const note = screen.getByRole('note', { name: 'Charges outside the lines' })
+    expect(note).toHaveTextContent('Delivery charge 15.99')
+    await user.click(within(note).getByRole('button', { name: 'Add it as lines' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    const lines = sent(api).invoice.lines as { description: string; amount: string }[]
+    expect(lines.at(-1)).toMatchObject({ description: 'Delivery charge', amount: '15.99' })
+    expect(sent(api).invoice.subtotal).toBe('1015.99')
+    expect(screen.queryByRole('note', { name: 'Charges outside the lines' })).not.toBeInTheDocument()
+  })
+
   it('names the line columns once above the lines', async () => {
     await open()
 

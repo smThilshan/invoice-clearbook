@@ -412,3 +412,11 @@ def test_missing_vat_type_without_vat_is_fine() -> None:
 
 def test_vat_type_is_not_checked_without_lines() -> None:
     assert not codes(invoice(amount_type=None, lines=[])) & {"vat_type_missing"}
+
+
+def test_zero_vat_without_a_supplier_vat_registration_no_says_vat_cannot_be_reclaimed() -> None:
+    issue = only(invoice(vat=Decimal("0.00"), total=Decimal("1000.00"), vendor_trn=None),
+                 "vat_zero_no_tax_invoice")  # fmt: skip
+
+    assert issue.severity is Severity.WARNING
+    assert "no input VAT can be reclaimed" in issue.message

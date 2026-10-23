@@ -6,20 +6,27 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.manual import ManualAccountingSystem
-from app.adapters.storage.keys import ocr_key
+from app.adapters.ocr.base import RecognizedText
+from app.adapters.storage.keys import ocr_key, page_image_key
 from app.adapters.storage.local import LocalStorage
 from app.core.config import Settings
 from app.domain.enums import AmountType, DocumentType, QueueCategory, TaxType
 from app.domain.enums import DocumentStatus as S
 from app.domain.invoice import Invoice, Line
 from app.models import AuditLog, Document, Extraction, VendorMapping
-from app.pipeline.read import PageText, TextSpan
-from app.pipeline.verify.step import VerifyOutcome, VerifyResult, verify_document
+from app.pipeline.read import PageText, TextSpan, encode_png
+from app.pipeline.verify.step import (
+    VerifyOutcome,
+    VerifyResult,
+    recheck_document,
+    verify_document,
+)
 from app.services.master_data import import_master_data
 from tests.integration.factories import CLIENT, make_document
 from tests.integration.test_coding import FakeCoder
@@ -179,3 +186,68 @@ def test_only_extracted_documents_are_verified(session: Session, storage: LocalS
     verify(session, storage, doc)
 
     assert verify(session, storage, doc).outcome is VerifyOutcome.SKIPPED
+
+
+# --- charges outside the lines (task 4.13) -------------------------------------------------
+
+WITH_DELIVERY = PRINTED.replace(
+    "VAT 5%         50.00\nTotal AED   1,050.00",
+    "VAT 5%         50.00\nDelivery charge   15.99\nTotal AED   1,065.99",
+)
+
+
+class FakeOcr:
+    """Our own OCR: reads the page cleanly where the scanner's text lost an amount."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self.lines, self.calls = lines, 0
+
+    def recognize(self, image: object) -> list[RecognizedText]:
+        self.calls += 1
+        return [RecognizedText(text, 0.99, (10.0, 40.0 * n, 900.0, 40.0 * n + 20))
+                for n, text in enumerate(self.lines, start=1)]  # fmt: skip
+
+
+def test_charges_printed_outside_the_lines_explain_the_total(
+    session: Session, storage: LocalStorage
+) -> None:
+    doc = extracted(session, storage, bill(total=Decimal("1065.99")), WITH_DELIVERY)
+
+    verify(session, storage, doc)
+
+    [issue] = [i for i in doc.issues or [] if i["code"] == "total_has_charges"]
+    assert issue["severity"] == "ERROR"
+    assert issue["charges"] == [{"label": "Delivery charge", "amount": "15.99"}]
+    assert not codes(doc) & {"totals_mismatch", "lines_sum_mismatch"}
+
+
+def test_our_own_ocr_reads_a_picture_whose_scanner_text_lost_the_charge(
+    session: Session, storage: LocalStorage
+) -> None:
+    lost = WITH_DELIVERY.replace("Delivery charge   15.99", "Delivery charge")
+    doc = extracted(session, storage, bill(total=Decimal("1065.99")), lost)
+    scanned = PageText.from_json(storage.get(ocr_key(CLIENT, doc.id, 1)))
+    scanned.source = "ocr"  # a phone scan: its text came from the scanner's OCR
+    storage.put(ocr_key(CLIENT, doc.id, 1), scanned.to_json())
+    storage.put(
+        page_image_key(CLIENT, doc.id, 1), encode_png(np.full((1500, 1000, 3), 255, np.uint8))
+    )
+    ocr = FakeOcr(WITH_DELIVERY.splitlines())
+
+    verify_document(session, storage, FakeCoder({"accounts": []}), doc, settings=SETTINGS,
+                    today=TODAY, ocr=lambda: ocr)  # fmt: skip
+    again = recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+
+    assert "total_has_charges" in codes(doc)
+    assert ocr.calls == 1  # made once and kept: the re-check reads the kept text
+    assert again.errors == 1 and "total_has_charges" in codes(doc)
+
+
+def test_a_total_nothing_explains_keeps_its_error(session: Session, storage: LocalStorage) -> None:
+    doc = extracted(session, storage, bill(total=Decimal("1065.99")))
+
+    verify_document(session, storage, FakeCoder({"accounts": []}), doc, settings=SETTINGS,
+                    today=TODAY, ocr=lambda: FakeOcr(["nothing useful"]))  # fmt: skip
+
+    assert "totals_mismatch" in codes(doc)
+    assert "total_has_charges" not in codes(doc)
