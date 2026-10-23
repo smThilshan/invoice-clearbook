@@ -160,3 +160,15 @@ def test_vat_type_stays_empty_when_the_amounts_do_not_tell() -> None:
     invoice, _ = validate_answer(answer('{"document_type": "BILL", "vat": 2.00, "total": 42.00}'))
 
     assert invoice is not None and invoice.amount_type is None
+
+
+def test_a_valid_answer_has_its_descriptions_cleaned_and_the_raw_answer_is_untouched() -> None:
+    raw = ('{"document_type": "BILL", "lines": [{"description": "5 x Sugar 1kg", "qty": 5, '
+           '"amount": 10}]}')  # fmt: skip
+    llm = answer(raw)
+
+    invoice, error = validate_answer(llm)
+
+    assert error is None and invoice is not None
+    assert invoice.lines[0].description == "Sugar 1kg"
+    assert llm.raw_output == raw  # the model's own answer is kept as it was (decision 42)

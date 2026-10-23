@@ -31,6 +31,7 @@ from app.domain.enums import DocumentStatus
 from app.domain.invoice import INVOICE_SCHEMA_VERSION, Invoice
 from app.domain.state_machine import transition
 from app.models import Document, Extraction
+from app.pipeline.descriptions import clean_descriptions
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.normalize import parse_date
@@ -121,7 +122,9 @@ def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
             invoice = Invoice.model_validate(parse_answer_dates(answer))
             # Decision 34: the amounts decide the VAT type, not the model's guess. The model is
             # still asked so its prompt stays unchanged: any wording change shifts other fields.
-            return invoice.model_copy(update={"amount_type": vat_type_from_amounts(invoice)}), None
+            invoice = invoice.model_copy(update={"amount_type": vat_type_from_amounts(invoice)})
+            # Decision 42: item codes and "5 x" prefixes out of the descriptions, when proven.
+            return clean_descriptions(invoice)[0], None
         return Invoice.model_validate_json(llm.raw_output), None  # reports why it is invalid
     except ValidationError as exc:
         problems = ", ".join(f"{'.'.join(map(str, e['loc'])) or 'root'}:{e['type']}"

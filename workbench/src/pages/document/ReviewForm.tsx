@@ -286,6 +286,7 @@ export function ReviewForm({
           }}
           options={options}
           coding={document.coding}
+          cleaned={document.cleaned_descriptions}
           corrected={corrected}
           editable={editable}
           onFocusField={setActive}
@@ -619,6 +620,7 @@ function Lines({
   issues,
   options,
   coding,
+  cleaned,
   corrected,
   editable,
   onFocusField,
@@ -632,6 +634,7 @@ function Lines({
   onChargesAdded: (total: bigint) => void
   options: CodingOptions | undefined
   coding: DocumentDetail['coding']
+  cleaned: number
   corrected: Map<string, Correction>
   editable: boolean
   onFocusField: (field: ActiveField) => void
@@ -654,6 +657,13 @@ function Lines({
   return (
     <section className="space-y-3" aria-label="Lines" data-field="lines">
       <h3 className="text-sm font-semibold text-muted-foreground">Lines</h3>
+      {cleaned > 0 && (
+        // Decision 42: item codes and "5 x" prefixes are removed after reading; never hidden.
+        <p className="text-xs text-muted-foreground">
+          Item codes or quantity prefixes removed from {cleaned}{' '}
+          {cleaned === 1 ? 'description' : 'descriptions'}, as the page shows them in other columns.
+        </p>
+      )}
       {editable && charges.length > 0 && !chargesAdded && (
         <div role="note" aria-label="Charges outside the lines"
           className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm">

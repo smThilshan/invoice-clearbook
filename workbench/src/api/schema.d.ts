@@ -662,6 +662,8 @@ export interface components {
         };
         /** DocumentDetail */
         DocumentDetail: {
+            /** Cleaned Descriptions */
+            cleaned_descriptions: number;
             /** Client Id */
             client_id: string;
             /** Coding */

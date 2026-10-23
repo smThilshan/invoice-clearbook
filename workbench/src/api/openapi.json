@@ -251,6 +251,10 @@
       },
       "DocumentDetail": {
         "properties": {
+          "cleaned_descriptions": {
+            "title": "Cleaned Descriptions",
+            "type": "integer"
+          },
           "client_id": {
             "title": "Client Id",
             "type": "string"
@@ -503,7 +507,8 @@
           "failure_reason",
           "updated_at",
           "corrections",
-          "timings"
+          "timings",
+          "cleaned_descriptions"
         ],
         "title": "DocumentDetail",
         "type": "object"

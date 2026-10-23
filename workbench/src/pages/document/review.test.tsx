@@ -72,6 +72,7 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
     verified_fields: ['invoice_date'],
     contact_id: null,
     failure_reason: null,
+    cleaned_descriptions: 0,
     updated_at: '2026-10-21T08:01:00Z',
     corrections: [],
     ...changes,
@@ -311,6 +312,12 @@ describe('review screen', () => {
 
     expect(screen.getByText(/Enter the document by hand/)).toBeInTheDocument()
     expect(screen.getByLabelText('Supplier')).toHaveValue('')
+  })
+
+  it('says when item codes were removed from descriptions', async () => {
+    await open(backend(detail({ cleaned_descriptions: 2 })))
+
+    expect(screen.getByText(/Item codes or quantity prefixes removed from 2 descriptions/)).toBeInTheDocument()
   })
 
   it('says why a bill came back from posting', async () => {

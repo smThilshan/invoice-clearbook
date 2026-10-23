@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage, get_storage
@@ -25,7 +26,8 @@ from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import StaleStatusError
-from app.models import Document
+from app.models import Document, Extraction
+from app.pipeline.descriptions import cleaned_count
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
@@ -103,6 +105,7 @@ class DocumentDetail(DocumentSummary):
     updated_at: datetime
     corrections: list[CorrectionOut]  # fields where the accountant's value differs from the model's
     timings: StepTimingsOut | None  # where the processing time went (task 4.9)
+    cleaned_descriptions: int  # item codes / "5 x" removed after extraction (decision 42)
 
 
 class DocumentUpdate(BaseModel):
@@ -391,7 +394,18 @@ def _detail(session: Session, document: Document) -> DocumentDetail:
             for c in corrections_of(session, document)
         ],
         timings=StepTimingsOut.of(load_timings(session, [document]).get(document.id)),
+        cleaned_descriptions=_cleaned(session, document),
     )
+
+
+def _cleaned(session: Session, document: Document) -> int:
+    latest = session.scalars(
+        select(Extraction)
+        .where(Extraction.document_id == document.id)
+        .order_by(Extraction.attempt.desc())
+        .limit(1)
+    ).first()
+    return cleaned_count(latest.raw_output, latest.data) if latest else 0
 
 
 def _folder(source_path: str) -> str:
