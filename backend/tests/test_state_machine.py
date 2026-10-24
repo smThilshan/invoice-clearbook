@@ -56,7 +56,11 @@ def test_post_error_goes_back_to_review_not_straight_to_posting() -> None:
 
 
 def test_terminal_statuses() -> None:
-    assert {S.REJECTED, S.DUPLICATE, S.VOIDED} == TERMINAL_STATUSES
+    assert {S.DUPLICATE, S.VOIDED} == TERMINAL_STATUSES
+
+
+def test_a_rejected_document_can_only_come_back_to_review() -> None:
+    assert ALLOWED_TRANSITIONS[S.REJECTED] == {S.IN_REVIEW}  # decision 45
 
 
 def test_posted_cannot_be_reopened_for_review() -> None:

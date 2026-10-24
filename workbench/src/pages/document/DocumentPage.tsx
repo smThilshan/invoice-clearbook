@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, Undo2 } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, RotateCcw, Trash2, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router'
 
@@ -6,8 +6,10 @@ import { type DocumentDetail, type DocumentStatus } from '@/api/client'
 import {
   useApproveDocument,
   useCodingOptions,
+  useDeleteDocument,
   useDocument,
   useLocate,
+  useRestoreDocument,
   useUpdateDocument,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
@@ -105,11 +107,22 @@ export function DocumentPage() {
           {context.flash}
         </p>
       )}
-      {!editable && (
-        <p className="text-sm text-muted-foreground">
-          This document is {statusLabel(doc.status).toLowerCase()}: it can no longer be changed
-          here.
-        </p>
+      {doc.status === 'REJECTED' ? (
+        <RejectedActions
+          document={doc}
+          onDeleted={() =>
+            void navigate(listAddress(doc.client_id), {
+              state: { flash: `Deleted permanently: ${doc.file}` },
+            })
+          }
+        />
+      ) : (
+        !editable && (
+          <p className="text-sm text-muted-foreground">
+            This document is {statusLabel(doc.status).toLowerCase()}: it can no longer be changed
+            here.
+          </p>
+        )
       )}
       {save.isError && <ErrorAlert title="Not saved" error={save.error} />}
       {approve.isError && <ErrorAlert title="Not approved" error={approve.error} />}
@@ -266,6 +279,48 @@ function ApproveButton({
       </Button>
       {blockedBy && <span className="text-sm text-muted-foreground">{blockedBy}</span>}
     </>
+  )
+}
+
+/** A rejected document (decision 45): bring it back to review, or delete it permanently. The
+ * delete asks first: it removes the record and the stored files, and cannot be undone. */
+function RejectedActions({ document, onDeleted }: { document: DocumentDetail; onDeleted: () => void }) {
+  const restore = useRestoreDocument()
+  const remove = useDeleteDocument()
+  return (
+    <div role="region" aria-label="Rejected document" className="space-y-2 rounded-lg border p-3 text-sm">
+      <p>
+        <span className="font-medium">Rejected.</span> It is not in the review queue and will not
+        be sent anywhere.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={restore.isPending || remove.isPending}
+          onClick={() => restore.mutate({ id: document.document_id, body: null })}
+        >
+          <RotateCcw aria-hidden />
+          Bring back to review
+        </Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={restore.isPending || remove.isPending}
+          onClick={() => {
+            const sure = window.confirm(
+              `Delete "${document.file}" permanently?\n\nIts data, history and stored copy are removed. This cannot be undone.`,
+            )
+            if (sure) remove.mutate(document.document_id, { onSuccess: onDeleted })
+          }}
+        >
+          <Trash2 aria-hidden />
+          Delete permanently
+        </Button>
+      </div>
+      {restore.isError && <ErrorAlert title="Not brought back" error={restore.error} />}
+      {remove.isError && <ErrorAlert title="Not deleted" error={remove.error} />}
+    </div>
   )
 }
 

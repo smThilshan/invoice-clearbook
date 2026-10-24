@@ -336,9 +336,9 @@ describe('review screen', () => {
   })
 
   it('cannot change a document that is no longer in review', async () => {
-    await open(backend(detail({ status: 'REJECTED' })))
+    await open(backend(detail({ status: 'POSTED' })))
 
-    expect(screen.getByText(/rejected: it can no longer be changed/)).toBeInTheDocument()
+    expect(screen.getByText(/it can no longer be changed/)).toBeInTheDocument()
     expect(screen.getByLabelText('Supplier')).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Save & re-check' })).not.toBeInTheDocument()
   })
@@ -372,6 +372,42 @@ describe('reject', () => {
     })
   }
 
+  it('brings a rejected document back to review', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}`]: detail({ status: 'REJECTED' }),
+      [`POST /documents/${ID}/restore`]: detail(),
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    const panel = await screen.findByRole('region', { name: 'Rejected document' })
+    await user.click(within(panel).getByRole('button', { name: 'Bring back to review' }))
+
+    await waitFor(() => expect(api.calls).toContain(`POST /documents/${ID}/restore`))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Rejected document' })).not.toBeInTheDocument())
+  })
+
+  it('deletes a rejected document permanently only after asking', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}`]: detail({ status: 'REJECTED' }),
+      [`DELETE /documents/${ID}`]: {},
+      '/documents': { documents: [], total: 0, counts: { EXCEPTION: 0, CHECK: 0, READY: 0 } },
+    })  // prettier-ignore
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    const panel = await screen.findByRole('region', { name: 'Rejected document' })
+    await user.click(within(panel).getByRole('button', { name: 'Delete permanently' }))
+    expect(api.calls).not.toContain(`DELETE /documents/${ID}`)  // said no
+    await user.click(within(panel).getByRole('button', { name: 'Delete permanently' }))
+
+    await waitFor(() => expect(api.calls).toContain(`DELETE /documents/${ID}`))
+    expect(confirm.mock.calls[0]?.[0]).toMatch(/cannot be undone/)
+  })
+
   it('rejects with a reason from the list', async () => {
     const api = rejectBackend()
     const user = userEvent.setup()
@@ -386,7 +422,7 @@ describe('reject', () => {
     await waitFor(() =>
       expect(api.bodies[`POST /documents/${ID}/reject`]).toEqual({ reason: 'DUPLICATE', note: null }),
     )
-    expect(await screen.findByText(/rejected: it can no longer be changed/)).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Rejected document' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 

@@ -45,6 +45,7 @@ const CATEGORIES: (QueueCategory | undefined)[] = [undefined, 'EXCEPTION', 'CHEC
 const LISTS = [
   { status: 'IN_REVIEW', label: 'In review' },
   { status: 'NON_POSTABLE', label: 'Parked (not postable)' },
+  { status: 'REJECTED', label: 'Rejected' },
 ] as const
 type ListStatus = (typeof LISTS)[number]['status']
 
@@ -68,7 +69,7 @@ export function QueuePage() {
     params.get('client') ??
     (clients.data?.some((c) => c.client_id === remembered) ? remembered : undefined)
   const category = asCategory(params.get('queue'))
-  const status: ListStatus = params.get('status') === 'NON_POSTABLE' ? 'NON_POSTABLE' : 'IN_REVIEW'
+  const status: ListStatus = LISTS.find((l) => l.status === params.get('status'))?.status ?? 'IN_REVIEW'
   const runId = params.get('run') ?? undefined
   const search = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
@@ -199,7 +200,7 @@ export function QueuePage() {
       ) : queue.data.total === 0 ? (
         <EmptyQueue
           filtered={Boolean(category || search || runId)}
-          parked={status === 'NON_POSTABLE'}
+          list={status}
           onClear={() => update({ queue: undefined, q: undefined, run: undefined })}
         />
       ) : (
@@ -239,7 +240,7 @@ function SearchBox({ value, onChange }: { value: string; onChange: (value: strin
 }
 
 /** Nothing in the list: say why, and what to do next. */
-function EmptyQueue({ filtered, parked, onClear }: { filtered: boolean; parked: boolean; onClear: () => void }) {
+function EmptyQueue({ filtered, list, onClear }: { filtered: boolean; list: ListStatus; onClear: () => void }) {
   if (filtered) {
     return (
       <div className="space-y-2 rounded-lg border border-dashed p-6 text-center text-sm">
@@ -252,8 +253,10 @@ function EmptyQueue({ filtered, parked, onClear }: { filtered: boolean; parked: 
   }
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-6 text-center text-sm">
-      <p className="font-medium">{parked ? 'No parked documents.' : 'Nothing to review.'}</p>
-      {!parked && (
+      <p className="font-medium">
+        {list === 'NON_POSTABLE' ? 'No parked documents.' : list === 'REJECTED' ? 'No rejected documents.' : 'Nothing to review.'}
+      </p>
+      {list === 'IN_REVIEW' && (
         <p className="text-muted-foreground">
           New documents appear here after a run.{' '}
           <Link to="/run" className="font-medium text-foreground underline-offset-4 hover:underline">

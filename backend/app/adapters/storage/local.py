@@ -32,6 +32,9 @@ class LocalStorage:
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
 
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
+
     def _path(self, key: str) -> Path:
         return self._root.joinpath(*validate_key(key).split("/"))
 

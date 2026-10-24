@@ -284,16 +284,17 @@ function SendingProgress({
   where: string | null
   onFinished: () => void
 }) {
-  const [, tick] = useState(0)
+  // The clock is read in the timer, not while drawing: the time waited so far.
+  const [waited, setWaited] = useState(0)
   useEffect(() => {
-    const timer = window.setInterval(() => tick((n) => n + 1), SENDING_REFRESH_MS)
+    const timer = window.setInterval(() => setWaited(Date.now() - since), SENDING_REFRESH_MS)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [since])
   const sent = now.posted - before.posted
   const back = now.sent_back - before.sent_back
   const moved = sent > 0 || back > 0 || now.retrying > before.retrying
   const finished = now.ready === 0
-  const gaveUp = !finished && Date.now() - since > SENDING_PATIENCE_MS
+  const gaveUp = !finished && waited > SENDING_PATIENCE_MS
 
   if (!finished && !gaveUp) {
     return (

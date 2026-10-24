@@ -32,7 +32,7 @@ from app.pipeline.line_totals import repaired_count
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
-from app.services import approval, review
+from app.services import approval, deletion, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
 from app.services.pipeline import retry_document
@@ -278,6 +278,42 @@ def reject_document(
     return _detail(session, document)
 
 
+@router.post("/{document_id}/restore")
+def restore_document(
+    document_id: uuid.UUID, session: SessionDep, storage: StorageDep, settings: SettingsDep
+) -> DocumentDetail:
+    """A rejected document back to review, checked again (decision 45). 409 if it is not
+    rejected; 422 if another live document now holds its supplier and invoice number."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        with session.begin_nested():
+            deletion.bring_back(session, storage, document, settings=settings,
+                                today=settings.business_today())  # fmt: skip
+    except (ReviewError, StaleStatusError) as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    return _detail(session, document)
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(document_id: uuid.UUID, session: SessionDep, storage: StorageDep) -> Response:
+    """Delete a rejected document permanently, files included (decision 45). 409 if it is not
+    rejected, 422 if it is in the accounting system. Cannot be undone."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        with session.begin_nested():
+            keys = deletion.delete_permanently(session, document)
+    except ReviewError as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    for key in keys:  # after the commit: at worst a stray file, never a dangling record
+        try:
+            storage.delete(key)
+        except OSError:
+            logger.warning("document %s: a stored file could not be removed", document_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 def get_enqueue_posting() -> Callable[[str], object]:
     from app.workers.tasks import send_posting  # imported lazily: the API does not need a worker
 
@@ -345,7 +381,7 @@ def _check_page(document: Document, page: int) -> None:
 
 
 def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, review.NotEditableError | StaleStatusError):
+    if isinstance(exc, review.NotEditableError | StaleStatusError | deletion.NotRejectedError):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 

@@ -77,7 +77,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen h-dvh flex-col overflow-hidden bg-muted/30 text-foreground">
+    <div className="flex h-dvh flex-col overflow-hidden overscroll-none bg-muted/30 text-foreground">
       <header
         className={cn(
           'flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6',
@@ -105,7 +105,7 @@ export function AppLayout() {
         <nav
           aria-label="Main"
           className={cn(
-            'flex w-full shrink-0 gap-1 overflow-x-auto border-b bg-background p-2 sm:flex-col sm:space-y-1 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:transition-[width]',
+            'flex w-full shrink-0 gap-1 overflow-x-auto overscroll-contain border-b bg-background p-2 sm:flex-col sm:space-y-1 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:transition-[width]',
             folded ? 'sm:w-14' : 'sm:w-52 sm:p-3',
           )}
         >
@@ -130,7 +130,7 @@ export function AppLayout() {
           </button>
         </nav>
         {/* min-w-0: a wide table scrolls inside its own box instead of widening the page */}
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:px-10 sm:py-6 lg:px-12">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:px-10 sm:py-6 lg:px-12">
           <Outlet />
         </main>
       </div>

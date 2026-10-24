@@ -52,13 +52,14 @@ Each file is one job. Each step saves its result and sets a status.
 ## 5. Document states
 ```
 CAPTURED → READ → EXTRACTED → VERIFIED → IN_REVIEW → APPROVED → POSTING → POSTED → SYNCED
-IN_REVIEW → REJECTED
+IN_REVIEW → REJECTED → IN_REVIEW        (brought back after a mistaken reject; decision 45)
 POSTING → POST_ERROR → IN_REVIEW
 POSTED/SYNCED → VOIDED  (LATER, via sync)
 CAPTURED → DUPLICATE                       (same file hash)
 VERIFIED/IN_REVIEW → NON_POSTABLE → IN_REVIEW   (parked; accountant can un-park)
 CAPTURED/READ/EXTRACTED → FAILED → CAPTURED     (re-run)
-Terminal: REJECTED, DUPLICATE, VOIDED
+Terminal: DUPLICATE, VOIDED. A REJECTED document can be brought back to review or deleted
+permanently (decision 45).
 ```
 - The full table is `ALLOWED_TRANSITIONS` in `domain/state_machine.py`; anything not listed is refused.
 - Business-key duplicates go to `IN_REVIEW` as Exception; the accountant rejects them with reason "duplicate".

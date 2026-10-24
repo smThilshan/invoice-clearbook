@@ -4,6 +4,7 @@ from app.models.accounting_connection import AccountingConnection
 from app.models.audit_log import AuditLog
 from app.models.base import Base
 from app.models.client import Client
+from app.models.deletion import Deletion
 from app.models.document import Correction, Document, Extraction
 from app.models.master_data import Contact, LedgerAccount, TaxRate
 from app.models.outbox import Outbox, OutboxStatus
@@ -17,6 +18,7 @@ __all__ = [
     "Client",
     "Contact",
     "Correction",
+    "Deletion",
     "Document",
     "Extraction",
     "LedgerAccount",

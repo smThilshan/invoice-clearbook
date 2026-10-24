@@ -100,6 +100,12 @@ function sendJson<T>(method: 'POST' | 'PATCH', path: string, body: unknown): Pro
   })
 }
 
+/** A call answered with no content (204), e.g. a delete. */
+async function sendNoContent(method: 'DELETE', path: string): Promise<void> {
+  const response = await fetch(`/api${path}`, { method, headers: { Accept: 'application/json' } })
+  if (!response.ok) throw new ApiError(response.status, await errorMessage(response))
+}
+
 const documentPath = (id: string) => `/documents/${encodeURIComponent(id)}`
 
 /** The rendered page picture (PNG), for an <img>; pages are numbered from 1. */
@@ -157,6 +163,10 @@ export const api = {
   retryDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/retry`, {}),
   rejectDocument: (id: string, body: RejectBody) =>
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
+  /** A rejected document back to review, checked again (decision 45). */
+  restoreDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/restore`, {}),
+  /** Delete a rejected document permanently, files included (decision 45). */
+  deleteDocument: (id: string) => sendNoContent('DELETE', documentPath(id)),
   /** Accounts and tax codes the review form may use (the client's active master data). */
   codingOptions: (clientId: string) =>
     request<CodingOptions>(`/clients/${encodeURIComponent(clientId)}/coding-options`),

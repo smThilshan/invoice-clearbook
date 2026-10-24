@@ -47,7 +47,7 @@ ALLOWED_TRANSITIONS: Final[Mapping[S, frozenset[S]]] = MappingProxyType(
         S.SYNCED: frozenset({S.VOIDED}),
         S.NON_POSTABLE: frozenset({S.IN_REVIEW}),  # accountant un-parks a misclassified doc
         S.FAILED: frozenset({S.CAPTURED}),  # re-run the pipeline
-        S.REJECTED: frozenset(),
+        S.REJECTED: frozenset({S.IN_REVIEW}),  # brought back after a mistaken reject (dec. 45)
         S.DUPLICATE: frozenset(),
         S.VOIDED: frozenset(),
     }

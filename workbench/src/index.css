@@ -146,6 +146,13 @@
   html {
     @apply font-sans;
     }
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100dvh;
+  }
 }
 
 .document-page-viewer:fullscreen {

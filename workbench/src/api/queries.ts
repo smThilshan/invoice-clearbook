@@ -193,6 +193,21 @@ export function useApproveDocument() {
   return useDocumentChange<null>((id) => api.approveDocument(id))
 }
 
+export function useRestoreDocument() {
+  return useDocumentChange<null>((id) => api.restoreDocument(id))
+}
+
+export function useDeleteDocument() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteDocument(id),
+    onSuccess: (_answer, id) => {
+      client.removeQueries({ queryKey: queryKeys.document(id) })
+      void client.invalidateQueries({ queryKey: queryKeys.queues })
+    },
+  })
+}
+
 /** Stop or resume a run (task 4.19); the run page shows the answer straight away. */
 function useRunControl(control: (runId: string) => Promise<RunProgress>) {
   const client = useQueryClient()

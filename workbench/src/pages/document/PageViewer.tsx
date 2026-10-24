@@ -117,7 +117,7 @@ export function PageViewer({
       </div>
       {fullscreenError && <p role="alert" className="text-sm text-destructive">{fullscreenError}</p>}
       {highlight && <HighlightStatus highlight={highlight} page={page} onPage={setPage} />}
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border bg-muted/40">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-lg border bg-muted/40">
         <div className="relative" style={{ width: `${zoom}%` }}>
           <img
             src={pageImageUrl(documentId, page)}
