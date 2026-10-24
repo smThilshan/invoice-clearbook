@@ -47,7 +47,7 @@ def test_a_code_becomes_tokens_with_the_approval_it_came_from() -> None:
     assert seen["form"] == {"grant_type": ["authorization_code"], "code": ["code-1"],
                             "redirect_uri": ["http://localhost:8000/xero/callback"]}  # fmt: skip
     assert str(seen["auth"]).startswith("Basic ")
-    assert (tokens.refresh_token, tokens.auth_event_id) == ("refresh-1", "event-1")
+    assert (tokens.refresh_token, tokens.approval_id) == ("refresh-1", "event-1")
 
 
 def test_a_refused_sign_in_says_why_without_tokens() -> None:
@@ -67,9 +67,9 @@ def test_only_organisations_are_offered() -> None:
             {"id": "c2", "tenantId": "t2", "tenantName": "Practice", "tenantType": "PRACTICE"},
         ])  # fmt: skip
 
-    [tenant] = fake_xero(connections).tenants("access-1")
+    [tenant] = fake_xero(connections).organisations("access-1")
 
-    assert (tenant.tenant_id, tenant.name, tenant.connection_id) == (
+    assert (tenant.organisation_id, tenant.name, tenant.connection_id) == (
         "t1",
         "Demo Company (Global)",
         "c1",

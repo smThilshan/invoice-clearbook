@@ -35,8 +35,28 @@
         "title": "AccountOption",
         "type": "object"
       },
+      "AccountingProvider": {
+        "description": "Which adapter a client's master data and postings go through (decision 20).",
+        "enum": [
+          "MANUAL",
+          "XERO"
+        ],
+        "title": "AccountingProvider",
+        "type": "string"
+      },
       "AccountingStatus": {
         "properties": {
+          "bills_where": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bills Where"
+          },
           "configured": {
             "title": "Configured",
             "type": "boolean"
@@ -78,13 +98,30 @@
           "provider": {
             "anyOf": [
               {
+                "$ref": "#/components/schemas/AccountingProvider"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_name": {
+            "anyOf": [
+              {
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Provider"
+            "title": "Provider Name"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderOut"
+            },
+            "title": "Providers",
+            "type": "array"
           },
           "waiting": {
             "title": "Waiting",
@@ -92,11 +129,14 @@
           }
         },
         "required": [
+          "providers",
           "configured",
           "connected",
           "provider",
+          "provider_name",
           "organisation",
           "connected_at",
+          "bills_where",
           "master_data_from",
           "waiting",
           "posting"
@@ -1833,6 +1873,33 @@
         "title": "PostingOut",
         "type": "object"
       },
+      "ProviderOut": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connect_url": {
+            "title": "Connect Url",
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/components/schemas/AccountingProvider"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "configured",
+          "connect_url"
+        ],
+        "title": "ProviderOut",
+        "type": "object"
+      },
       "QueueCategory": {
         "description": "Verification result shown in the Workbench.",
         "enum": [
@@ -2650,7 +2717,7 @@
         },
         "summary": "Accounting Status",
         "tags": [
-          "accounting connection"
+          "accounting system"
         ]
       }
     },
@@ -2692,7 +2759,7 @@
         },
         "summary": "Disconnect Accounting",
         "tags": [
-          "accounting connection"
+          "accounting system"
         ]
       }
     },
@@ -2735,13 +2802,13 @@
         },
         "summary": "Send Waiting",
         "tags": [
-          "accounting connection"
+          "accounting system"
         ]
       }
     },
     "/clients/{client_id}/accounting/sync": {
       "post": {
-        "description": "Read accounts, tax rates and contacts from the connected Xero organisation. All or\nnothing; afterwards coding and checks use Xero's master data.",
+        "description": "Read accounts, tax rates and contacts from the connected accounting system. All or\nnothing; afterwards coding and checks use its master data.",
         "operationId": "sync_accounting_clients__client_id__accounting_sync_post",
         "parameters": [
           {
@@ -2778,7 +2845,7 @@
         },
         "summary": "Sync Accounting",
         "tags": [
-          "accounting connection"
+          "accounting system"
         ]
       }
     },
@@ -3928,11 +3995,20 @@
         ]
       }
     },
-    "/xero/callback": {
+    "/{slug}/callback": {
       "get": {
-        "description": "Xero sends the user back here; they are sent on to the Workbench.",
-        "operationId": "callback_xero_callback_get",
+        "description": "The provider sends the user back here; they are sent on to the Workbench.",
+        "operationId": "callback__slug__callback_get",
         "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "state",
@@ -3992,15 +4068,24 @@
         },
         "summary": "Callback",
         "tags": [
-          "accounting connection"
+          "accounting system"
         ]
       }
     },
-    "/xero/connect": {
+    "/{slug}/connect": {
       "get": {
-        "description": "Start the Xero sign-in for this client.",
-        "operationId": "connect_xero_connect_get",
+        "description": "Start the provider's sign-in for this client.",
+        "operationId": "connect__slug__connect_get",
         "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "client_id",
@@ -4033,7 +4118,7 @@
         },
         "summary": "Connect",
         "tags": [
-          "accounting connection"
+          "accounting system"
         ]
       }
     }

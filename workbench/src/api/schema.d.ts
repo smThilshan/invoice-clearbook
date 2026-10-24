@@ -91,8 +91,8 @@ export interface paths {
         put?: never;
         /**
          * Sync Accounting
-         * @description Read accounts, tax rates and contacts from the connected Xero organisation. All or
-         *     nothing; afterwards coding and checks use Xero's master data.
+         * @description Read accounts, tax rates and contacts from the connected accounting system. All or
+         *     nothing; afterwards coding and checks use its master data.
          */
         post: operations["sync_accounting_clients__client_id__accounting_sync_post"];
         delete?: never;
@@ -531,7 +531,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/xero/callback": {
+    "/{slug}/callback": {
         parameters: {
             query?: never;
             header?: never;
@@ -540,9 +540,9 @@ export interface paths {
         };
         /**
          * Callback
-         * @description Xero sends the user back here; they are sent on to the Workbench.
+         * @description The provider sends the user back here; they are sent on to the Workbench.
          */
-        get: operations["callback_xero_callback_get"];
+        get: operations["callback__slug__callback_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -551,7 +551,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/xero/connect": {
+    "/{slug}/connect": {
         parameters: {
             query?: never;
             header?: never;
@@ -560,9 +560,9 @@ export interface paths {
         };
         /**
          * Connect
-         * @description Start the Xero sign-in for this client.
+         * @description Start the provider's sign-in for this client.
          */
-        get: operations["connect_xero_connect_get"];
+        get: operations["connect__slug__connect_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -589,8 +589,16 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * AccountingProvider
+         * @description Which adapter a client's master data and postings go through (decision 20).
+         * @enum {string}
+         */
+        AccountingProvider: "MANUAL" | "XERO";
         /** AccountingStatus */
         AccountingStatus: {
+            /** Bills Where */
+            bills_where: string | null;
             /** Configured */
             configured: boolean;
             /** Connected */
@@ -602,8 +610,11 @@ export interface components {
             /** Organisation */
             organisation: string | null;
             posting: components["schemas"]["PostingOut"];
-            /** Provider */
-            provider: string | null;
+            provider: components["schemas"]["AccountingProvider"] | null;
+            /** Provider Name */
+            provider_name: string | null;
+            /** Providers */
+            providers: components["schemas"]["ProviderOut"][];
             /** Waiting */
             waiting: number;
         };
@@ -1109,6 +1120,16 @@ export interface components {
             retrying: number;
             /** Sent Back */
             sent_back: number;
+        };
+        /** ProviderOut */
+        ProviderOut: {
+            /** Configured */
+            configured: boolean;
+            /** Connect Url */
+            connect_url: string;
+            key: components["schemas"]["AccountingProvider"];
+            /** Name */
+            name: string;
         };
         /**
          * QueueCategory
@@ -2272,7 +2293,7 @@ export interface operations {
             };
         };
     };
-    callback_xero_callback_get: {
+    callback__slug__callback_get: {
         parameters: {
             query?: {
                 state?: string;
@@ -2280,7 +2301,9 @@ export interface operations {
                 error?: string | null;
             };
             header?: never;
-            path?: never;
+            path: {
+                slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2305,13 +2328,15 @@ export interface operations {
             };
         };
     };
-    connect_xero_connect_get: {
+    connect__slug__connect_get: {
         parameters: {
             query: {
                 client_id: string;
             };
             header?: never;
-            path?: never;
+            path: {
+                slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

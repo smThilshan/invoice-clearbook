@@ -26,7 +26,7 @@ from app.models import Contact, Document, LedgerAccount, Outbox, OutboxStatus, T
 from app.services import posting
 from app.services.clients import get_client
 from tests.integration.factories import CLIENT, make_document
-from tests.integration.test_xero_connection import SETTINGS, FakeXero, connect
+from tests.integration.test_xero_connection import SETTINGS, FakeXero, connect, registry
 
 pytestmark = pytest.mark.integration
 
@@ -117,8 +117,9 @@ def send(session: Session, fake: FakePosting, **only: str) -> posting.Outcome | 
         yield session
         session.flush()
 
-    storage = FakeStorage()
-    return posting.send_next(sessions, SETTINGS, FakeXero(), fake.system, storage, **only)  # type: ignore[arg-type]
+    fake_xero = FakeXero()
+    fake_xero.organisation = fake  # type: ignore[assignment]
+    return posting.send_next(sessions, SETTINGS, registry(fake_xero), FakeStorage(), **only)
 
 
 def test_an_approved_bill_is_posted_and_its_supplier_remembered(

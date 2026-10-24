@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from app.adapters.accounting.base import (
+    AccountingSystemError,
     ContactRecord,
     LedgerAccountRecord,
     MasterData,
@@ -24,7 +25,7 @@ from app.adapters.accounting.base import (
     TaxRateRecord,
 )
 from app.adapters.accounting.xero.bills import post_bill
-from app.adapters.accounting.xero.client import XeroClient
+from app.adapters.accounting.xero.client import XeroApiError, XeroClient
 from app.domain.enums import AccountClass, AccountingProvider, TaxType
 
 CONTACTS_PAGE = 100  # Xero's page size for contacts
@@ -33,7 +34,7 @@ FIVE = Decimal("5")
 
 
 class XeroAccountingSystem:
-    """The AccountingSystem and PostingSystem ports for one connected Xero organisation."""
+    """The ConnectedSystem port (master data in, bills out) for one Xero organisation."""
 
     def __init__(self, access_token: str, tenant_id: str, http: httpx.Client | None = None) -> None:
         self._xero = XeroClient(access_token, tenant_id, http)
@@ -43,11 +44,14 @@ class XeroAccountingSystem:
         return AccountingProvider.XERO
 
     def fetch_master_data(self) -> MasterData:
-        return MasterData(
-            accounts=[_account(a) for a in self._xero.get("Accounts").get("Accounts", [])],
-            tax_rates=[_tax_rate(t) for t in self._xero.get("TaxRates").get("TaxRates", [])],
-            contacts=[_contact(c) for c in self._contacts()],
-        )
+        try:
+            return MasterData(
+                accounts=[_account(a) for a in self._xero.get("Accounts").get("Accounts", [])],
+                tax_rates=[_tax_rate(t) for t in self._xero.get("TaxRates").get("TaxRates", [])],
+                contacts=[_contact(c) for c in self._contacts()],
+            )
+        except XeroApiError as exc:
+            raise AccountingSystemError(str(exc)) from exc
 
     def post_bill(
         self,

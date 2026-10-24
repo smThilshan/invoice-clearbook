@@ -55,7 +55,7 @@ export function useCreateClient() {
   })
 }
 
-/** `refreshMs`: poll while something is under way (sending bills to Xero). */
+/** `refreshMs`: poll while something is under way (sending bills). */
 export function useAccounting(clientId: string, refreshMs: number | false = false) {
   return useQuery({
     queryKey: ['accounting', clientId],
@@ -80,7 +80,7 @@ export function useSendWaiting() {
   })
 }
 
-/** After a sync, coding uses the client's Xero accounts and VAT rates. */
+/** After a sync, coding uses the accounting system's accounts and VAT rates. */
 export function useSyncAccounting() {
   const client = useQueryClient()
   return useMutation({

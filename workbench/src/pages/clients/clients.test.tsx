@@ -13,13 +13,17 @@ const CLIENTS = [
 const NOTHING: PostingSummary = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
 }  // prettier-ignore
+const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url: '/xero/connect' }
 const NOT_CONNECTED: AccountingStatus = {
-  configured: true, connected: false, provider: null, organisation: null, connected_at: null,
-  master_data_from: 'MANUAL', waiting: 0, posting: NOTHING,
+  providers: [XERO], configured: true, connected: false, provider: null, provider_name: null,
+  organisation: null, connected_at: null, bills_where: null, master_data_from: 'MANUAL',
+  waiting: 0, posting: NOTHING,
 }  // prettier-ignore
 const CONNECTED: AccountingStatus = {
-  configured: true, connected: true, provider: 'XERO', organisation: 'Demo Company (Global)',
-  connected_at: '2026-10-23T10:00:00Z', master_data_from: 'MANUAL', waiting: 0, posting: NOTHING,
+  providers: [XERO], configured: true, connected: true, provider: 'XERO', provider_name: 'Xero',
+  organisation: 'Demo Company (Global)', connected_at: '2026-10-23T10:00:00Z',
+  bills_where: 'Bills to pay, Awaiting approval', master_data_from: 'MANUAL', waiting: 0,
+  posting: NOTHING,
 }  // prettier-ignore
 const SYNCED_WAITING: AccountingStatus = {
   ...CONNECTED, master_data_from: 'XERO', waiting: 3, posting: { ...NOTHING, ready: 3 },
@@ -136,6 +140,21 @@ describe('clients', () => {
       await within(row).findByText(/2 approved receipts: receipts are not sent to Xero in this version yet/),
     ).toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: /Send/ })).not.toBeInTheDocument()
+  })
+
+  it('names whichever accounting system the client is connected to', async () => {
+    const zoho: AccountingStatus = {
+      ...SYNCED_WAITING, provider_name: 'Zoho Books', organisation: 'Made-up Trading',
+      bills_where: 'Purchases, Bills', master_data_from: 'XERO',
+    }  // prettier-ignore
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': zoho })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(await within(row).findByRole('button', { name: 'Send 3 bills to Zoho Books' })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Sync from Zoho Books' })).toBeInTheDocument()
+    expect(row).not.toHaveTextContent('Xero')
   })
 
   it('says how a Xero sign-in ended when Xero sends the browser back', async () => {

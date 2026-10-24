@@ -59,7 +59,7 @@ def approve_document(
     sync_corrections(session, document, corrected_by=ACTOR)
     summary = {"queue": assessment.queue.value, "warnings": assessment.warnings}
     transition(session, document, DocumentStatus.APPROVED, actor=ACTOR, details=summary)
-    document.failure_reason = None  # an earlier "not sent to Xero" reason is now answered
+    document.failure_reason = None  # an earlier "not sent" reason is now answered
     outbox = Outbox(client_id=document.client_id, document_id=document.id)
     session.add(outbox)
     _learn_supplier_coding(session, document, invoice)

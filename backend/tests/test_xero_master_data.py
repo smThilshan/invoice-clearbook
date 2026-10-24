@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.adapters.accounting.xero.client import XeroApiError
+from app.adapters.accounting.base import AccountingSystemError
 from app.adapters.accounting.xero.master_data import (
     CONTACTS_PAGE,
     XeroAccountingSystem,
@@ -103,7 +103,7 @@ def test_tax_rates_are_matched_to_our_vat_types(
 def test_a_refusal_from_xero_says_what_to_do_without_any_token(status: int, says: str) -> None:
     refusing = httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(status)))
 
-    with pytest.raises(XeroApiError, match=says) as error:
+    with pytest.raises(AccountingSystemError, match=says) as error:
         XeroAccountingSystem("secret-token", "tenant", refusing).fetch_master_data()
 
     assert "secret-token" not in str(error.value)

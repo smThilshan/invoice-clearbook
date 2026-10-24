@@ -130,7 +130,7 @@ export function DocumentPage() {
       {doc.status === 'POSTED' && (
         <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
           <CircleCheck className="size-4" aria-hidden />
-          Posted to Xero as Awaiting approval.
+          Posted to the accounting system, waiting for approval there.
         </p>
       )}
       {save.isSuccess && !save.isPending && (

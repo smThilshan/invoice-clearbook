@@ -20,26 +20,28 @@ import { formatDateTime } from '@/lib/labels'
 import { TAX_TYPE_LABELS } from '@/pages/document/formModel'
 import { usePageTitle } from '@/lib/usePageTitle'
 
-/** Clients and their accounting system (tasks 5.3, 5.4, 5.1): connect a client to Xero, sync
- * its master data, send approved bills waiting to be posted, disconnect. Xero sends the
+/** Clients and their accounting system (tasks 5.3, 5.4, 5.1): connect a client, sync its
+ * master data, send approved bills waiting to be posted, disconnect. The accounting system's
+ * name always comes from the API (decision 43): Xero today, others later. Its sign-in sends the
  * browser back here. */
 export function ClientsPage() {
   usePageTitle('Clients')
   const clients = useClients()
   const [params] = useSearchParams()
   const connected = params.get('connected')
+  const system = params.get('system') ?? 'the accounting system'
   const failed = params.get('error')
 
   return (
     <PageContainer className="space-y-6">
       <PageHeader
         title="Clients"
-        description="Each client's accounting system. Connect Xero to sync its accounts, VAT rates and suppliers, and to post approved bills."
+        description="Each client's accounting system. Connect it to sync its accounts, VAT rates and suppliers, and to post approved bills."
       />
       {connected && (
         <Alert>
           <CircleCheck className="text-success" aria-hidden />
-          <AlertTitle>Connected to Xero</AlertTitle>
+          <AlertTitle>Connected to {system}</AlertTitle>
           <AlertDescription>Organisation: {connected}</AlertDescription>
         </Alert>
       )}
@@ -77,21 +79,22 @@ function ClientRow({ client }: { client: Client }) {
   const disconnect = useDisconnectAccounting()
   const sync = useSyncAccounting()
   const send = useSendWaiting()
-  const synced = status.data?.connected && status.data.master_data_from === 'XERO'
+  const synced = Boolean(status.data?.connected && status.data.master_data_from === status.data.provider)
   const summary = status.data?.posting
   const connected = status.data?.connected === true
+  // The connected system's name; before connecting, the systems that could be connected.
+  const system = status.data?.provider_name ?? 'the accounting system'
+  const available = (status.data?.providers ?? []).filter((p) => p.configured)
   const connectionLabel = status.isPending
     ? 'Checking connection'
     : status.isError
       ? 'Status unavailable'
       : connected
-        ? synced
-          ? 'Xero synced'
-          : 'Xero connected'
+        ? `${system} ${synced ? 'synced' : 'connected'}`
         : status.data && !status.data.configured
-          ? 'Xero not configured'
+          ? 'No accounting system set up'
           : 'Local export'
-  const connectHref = `/api/xero/connect?${new URLSearchParams({ client_id: client.client_id })}`
+  const query = new URLSearchParams({ client_id: client.client_id })
 
   return (
     <li aria-label={client.name} className="rounded-xl border bg-background p-4 shadow-sm">
@@ -107,10 +110,12 @@ function ClientRow({ client }: { client: Client }) {
               : status.isError
                 ? 'We could not confirm this client’s accounting connection.'
                 : status.data?.connected
-                  ? `Xero: ${status.data.organisation}${status.data.connected_at ? ` · since ${formatDateTime(status.data.connected_at)}` : ''}${status.data.master_data_from === 'XERO' ? ' · coding uses Xero accounts' : ' · not synced yet'}`
+                  ? `${system}: ${status.data.organisation}${status.data.connected_at ? ` · since ${formatDateTime(status.data.connected_at)}` : ''}${synced ? ` · coding uses ${system} accounts` : ' · not synced yet'}`
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
-          {summary && <PostingLines summary={summary} synced={Boolean(synced)} clientId={client.client_id} />}
+          {summary && (
+            <PostingLines summary={summary} synced={synced} system={system} clientId={client.client_id} />
+          )}
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
@@ -125,7 +130,7 @@ function ClientRow({ client }: { client: Client }) {
             }
           >
             <Send aria-hidden />
-            Send {summary.ready} {summary.ready === 1 ? 'bill' : 'bills'} to Xero
+            Send {summary.ready} {summary.ready === 1 ? 'bill' : 'bills'} to {system}
           </Button>
         )}
         {connected && (
@@ -136,7 +141,7 @@ function ClientRow({ client }: { client: Client }) {
             onClick={() => sync.mutate(client.client_id)}
           >
             <RefreshCw className={sync.isPending ? 'animate-spin' : undefined} aria-hidden />
-            {sync.isPending ? 'Syncing…' : 'Sync from Xero'}
+            {sync.isPending ? 'Syncing…' : `Sync from ${system}`}
           </Button>
         )}
         {status.isPending ? (
@@ -149,23 +154,27 @@ function ClientRow({ client }: { client: Client }) {
             size="sm"
             disabled={disconnect.isPending}
             onClick={() => {
-              if (window.confirm(`Disconnect ${client.name} from Xero?`))
+              if (window.confirm(`Disconnect ${client.name} from ${system}?`))
                 disconnect.mutate(client.client_id)
             }}
           >
             <Unlink aria-hidden />
             Disconnect
           </Button>
-        ) : status.data && !status.data.configured ? (
-          <span className="self-center text-xs text-muted-foreground">Xero app keys not set in .env</span>
+        ) : available.length === 0 ? (
+          <span className="self-center text-xs text-muted-foreground">
+            No accounting system is set up: its app keys go in .env
+          </span>
         ) : (
-          <Button asChild size="sm">
-            {/* A full page change: the browser goes to Xero's sign-in and comes back here. */}
-            <a href={connectHref}>
-              <Link2 aria-hidden />
-              Connect Xero
-            </a>
-          </Button>
+          available.map((provider) => (
+            <Button key={provider.key} asChild size="sm">
+              {/* A full page change: the browser goes to its sign-in and comes back here. */}
+              <a href={`/api${provider.connect_url}?${query}`}>
+                <Link2 aria-hidden />
+                Connect {provider.name}
+              </a>
+            </Button>
+          ))
         )}
       </div>
       {status.isError && <ErrorAlert title="Connection status could not be loaded" error={status.error} />}
@@ -177,6 +186,8 @@ function ClientRow({ client }: { client: Client }) {
           before={sending.before}
           now={summary}
           since={sending.since}
+          system={system}
+          where={status.data?.bills_where ?? null}
           onFinished={() => setSending(null)}
         />
       )}
@@ -198,10 +209,12 @@ const NOT_YET_LABELS: Record<string, [string, string]> = {
 function PostingLines({
   summary,
   synced,
+  system,
   clientId,
 }: {
   summary: PostingSummary
   synced: boolean
+  system: string
   clientId: string
 }) {
   const queue = `/queue?${new URLSearchParams({ client: clientId })}`
@@ -210,8 +223,8 @@ function PostingLines({
       {summary.ready > 0 && (
         <li className="font-medium text-warning">
           {synced
-            ? `${plural(summary.ready, 'approved bill')} ready to send to Xero.`
-            : `${plural(summary.ready, 'approved bill')} waiting: connect and sync Xero to send them.`}
+            ? `${plural(summary.ready, 'approved bill')} ready to send to ${system}.`
+            : `${plural(summary.ready, 'approved bill')} waiting: connect and sync the accounting system to send them.`}
         </li>
       )}
       {summary.retrying > 0 && (
@@ -228,7 +241,7 @@ function PostingLines({
         <li className="flex items-start gap-1.5 text-destructive">
           <Undo2 className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            {plural(summary.sent_back, 'bill')} sent back to review, not sent to Xero.{' '}
+            {plural(summary.sent_back, 'bill')} sent back to review, not sent to {system}.{' '}
             <Link to={queue} className="underline underline-offset-2">
               Open the Review queue
             </Link>{' '}
@@ -240,15 +253,15 @@ function PostingLines({
         const [one, many] = NOT_YET_LABELS[type] ?? ['document', 'documents']
         return (
           <li key={type} className="text-muted-foreground">
-            {plural(count, `approved ${one}`, `approved ${many}`)}: {many} are not sent to Xero in
-            this version yet. Nothing to do now.
+            {plural(count, `approved ${one}`, `approved ${many}`)}: {many} are not sent to {system}{' '}
+            in this version yet. Nothing to do now.
           </li>
         )
       })}
       {summary.posted > 0 && (
         <li className="flex items-center gap-1.5 text-muted-foreground">
           <CircleCheck className="size-3.5 text-success" aria-hidden />
-          {plural(summary.posted, 'bill')} sent to Xero so far.
+          {plural(summary.posted, 'bill')} sent to {system} so far.
         </li>
       )}
     </ul>
@@ -260,11 +273,15 @@ function SendingProgress({
   before,
   now,
   since,
+  system,
+  where,
   onFinished,
 }: {
   before: PostingSummary
   now: PostingSummary
   since: number
+  system: string
+  where: string | null
   onFinished: () => void
 }) {
   const [, tick] = useState(0)
@@ -282,12 +299,13 @@ function SendingProgress({
     return (
       <p role="status" className="mt-3 flex items-center gap-2 text-sm">
         <RefreshCw className="size-3.5 animate-spin" aria-hidden />
-        Sending {plural(now.ready, 'bill')} to Xero…{sent > 0 ? ` ${sent} sent so far.` : ''}
+        Sending {plural(now.ready, 'bill')} to {system}…{sent > 0 ? ` ${sent} sent so far.` : ''}
       </p>
     )
   }
   const parts = [
-    sent > 0 && `${plural(sent, 'bill')} sent to Xero: find them under Bills to pay, Awaiting approval.`,
+    sent > 0 &&
+      `${plural(sent, 'bill')} sent to ${system}${where ? `: find them under ${where}` : ''}.`,
     back > 0 && `${plural(back, 'bill')} came back to review with the reason.`,
     now.retrying > 0 && `${plural(now.retrying, 'bill')} will be sent again automatically.`,
   ].filter(Boolean)
@@ -320,7 +338,7 @@ function counted(label: string, counts: SyncResult['accounts']) {
   return `${total} ${label} (${counts.created} new, ${counts.updated} changed)`
 }
 
-/** What the sync brought, and how each Xero VAT rate was matched to ours: an unmatched rate
+/** What the sync brought, and how each of its VAT rates was matched to ours: an unmatched rate
  * cannot be used for coding, so the accountant should see the list. */
 function SyncSummary({ result }: { result: SyncResult }) {
   const purchase = result.tax_mapping.filter((m) => m.tax_type)
@@ -334,13 +352,13 @@ function SyncSummary({ result }: { result: SyncResult }) {
       <p>
         Synced: {counted('accounts', result.accounts)}, {counted('VAT rates', result.tax_rates)},{' '}
         {counted('contacts', result.contacts)}
-        {result.deactivated > 0 && `; ${result.deactivated} no longer in Xero, now inactive`}.
+        {result.deactivated > 0 && `; ${result.deactivated} no longer there, now inactive`}.
       </p>
       <table className="w-full text-left">
         <caption className="sr-only">VAT rates used for bills</caption>
         <thead className="text-xs text-muted-foreground">
           <tr>
-            <th className="font-normal">Xero VAT rate</th>
+            <th className="font-normal">Their VAT rate</th>
             <th className="font-normal">Used here as</th>
           </tr>
         </thead>

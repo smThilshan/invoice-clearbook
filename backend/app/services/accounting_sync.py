@@ -1,20 +1,17 @@
-"""Sync a connected client's master data from its accounting system (task 5.4).
+"""Sync a connected client's master data from its accounting system (task 5.4, decision 43).
 
-One transaction: Xero's accounts, tax rates and contacts are imported (decision 20), rows that
-are gone from Xero are marked inactive (never deleted: past coding still names them), and the
-client switches to Xero's master data for coding and checks. Any failure changes nothing.
+One transaction: the provider's accounts, tax rates and contacts are imported (decision 20),
+rows that are gone from it are marked inactive (never deleted: past coding still names them),
+and the client switches to that master data for coding and checks. Any failure changes nothing.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.base import AccountingSystem, MasterData
-from app.adapters.accounting.xero.auth import XeroAuth
-from app.adapters.accounting.xero.client import XeroApiError
-from app.adapters.accounting.xero.master_data import XeroAccountingSystem
+from app.adapters.accounting.base import AccountingSystemError, MasterData
+from app.adapters.accounting.registry import Registry
 from app.core.config import Settings
 from app.domain.enums import AccountingProvider, TaxType
 from app.models import Client, Contact, LedgerAccount, TaxRate
@@ -25,8 +22,6 @@ from app.services.accounting_connections import (
     connection_of,
 )
 from app.services.master_data import Counts, import_master_data
-
-SystemFactory = Callable[[str, str], AccountingSystem]  # (access token, tenant id) -> system
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,32 +36,28 @@ class SyncReport:
     accounts: Counts
     tax_rates: Counts
     contacts: Counts
-    deactivated: int  # rows no longer in Xero
+    deactivated: int  # rows no longer in the accounting system
     tax_mapping: list[TaxMapping]  # active rates, as matched to our VAT types
 
 
-def sync_xero(
-    session: Session,
-    settings: Settings,
-    auth: XeroAuth,
-    client: Client,
-    system: SystemFactory = XeroAccountingSystem,
-) -> SyncReport:
+def sync(session: Session, settings: Settings, registry: Registry, client: Client) -> SyncReport:
     """The caller commits; on error it rolls back and nothing has changed."""
     connection = connection_of(session, client.client_id)
     if connection is None:
-        raise AccountingConnectionError("this client is not connected to Xero")
-    token = access_token(session, settings, auth, client.client_id)
-    source = system(token, connection.tenant_id)
+        raise AccountingConnectionError("this client is not connected to an accounting system")
+    provider = connection.provider
+    token = access_token(session, settings, registry, client.client_id)
     try:
-        data = source.fetch_master_data()
-    except XeroApiError as exc:
+        data = registry[provider].system(token, connection.tenant_id).fetch_master_data()
+    except AccountingSystemError as exc:
         raise AccountingConnectionError(str(exc)) from exc
 
-    provider = AccountingProvider.XERO
-    report = import_master_data(session, client_id=client.client_id, source=_Fetched(data))
+    source = _Fetched(provider, data)
+    report = import_master_data(session, client_id=client.client_id, source=source)
     deactivated = sum(
-        _deactivate_missing(session, model, client.client_id, {r.external_id for r in records})
+        _deactivate_missing(
+            session, model, client.client_id, provider, {r.external_id for r in records}
+        )
         for model, records in (
             (LedgerAccount, data.accounts or []),
             (TaxRate, data.tax_rates or []),
@@ -87,25 +78,32 @@ def sync_xero(
 
 
 class _Fetched:
-    """Already-fetched data as an AccountingSystem, so the import does not call Xero again."""
+    """Already-fetched data as an AccountingSystem, so the import does not call it again."""
 
-    provider = AccountingProvider.XERO
-
-    def __init__(self, data: MasterData) -> None:
+    def __init__(self, provider: AccountingProvider, data: MasterData) -> None:
+        self._provider = provider
         self._data = data
+
+    @property
+    def provider(self) -> AccountingProvider:
+        return self._provider
 
     def fetch_master_data(self) -> MasterData:
         return self._data
 
 
 def _deactivate_missing(
-    session: Session, model: type[MasterDataRow], client_id: str, present: set[str]
+    session: Session,
+    model: type[MasterDataRow],
+    client_id: str,
+    provider: AccountingProvider,
+    present: set[str],
 ) -> int:
     result = session.execute(
         update(model)
         .where(
             model.client_id == client_id,
-            model.provider == AccountingProvider.XERO,
+            model.provider == provider,
             model.is_active.is_(True),
             model.external_id.not_in(present),
         )

@@ -11,7 +11,8 @@ crash:
 
 A row left IN_PROGRESS by a crashed worker is claimed again after STALE_AFTER and resumes from
 its saved progress. Bills only for now (credit notes 5.7, receipts 5.8), and only for clients
-connected to Xero (the export, 5.2, comes later): other rows wait.
+connected to an accounting system (the export, 5.2, comes later): other rows wait. The client's
+provider comes from the registry (decision 43): nothing here names one.
 """
 
 import logging
@@ -32,10 +33,9 @@ from app.adapters.accounting.base import (
     PostingBill,
     PostingLine,
     PostingRefused,
-    PostingSystem,
     PostingUnavailable,
 )
-from app.adapters.accounting.xero.auth import XeroAuth
+from app.adapters.accounting.registry import Registry
 from app.adapters.storage import Storage
 from app.adapters.storage.base import NotFoundError
 from app.core.config import Settings
@@ -59,7 +59,6 @@ NOTE = "Created by Missan invoice automation after review and approval in the Re
 TOLERANCE = Decimal("0.01")
 
 Sessions = Callable[[], AbstractContextManager[Session]]
-SystemFactory = Callable[[str, str], PostingSystem]  # (access token, tenant id) -> adapter
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +71,8 @@ class Outcome:
 @dataclass(frozen=True, slots=True)
 class _Claim:
     outbox_id: uuid.UUID
+    provider: AccountingProvider
+    name: str  # the accounting system's name, for messages
     key: str
     progress: dict[str, Any]
     bill: PostingBill | None
@@ -85,8 +86,7 @@ class _Claim:
 def send_next(
     sessions: Sessions,
     settings: Settings,
-    auth: XeroAuth,
-    system: SystemFactory,
+    registry: Registry,
     storage: Storage,
     *,
     outbox_id: str | None = None,
@@ -94,7 +94,9 @@ def send_next(
 ) -> Outcome | None:
     """Post the next due row (that one row, or any of the client's, or any). None = none due."""
     with sessions() as session:
-        claim = _claim(session, settings, auth, storage, outbox_id=outbox_id, client_id=client_id)
+        claim = _claim(
+            session, settings, registry, storage, outbox_id=outbox_id, client_id=client_id
+        )
     if claim is None:
         return None
     if claim.refusal is not None:
@@ -105,8 +107,12 @@ def send_next(
 
     progress = dict(claim.progress)
     try:
-        posted = system(claim.token, claim.tenant_id).post_bill(
-            claim.bill, key=claim.key, progress=progress, save=_saver(sessions, claim, progress)
+        posted = (
+            registry[claim.provider]
+            .system(claim.token, claim.tenant_id)
+            .post_bill(
+                claim.bill, key=claim.key, progress=progress, save=_saver(sessions, claim, progress)
+            )
         )
     except PostingRefused as exc:
         return _refused(sessions, claim, str(exc))
@@ -125,13 +131,13 @@ def send_next(
         )
         document.external_id = posted.external_id
         document.failure_reason = None
-        _remember_contact(session, document, claim.bill, posted.contact_external_id)
+        _remember_contact(session, document, claim, posted.contact_external_id)
         transition(session, document, DocumentStatus.POSTED, actor=ACTOR, details={
             "external_id": posted.external_id,
             "contact_created": posted.contact_created,
             "due_date_from": posted.due_date_from,
             "attached": posted.attached,
-            "total_matches": matches,  # flag, never fix (rule 8): Xero's total is not changed
+            "total_matches": matches,  # flag, never fix (rule 8): their total is not changed
         })  # fmt: skip
         outbox.status, outbox.step, outbox.last_error = OutboxStatus.DONE, "posted", None
     return Outcome(str(claim.outbox_id), "posted")
@@ -152,7 +158,7 @@ class PostingSummary:
     ready: int  # bills to send now (or being sent)
     retrying: int  # bills waiting to try again after a temporary failure
     retry_at: datetime | None  # the earliest next try
-    retry_reason: str | None  # the latest temporary failure, e.g. Xero's rate limit
+    retry_reason: str | None  # the latest temporary failure, e.g. a rate limit
     not_yet: dict[str, int]  # document type -> count: approved, but not sent in this version
     sent_back: int  # back in review because they could not be sent
     posted: int  # in the accounting system
@@ -179,30 +185,29 @@ def summary(session: Session, client_id: str) -> PostingSummary:
                 retry_at, retry_reason = next_attempt_at, last_error
         else:
             ready += 1
-    counts = dict(
-        session.execute(
-            select(Document.status, func.count())
-            .where(
-                Document.client_id == client_id,
-                or_(
-                    Document.status == DocumentStatus.POSTED,
-                    and_(
-                        Document.status == DocumentStatus.IN_REVIEW,
-                        Document.failure_reason.like("Not sent to Xero:%"),
-                    ),
-                ),
-            )
-            .group_by(Document.status)
-        ).all()
-    )
+    posted = session.scalars(
+        select(func.count()).where(
+            Document.client_id == client_id, Document.status == DocumentStatus.POSTED
+        )
+    ).one()
+    # Sent back = in review again after a send attempt that could not go through.
+    sent_back = session.scalars(
+        select(func.count(func.distinct(Document.id)))
+        .join(Outbox, Outbox.document_id == Document.id)
+        .where(
+            Document.client_id == client_id,
+            Document.status == DocumentStatus.IN_REVIEW,
+            Outbox.status == OutboxStatus.FAILED,
+        )
+    ).one()
     return PostingSummary(
         ready=ready,
         retrying=retrying,
         retry_at=retry_at,
         retry_reason=retry_reason,
         not_yet=not_yet,
-        sent_back=counts.get(DocumentStatus.IN_REVIEW, 0),
-        posted=counts.get(DocumentStatus.POSTED, 0),
+        sent_back=sent_back,
+        posted=posted,
     )
 
 
@@ -212,7 +217,7 @@ def summary(session: Session, client_id: str) -> PostingSummary:
 def _claim(
     session: Session,
     settings: Settings,
-    auth: XeroAuth,
+    registry: Registry,
     storage: Storage,
     *,
     outbox_id: str | None,
@@ -220,14 +225,14 @@ def _claim(
 ) -> _Claim | None:
     now = datetime.now(UTC)
     query = (
-        select(Outbox)
+        select(Outbox, Client.accounting_provider)
         .join(Document, Document.id == Outbox.document_id)
         .join(Client, Client.client_id == Outbox.client_id)
         .join(
             AccountingConnection,
             and_(
                 AccountingConnection.client_id == Outbox.client_id,
-                AccountingConnection.provider == AccountingProvider.XERO,
+                AccountingConnection.provider == Client.accounting_provider,
             ),
         )
         .where(
@@ -239,7 +244,7 @@ def _claim(
                 ),
             ),
             Document.document_type == DocumentType.BILL,
-            Client.accounting_provider == AccountingProvider.XERO,
+            Client.accounting_provider.in_(list(registry)),
         )
         .order_by(Outbox.created_at)
         .limit(1)
@@ -249,9 +254,11 @@ def _claim(
         query = query.where(Outbox.id == uuid.UUID(outbox_id))
     if client_id:
         query = query.where(Outbox.client_id == client_id)
-    outbox = session.scalars(query).first()
-    if outbox is None:
+    found = session.execute(query).first()
+    if found is None:
         return None
+    outbox, provider = found
+    name = registry[provider].name
     document = session.get_one(Document, outbox.document_id)
 
     outbox.status, outbox.attempts = OutboxStatus.IN_PROGRESS, outbox.attempts + 1
@@ -259,14 +266,14 @@ def _claim(
         transition(session, document, DocumentStatus.POSTING, actor=ACTOR)
 
     invoice = working_copy(document)
-    chart = load_chart(session, client_id=outbox.client_id, provider=AccountingProvider.XERO)
-    bill, refusal = _bill(session, document, invoice, chart)
+    chart = load_chart(session, client_id=outbox.client_id, provider=provider)
+    bill, refusal = _bill(session, document, invoice, chart, provider, name)
     if bill is not None:
         bill = replace(bill, attachment=_original(storage, document))
     token = tenant_id = unavailable = None
     if bill is not None:
         try:
-            token = access_token(session, settings, auth, outbox.client_id)
+            token = access_token(session, settings, registry, outbox.client_id)
             connection = session.scalars(
                 select(AccountingConnection).where(
                     AccountingConnection.client_id == outbox.client_id
@@ -274,10 +281,12 @@ def _claim(
             ).one()
             tenant_id = connection.tenant_id
         except AccountingConnectionError as exc:
-            unavailable = str(exc)  # posting waits until Xero is connected again
+            unavailable = str(exc)  # posting waits until it is connected again
     session.flush()
     return _Claim(
         outbox_id=outbox.id,
+        provider=provider,
+        name=name,
         key=str(outbox.id),  # the outbox row's id is the idempotency key
         progress=dict(outbox.progress or {}),
         bill=bill,
@@ -290,9 +299,15 @@ def _claim(
 
 
 def _bill(
-    session: Session, document: Document, invoice: Invoice | None, chart: ChartOfAccounts
+    session: Session,
+    document: Document,
+    invoice: Invoice | None,
+    chart: ChartOfAccounts,
+    provider: AccountingProvider,
+    name: str,
 ) -> tuple[PostingBill | None, str | None]:
-    """The bill to send, or why it cannot be sent (checked here, before Xero sees anything)."""
+    """The bill to send, or why it cannot be sent (checked here, before the accounting system
+    sees anything)."""
     if invoice is None:
         return None, "the document has no valid data to send"
     problems = []
@@ -306,12 +321,12 @@ def _bill(
     for number, line in enumerate(invoice.lines, start=1):
         if not line.account_code or line.account_code not in chart.accounts:
             problems.append(
-                f"line {number}: account {line.account_code or '(none)'} is not in Xero's chart "
-                "of accounts: choose another"
+                f"line {number}: account {line.account_code or '(none)'} is not in {name}'s "
+                "chart of accounts: choose another"
             )
         tax_code = chart.tax_codes.get(line.tax_type) if line.tax_type else None
         if tax_code is None:
-            problems.append(f"line {number}: no Xero VAT rate for this line's VAT type")
+            problems.append(f"line {number}: no {name} VAT rate for this line's VAT type")
         if not problems:
             quantity, unit = _quantity_and_unit(line)
             lines.append(
@@ -325,7 +340,7 @@ def _bill(
         PostingBill(
             supplier_name=invoice.vendor_name,
             supplier_tax_number=invoice.vendor_trn,
-            supplier_external_id=_known_contact(session, document),
+            supplier_external_id=_known_contact(session, document, provider),
             invoice_number=invoice.invoice_number,
             invoice_date=invoice.invoice_date,
             due_date=invoice.due_date,
@@ -352,7 +367,7 @@ def _original(storage: Storage, document: Document) -> Attachment | None:
 
 def _quantity_and_unit(line: Line) -> tuple[Decimal, Decimal]:
     """Quantity x unit price when they give exactly the line amount; else 1 x the amount, so
-    the line in Xero is always the amount the accountant approved."""
+    the line sent is always the amount the accountant approved."""
     if (
         line.qty is not None
         and line.unit_price is not None
@@ -362,11 +377,13 @@ def _quantity_and_unit(line: Line) -> tuple[Decimal, Decimal]:
     return Decimal(1), line.amount
 
 
-def _known_contact(session: Session, document: Document) -> str | None:
+def _known_contact(
+    session: Session, document: Document, provider: AccountingProvider
+) -> str | None:
     if document.contact_id is None:
         return None
     contact = session.get(Contact, document.contact_id)
-    if contact is None or contact.provider is not AccountingProvider.XERO:
+    if contact is None or contact.provider is not provider:
         return None
     return contact.external_id
 
@@ -401,7 +418,7 @@ def _refused(sessions: Sessions, claim: _Claim, reason: str) -> Outcome:
     with sessions() as session:
         outbox, document = _load(session, claim.outbox_id)
         outbox.status, outbox.last_error = OutboxStatus.FAILED, reason
-        document.failure_reason = f"Not sent to Xero: {reason}"
+        document.failure_reason = f"Not sent to {claim.name}: {reason}"
         transition(session, document, DocumentStatus.POST_ERROR, actor=ACTOR, reason=reason)
         transition(session, document, DocumentStatus.IN_REVIEW, actor=ACTOR)
     logger.info("outbox %s: refused, document back to review", claim.outbox_id)
@@ -420,7 +437,7 @@ def _unavailable(sessions: Sessions, claim: _Claim, exc: PostingUnavailable) -> 
         )
         outbox.status, outbox.last_error = OutboxStatus.PENDING, str(exc)
         outbox.next_attempt_at = datetime.now(UTC) + timedelta(seconds=wait)
-    logger.info("outbox %s: Xero unavailable, next try in %d s", claim.outbox_id, wait)
+    logger.info("outbox %s: %s unavailable, next try in %d s", claim.outbox_id, claim.name, wait)
     return Outcome(str(claim.outbox_id), "retry", wait)
 
 
@@ -432,20 +449,22 @@ def _dead(sessions: Sessions, claim: _Claim, reason: str) -> Outcome:
 
 
 def _remember_contact(
-    session: Session, document: Document, bill: PostingBill, external_id: str
+    session: Session, document: Document, claim: _Claim, external_id: str
 ) -> None:
-    """The supplier's Xero contact, kept in master data so the next bill finds it directly."""
+    """The supplier's contact there, kept in master data so the next bill finds it directly."""
+    assert claim.bill  # noqa: S101 - posted, so there was a bill
+    bill = claim.bill
     contact = session.scalars(
         select(Contact).where(
             Contact.client_id == document.client_id,
-            Contact.provider == AccountingProvider.XERO,
+            Contact.provider == claim.provider,
             Contact.external_id == external_id,
         )
     ).first()
     if contact is None:
         contact = Contact(
             client_id=document.client_id,
-            provider=AccountingProvider.XERO,
+            provider=claim.provider,
             external_id=external_id,
             name=bill.supplier_name,
             tax_number=bill.supplier_tax_number,

@@ -116,7 +116,7 @@ export const api = {
     request<AccountingStatus>(`/clients/${encodeURIComponent(clientId)}/accounting`),
   disconnectAccounting: (clientId: string) =>
     sendJson<AccountingStatus>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/disconnect`, {}),
-  /** Read accounts, VAT rates and suppliers from the connected Xero organisation (task 5.4). */
+  /** Read accounts, VAT rates and suppliers from the connected accounting system (task 5.4). */
   syncAccounting: (clientId: string) =>
     sendJson<SyncResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/sync`, {}),
   /** Ask the worker to post the client's approved documents now (task 5.1). */

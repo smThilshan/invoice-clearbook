@@ -23,8 +23,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.xero.auth import XeroAuth
-from app.adapters.accounting.xero.master_data import XeroAccountingSystem
+from app.adapters.accounting.registry import PROVIDERS
 from app.adapters.llm import ExtractionError, ExtractionStopped, get_extraction_client
 from app.adapters.ocr import get_ocr_engine
 from app.adapters.storage import get_storage
@@ -311,8 +310,7 @@ def send_posting(outbox_id: str | None = None, client_id: str | None = None) -> 
         outcome = posting.send_next(
             session_scope,
             settings,
-            XeroAuth(settings),
-            XeroAccountingSystem,
+            PROVIDERS,
             get_storage(settings),
             outbox_id=outbox_id,
             client_id=client_id,

@@ -1,11 +1,14 @@
 """AccountingSystem port: what the core needs from any accounting system, in canonical types.
 
-Grows only as adapters need it: master data (task 1.5), posting bills (tasks 5.1, 5.5).
+Grows only as adapters need it: master data (task 1.5), posting bills (tasks 5.1, 5.5), and
+connecting by OAuth 2.0 (task 5.3). Every provider (Xero, later Zoho, ...) implements these in
+its own folder and is listed once in `registry.py` (decision 43); nothing outside its folder
+names it.
 """
 
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -61,11 +64,16 @@ class MasterDataError(Exception):
         self.problems = list(problems)
 
 
+class AccountingSystemError(Exception):
+    """The accounting system refused a request or could not be reached. The message says why,
+    in words for the accountant; never a token or document contents."""
+
+
 class AccountingSystem(Protocol):
     @property
     def provider(self) -> AccountingProvider: ...
 
-    def fetch_master_data(self) -> MasterData: ...
+    def fetch_master_data(self) -> MasterData: ...  # raises AccountingSystemError
 
 
 # --- Posting (tasks 5.1, 5.5) ---------------------------------------------------------------
@@ -142,3 +150,49 @@ class PostingSystem(Protocol):
         progress: MutableMapping[str, Any],
         save: Callable[[str], None],
     ) -> Posted: ...
+
+
+class ConnectedSystem(AccountingSystem, PostingSystem, Protocol):
+    """One connected organisation of a provider: master data in, documents out."""
+
+
+# --- Connecting (task 5.3) -------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Tokens:
+    access_token: str
+    refresh_token: str
+    expires_at: datetime
+    scopes: str
+    approval_id: str | None  # which sign-in approval these tokens came from, if the provider says
+
+
+@dataclass(frozen=True, slots=True)
+class Organisation:
+    """One organisation the user allowed access to, in the provider's sign-in."""
+
+    connection_id: str | None  # needed to disconnect, if the provider has one
+    organisation_id: str  # sent with every API call
+    name: str
+    approval_id: str | None
+
+
+class ConnectorError(Exception):
+    """The provider refused the sign-in or could not be reached. Never carries a token."""
+
+
+class Connector(Protocol):
+    """OAuth 2.0 authorisation code flow against one provider."""
+
+    def configured(self) -> bool: ...  # the app keys are in .env
+
+    def authorize_url(self, state: str) -> str: ...
+
+    def exchange(self, code: str) -> Tokens: ...
+
+    def refresh(self, refresh_token: str) -> Tokens: ...
+
+    def organisations(self, access_token: str) -> list[Organisation]: ...
+
+    def disconnect(self, access_token: str, connection_id: str) -> None: ...

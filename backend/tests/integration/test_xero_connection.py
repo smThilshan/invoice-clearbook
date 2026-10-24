@@ -1,4 +1,5 @@
-"""Connecting a client to Xero (task 5.3): state, encrypted tokens, renewal, disconnect, API."""
+"""Connecting a client to Xero (task 5.3) through the neutral services and API (decision 43):
+state, encrypted tokens, renewal, disconnect, sync, send."""
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -15,16 +16,18 @@ from app.adapters.accounting.base import (
     ContactRecord,
     LedgerAccountRecord,
     MasterData,
+    Organisation,
     TaxRateRecord,
+    Tokens,
 )
-from app.adapters.accounting.xero.auth import Tenant, Tokens
+from app.adapters.accounting.registry import ProviderEntry, Registry
 from app.core.config import Settings
 from app.domain.enums import AccountClass, AccountingProvider, TaxType
 from app.models import AccountingConnection, LedgerAccount
 from app.pipeline.coding import load_chart
 from app.services import accounting_connections as connections
 from app.services.accounting_connections import AccountingConnectionError
-from app.services.accounting_sync import sync_xero
+from app.services.accounting_sync import sync
 from app.services.clients import get_client
 from tests.integration.factories import CLIENT, make_client
 
@@ -46,6 +49,7 @@ class FakeXero:
     def __init__(self) -> None:
         self.refreshed: list[str] = []
         self.disconnected: list[str] = []
+        self.organisation = FakeOrganisation()  # what its API answers, once connected
 
     def configured(self) -> bool:
         return True
@@ -63,12 +67,25 @@ class FakeXero:
         self.refreshed.append(refresh_token)
         return Tokens("access-2", "refresh-2", datetime.now(UTC) + LATER, "s", None)
 
-    def tenants(self, access_token: str) -> list[Tenant]:
-        return [Tenant("c1", "t1", "Other company", "event-1"),
-                Tenant("c2", "t2", "Demo Company (Global)", "event-2")]  # fmt: skip
+    def organisations(self, access_token: str) -> list[Organisation]:
+        return [Organisation("c1", "t1", "Other company", "event-1"),
+                Organisation("c2", "t2", "Demo Company (Global)", "event-2")]  # fmt: skip
 
     def disconnect(self, access_token: str, connection_id: str) -> None:
         self.disconnected.append(connection_id)
+
+
+def registry(xero: FakeXero) -> Registry:
+    """The registry with Xero replaced by fakes: its sign-in and its API."""
+    entry = ProviderEntry(
+        provider=AccountingProvider.XERO,
+        name="Xero",
+        slug="xero",
+        bills_where="Bills to pay, Awaiting approval",
+        connector=lambda _settings: xero,  # type: ignore[arg-type,return-value]
+        system=lambda token, org: xero.organisation.system(token, org),  # type: ignore[return-value]
+    )
+    return {AccountingProvider.XERO: entry}
 
 
 @pytest.fixture
@@ -80,9 +97,9 @@ def xero(session: Session, tmp_path: Path) -> FakeXero:
 def connect(session: Session, xero: FakeXero) -> AccountingConnection:
     client = get_client(session, CLIENT)
     assert client is not None
-    url = connections.start_xero(SETTINGS, xero, client)  # type: ignore[arg-type]
+    url = connections.start(SETTINGS, registry(xero)[AccountingProvider.XERO], client)
     state = url.split("state=")[1]
-    connections.finish_xero(session, SETTINGS, xero, state, "code-1")  # type: ignore[arg-type]
+    connections.finish(session, SETTINGS, registry(xero), state, "code-1")
     found = connections.connection_of(session, CLIENT)
     assert found is not None
     return found
@@ -96,7 +113,7 @@ def test_connecting_stores_the_approved_organisation_with_encrypted_tokens(
     assert (connection.tenant_id, connection.tenant_name) == ("t2", "Demo Company (Global)")
     assert "access-1" not in connection.access_token  # stored encrypted
     assert "refresh-1" not in connection.refresh_token
-    token = connections.access_token(session, SETTINGS, xero, CLIENT)  # type: ignore[arg-type]
+    token = connections.access_token(session, SETTINGS, registry(xero), CLIENT)
     assert token == "access-1"
 
 
@@ -104,19 +121,19 @@ def test_a_sign_in_not_started_here_or_too_old_is_refused(
     session: Session, xero: FakeXero, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with pytest.raises(AccountingConnectionError, match="not started from the Workbench"):
-        connections.finish_xero(session, SETTINGS, xero, f"{CLIENT}.1.x.forged", "code-1")  # type: ignore[arg-type]
+        connections.finish(session, SETTINGS, registry(xero), f"{CLIENT}.xero.1.x.forged", "c")
 
-    state = connections._state(SETTINGS, CLIENT)
+    state = connections._state(SETTINGS, CLIENT, "xero")
     monkeypatch.setattr(connections.time, "time", lambda: 9_999_999_999.0)
     with pytest.raises(AccountingConnectionError, match="took too long"):
-        connections.finish_xero(session, SETTINGS, xero, state, "code-1")  # type: ignore[arg-type]
+        connections.finish(session, SETTINGS, registry(xero), state, "code-1")
 
 
 def test_an_access_about_to_expire_is_renewed(session: Session, xero: FakeXero) -> None:
     connection = connect(session, xero)
     connection.expires_at = datetime.now(UTC) + timedelta(seconds=30)
 
-    token = connections.access_token(session, SETTINGS, xero, CLIENT)  # type: ignore[arg-type]
+    token = connections.access_token(session, SETTINGS, registry(xero), CLIENT)
 
     assert (token, xero.refreshed) == ("access-2", ["refresh-1"])
     assert connection.expires_at > datetime.now(UTC) + timedelta(minutes=20)
@@ -125,7 +142,7 @@ def test_an_access_about_to_expire_is_renewed(session: Session, xero: FakeXero) 
 def test_disconnecting_removes_it_here_and_in_xero(session: Session, xero: FakeXero) -> None:
     connect(session, xero)
 
-    connections.disconnect(session, SETTINGS, xero, CLIENT)  # type: ignore[arg-type]
+    connections.disconnect(session, SETTINGS, registry(xero), CLIENT)
 
     assert connections.connection_of(session, CLIENT) is None
     assert xero.disconnected == ["c2"]
@@ -138,12 +155,12 @@ def test_without_a_token_key_connecting_says_how_to_fix_it(
     no_key = Settings(_env_file=None, xero_client_id="app-id", xero_client_secret="app-secret")
 
     with pytest.raises(AccountingConnectionError, match="make secret-key"):
-        connections.start_xero(no_key, xero, client)  # type: ignore[arg-type]
+        connections.start(no_key, registry(xero)[AccountingProvider.XERO], client)  # type: ignore[arg-type]
 
 
 @pytest.fixture
 def api(session: Session, xero: FakeXero) -> Iterator[TestClient]:
-    from app.api.xero import get_xero_auth
+    from app.api.accounting import get_registry
     from app.core.config import get_settings
     from app.core.db import get_session
     from app.main import create_app
@@ -151,7 +168,7 @@ def api(session: Session, xero: FakeXero) -> Iterator[TestClient]:
     app = create_app(SETTINGS)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SETTINGS
-    app.dependency_overrides[get_xero_auth] = lambda: xero
+    app.dependency_overrides[get_registry] = lambda: registry(xero)
     with TestClient(app, follow_redirects=False) as client:
         yield client
 
@@ -168,7 +185,12 @@ def test_the_browser_goes_to_xero_and_back_to_the_workbench(api: TestClient) -> 
     assert back.status_code == 303
     assert back.headers["location"].startswith("http://127.0.0.1:5173/clients?client=")
     assert "connected=Demo+Company" in back.headers["location"]
+    assert "system=Xero" in back.headers["location"]
     assert (status["connected"], status["organisation"]) == (True, "Demo Company (Global)")
+    assert (status["provider_name"], status["bills_where"]) == (
+        "Xero", "Bills to pay, Awaiting approval")  # fmt: skip
+    assert status["providers"] == [{"key": "XERO", "name": "Xero", "configured": True,
+                                    "connect_url": "/xero/connect"}]  # fmt: skip
 
 
 def test_a_cancelled_xero_sign_in_comes_back_with_the_reason(api: TestClient) -> None:
@@ -210,11 +232,11 @@ def test_syncing_brings_xero_master_data_and_switches_the_client_to_it(
     session: Session, xero: FakeXero
 ) -> None:
     connect(session, xero)
-    organisation = FakeOrganisation()
+    organisation = xero.organisation
     client = get_client(session, CLIENT)
     assert client is not None
 
-    report = sync_xero(session, SETTINGS, xero, client, organisation.system)  # type: ignore[arg-type]
+    report = sync(session, SETTINGS, registry(xero), client)  # type: ignore[arg-type]
 
     assert organisation.asked == [("access-1", "t2")]
     assert (report.accounts.created, report.tax_rates.created, report.contacts.created) == (2, 2, 1)
@@ -230,12 +252,12 @@ def test_syncing_again_marks_what_was_removed_in_xero_inactive(
     session: Session, xero: FakeXero
 ) -> None:
     connect(session, xero)
-    organisation = FakeOrganisation()
+    organisation = xero.organisation
     client = get_client(session, CLIENT)
-    sync_xero(session, SETTINGS, xero, client, organisation.system)  # type: ignore[arg-type]
+    sync(session, SETTINGS, registry(xero), client)  # type: ignore[arg-type]
     organisation.accounts = organisation.accounts[:1]
 
-    report = sync_xero(session, SETTINGS, xero, client, organisation.system)  # type: ignore[arg-type]
+    report = sync(session, SETTINGS, registry(xero), client)  # type: ignore[arg-type]
 
     assert (report.accounts.unchanged, report.deactivated) == (1, 1)
     chart = load_chart(session, client_id=CLIENT, provider=AccountingProvider.XERO)
@@ -246,11 +268,7 @@ def test_syncing_again_marks_what_was_removed_in_xero_inactive(
 def test_sync_through_the_api_and_csv_import_is_then_refused(
     api: TestClient, session: Session, xero: FakeXero
 ) -> None:
-    from app.api.xero import get_xero_system
-
     connect(session, xero)
-    organisation = FakeOrganisation()
-    api.app.dependency_overrides[get_xero_system] = lambda: organisation.system  # type: ignore[attr-defined]
 
     synced = api.post(f"/clients/{CLIENT}/accounting/sync")
     status = api.get(f"/clients/{CLIENT}/accounting").json()
@@ -273,11 +291,10 @@ def test_sync_without_a_connection_says_so(api: TestClient) -> None:
 def test_sending_waiting_bills_needs_xero_master_data_then_asks_the_worker(
     api: TestClient, session: Session, xero: FakeXero
 ) -> None:
-    from app.api.xero import get_enqueue_sweep, get_xero_system
+    from app.api.accounting import get_enqueue_sweep
 
     asked: list[str] = []
     api.app.dependency_overrides[get_enqueue_sweep] = lambda: asked.append  # type: ignore[attr-defined]
-    api.app.dependency_overrides[get_xero_system] = lambda: FakeOrganisation().system  # type: ignore[attr-defined]
     connect(session, xero)
 
     before_sync = api.post(f"/clients/{CLIENT}/accounting/send")

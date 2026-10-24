@@ -8,13 +8,13 @@ logged; they are returned to the caller, which stores them encrypted.
 
 import base64
 import json
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
+from app.adapters.accounting.base import ConnectorError, Organisation, Tokens
 from app.core.config import Settings
 
 AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize"
@@ -23,28 +23,13 @@ CONNECTIONS_URL = "https://api.xero.com/connections"
 TIMEOUT_SECONDS = 20.0
 
 
-class XeroAuthError(Exception):
+class XeroAuthError(ConnectorError):
     """Xero refused or could not be reached. Never carries a token."""
 
 
-@dataclass(frozen=True, slots=True)
-class Tokens:
-    access_token: str
-    refresh_token: str
-    expires_at: datetime
-    scopes: str
-    auth_event_id: str | None  # which approval these tokens came from
-
-
-@dataclass(frozen=True, slots=True)
-class Tenant:
-    connection_id: str  # needed to disconnect
-    tenant_id: str
-    name: str
-    auth_event_id: str | None
-
-
 class XeroAuth:
+    """The Connector port for Xero."""
+
     def __init__(self, settings: Settings, http: httpx.Client | None = None) -> None:
         self._settings = settings
         self._http = http or httpx.Client(timeout=TIMEOUT_SECONDS)
@@ -76,10 +61,11 @@ class XeroAuth:
     def refresh(self, refresh_token: str) -> Tokens:
         return self._token({"grant_type": "refresh_token", "refresh_token": refresh_token})
 
-    def tenants(self, access_token: str) -> list[Tenant]:
+    def organisations(self, access_token: str) -> list[Organisation]:
+        """Xero calls them tenants: the organisations this connection may use."""
         body = self._call("GET", CONNECTIONS_URL, access_token)
         return [
-            Tenant(t["id"], t["tenantId"], t.get("tenantName") or "", t.get("authEventId"))
+            Organisation(t["id"], t["tenantId"], t.get("tenantName") or "", t.get("authEventId"))
             for t in body
             if t.get("tenantType", "ORGANISATION") == "ORGANISATION"
         ]
@@ -106,7 +92,7 @@ class XeroAuth:
             refresh_token=body["refresh_token"],
             expires_at=datetime.now(UTC) + timedelta(seconds=int(body.get("expires_in", 1800))),
             scopes=body.get("scope", ""),
-            auth_event_id=_claim(access, "authentication_event_id"),
+            approval_id=_claim(access, "authentication_event_id"),
         )
 
     def _call(self, method: str, url: str, access_token: str) -> Any:
