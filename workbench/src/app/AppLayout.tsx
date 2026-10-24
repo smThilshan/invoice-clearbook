@@ -97,10 +97,10 @@ export function AppLayout() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <SystemStatus compact={reviewing} />
           <ThemeSwitch />
         </div>
       </header>
+      <SystemStatus />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
         <nav
           aria-label="Main"

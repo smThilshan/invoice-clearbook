@@ -90,30 +90,32 @@ describe('theme', () => {
 })
 
 describe('system status', () => {
-  it('shows every dependency as ready', async () => {
+  it('shows nothing while everything is running', async () => {
     mockReadiness(ALL_OK)
     renderApp('/run')
 
-    const status = await screen.findByRole('list', { name: /system status/i })
-    expect(status).toHaveTextContent('Database: Ready')
-    expect(status).toHaveTextContent('Job queue: Ready')
-    expect(status).toHaveTextContent('AI model: Ready')
+    expect(await screen.findByRole('heading', { name: 'Clearbook' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert', { name: 'System problem' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Database|Job queue|AI model/)).not.toBeInTheDocument()
   })
 
-  it('shows what is down when readiness answers 503', async () => {
-    mockReadiness({ ...ALL_OK, status: 'unavailable', database: 'unavailable' }, 503)
+  it('says in plain words what does not work and who to ask', async () => {
+    mockReadiness({ ...ALL_OK, model: 'unreachable' })
     renderApp('/run')
 
-    const status = await screen.findByRole('list', { name: /system status/i })
-    expect(status).toHaveTextContent('Database: Unavailable')
-    expect(status).toHaveTextContent('Job queue: Ready')
+    const banner = await screen.findByRole('alert', { name: 'System problem' })
+    expect(banner).toHaveTextContent(
+      'Invoices cannot be read right now. Reviews, approvals and sending still work. Ask the person who runs the system to start it.',
+    )
+    expect(banner).toHaveAttribute('title', 'AI model: Ollama not reachable (ollama serve)')
   })
 
-  it('explains a wrong model variant', async () => {
-    mockReadiness({ ...ALL_OK, model: 'incompatible' })
+  it('puts the worst problem first when several are down', async () => {
+    mockReadiness({ ...ALL_OK, status: 'unavailable', database: 'unavailable', redis: 'unavailable' }, 503)
     renderApp('/run')
 
-    expect(await screen.findByText(/AI model: Wrong model \(needs Instruct\)/)).toBeInTheDocument()
+    const banner = await screen.findByRole('alert', { name: 'System problem' })
+    expect(banner.textContent).toMatch(/^Nothing can be loaded or saved right now\. New runs/)
   })
 
   it('says when the API itself is not reachable', async () => {
@@ -122,6 +124,8 @@ describe('system status', () => {
     }) as typeof fetch
     renderApp('/run')
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/API not reachable/)
+    expect(await screen.findByRole('alert', { name: 'System problem' })).toHaveTextContent(
+      /cannot reach its service/,
+    )
   })
 })

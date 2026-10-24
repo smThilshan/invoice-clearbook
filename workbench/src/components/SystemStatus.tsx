@@ -1,70 +1,70 @@
+import { TriangleAlert } from 'lucide-react'
+
 import { useReadiness } from '@/api/queries'
 import type { ModelStatus, Readiness } from '@/api/client'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
 
-type Check = 'ok' | 'unavailable'
+const ASK = 'Ask the person who runs the system to start it.'
 
-const MODEL_LABELS: Record<ModelStatus, string> = {
-  ok: 'Ready',
-  unreachable: 'Not reachable',
-  missing: 'Not installed',
-  incompatible: 'Wrong model (needs Instruct)',
+const MODEL_DETAILS: Record<ModelStatus, string> = {
+  ok: 'ready',
+  unreachable: 'Ollama not reachable (ollama serve)',
+  missing: 'model not installed',
+  incompatible: 'wrong model variant (needs the Instruct one)',
 }
 
-interface Item {
-  name: string
-  ok: boolean
-  label: string
+interface Problem {
+  says: string // for the accountant: what does not work, and what still does
+  detail: string // for the person who runs the system (shown on hover)
 }
 
-function items(readiness: Readiness): Item[] {
-  const check = (name: string, value: Check): Item => ({
-    name,
-    ok: value === 'ok',
-    label: value === 'ok' ? 'Ready' : 'Unavailable',
-  })
-  return [
-    check('Database', readiness.database),
-    check('Job queue', readiness.redis),
-    { name: 'AI model', ok: readiness.model === 'ok', label: MODEL_LABELS[readiness.model] },
-  ]
+/** What is down, in the words of someone who uses the Workbench; worst first. */
+function problems(readiness: Readiness): Problem[] {
+  const found: Problem[] = []
+  if (readiness.database !== 'ok') {
+    found.push({
+      says: 'Nothing can be loaded or saved right now.',
+      detail: 'Database not reachable (make up)',
+    })
+  }
+  if (readiness.redis !== 'ok') {
+    found.push({
+      says: 'New runs and sending bills cannot start right now. Reviewing still works.',
+      detail: 'Job queue not reachable (make up)',
+    })
+  }
+  if (readiness.model !== 'ok') {
+    found.push({
+      says: 'Invoices cannot be read right now. Reviews, approvals and sending still work.',
+      detail: `AI model: ${MODEL_DETAILS[readiness.model]}`,
+    })
+  }
+  return found
 }
 
-/** Is everything the Workbench needs running? (backed by GET /health/ready) `compact`: one
- * green dot when all is well (task 4.18); the full list still shows as soon as something is down. */
-export function SystemStatus({ compact = false }: { compact?: boolean }) {
+/** Nothing at all while everything the Workbench needs is running: users do not need to know.
+ * When something is down, one plain banner: what does not work, what still does, who to ask.
+ * The technical cause is in the tooltip, for whoever runs the system. (GET /health/ready) */
+export function SystemStatus() {
   const { data, isPending, isError } = useReadiness()
 
-  if (isPending) {
-    return <Skeleton className="h-6 w-64" aria-label="Checking system status" />
-  }
-  if (isError) {
-    return (
-      <Badge variant="destructive" role="status">
-        API not reachable — is <code>make api</code> running?
-      </Badge>
-    )
-  }
-  const all = items(data)
-  if (compact && all.every((item) => item.ok)) {
-    return (
-      <span title={all.map((i) => `${i.name}: ${i.label}`).join(' · ')}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="size-2 rounded-full bg-success" aria-hidden />
-        All systems ready
-      </span>
-    )
-  }
+  if (isPending) return null
+  const found: Problem[] = isError
+    ? [{ says: 'The Workbench cannot reach its service: nothing can be loaded or saved right now.',
+         detail: 'API not reachable (make api)' }]  // prettier-ignore
+    : problems(data)
+  if (found.length === 0) return null
+
   return (
-    <ul className="flex flex-wrap items-center gap-2" aria-label="System status">
-      {all.map((item) => (
-        <li key={item.name}>
-          <Badge variant={item.ok ? 'secondary' : 'destructive'}>
-            {item.name}: {item.label}
-          </Badge>
-        </li>
-      ))}
-    </ul>
+    <div
+      role="alert"
+      aria-label="System problem"
+      title={found.map((p) => p.detail).join(' · ')}
+      className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+    >
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <p>
+        {found.map((p) => p.says).join(' ')} {ASK}
+      </p>
+    </div>
   )
 }
