@@ -142,7 +142,7 @@ def check_line_math(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
 
     if invoice.lines:
         lines_sum = sum((line.amount for line in invoice.lines), Decimal(0))
-        target, label = _lines_target(invoice)
+        target, label = lines_target(invoice)
         if (
             target is not None
             and abs(lines_sum - target) > CENT
@@ -468,7 +468,7 @@ def run_rules(
     return [issue for rule in RULES for issue in rule(invoice, ctx)]
 
 
-def _lines_target(invoice: Invoice) -> tuple[Decimal | None, str]:
+def lines_target(invoice: Invoice) -> tuple[Decimal | None, str]:
     """What the line amounts should add up to."""
     if invoice.amount_type is AmountType.INCLUSIVE:
         return invoice.total, "total"

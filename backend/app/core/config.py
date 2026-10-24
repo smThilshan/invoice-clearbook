@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # limit, or a slow job would be handed to a second worker while the first still runs it.
     job_visibility_timeout_seconds: int = Field(default=3600, gt=0)
 
+    # Decision 44: when a line printed only its total ("2 x Water 7.98"), the unit price is
+    # worked out from it, only when the document proves it. False turns this off.
+    repair_unit_prices: bool = True
+
     # Charges outside the item lines (task 4.13): words that mark one when it is not printed
     # between the subtotal and the total. Configuration, so a new kind needs no code change.
     charge_hint_words: list[str] = Field(

@@ -73,6 +73,7 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
     contact_id: null,
     failure_reason: null,
     cleaned_descriptions: 0,
+    repaired_unit_prices: 0,
     updated_at: '2026-10-21T08:01:00Z',
     corrections: [],
     ...changes,
@@ -318,6 +319,12 @@ describe('review screen', () => {
     await open(backend(detail({ cleaned_descriptions: 2 })))
 
     expect(screen.getByText(/Item codes or quantity prefixes removed from 2 descriptions/)).toBeInTheDocument()
+  })
+
+  it('says when unit prices were worked out from line totals', async () => {
+    await open(backend(detail({ repaired_unit_prices: 2 })))
+
+    expect(screen.getByText(/Unit price worked out from the line total on 2 lines/)).toBeInTheDocument()
   })
 
   it('says why a bill came back from posting', async () => {

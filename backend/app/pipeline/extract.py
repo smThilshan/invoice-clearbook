@@ -27,11 +27,13 @@ from sqlalchemy.orm import Session
 from app.adapters.llm import ExtractionClient, ExtractionRequest, ExtractionResult
 from app.adapters.storage import Storage
 from app.adapters.storage.keys import page_image_key
+from app.core.config import get_settings
 from app.domain.enums import DocumentStatus
 from app.domain.invoice import INVOICE_SCHEMA_VERSION, Invoice
 from app.domain.state_machine import transition
 from app.models import Document, Extraction
 from app.pipeline.descriptions import clean_descriptions
+from app.pipeline.line_totals import repair_unit_prices
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.normalize import parse_date
@@ -123,6 +125,10 @@ def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
             # Decision 34: the amounts decide the VAT type, not the model's guess. The model is
             # still asked so its prompt stays unchanged: any wording change shifts other fields.
             invoice = invoice.model_copy(update={"amount_type": vat_type_from_amounts(invoice)})
+            # Decision 44: a unit price that is really the line total, when proven. Before the
+            # descriptions are cleaned: it reads the "N x" they start with.
+            if get_settings().repair_unit_prices:
+                invoice = repair_unit_prices(invoice)[0]
             # Decision 42: item codes and "5 x" prefixes out of the descriptions, when proven.
             return clean_descriptions(invoice)[0], None
         return Invoice.model_validate_json(llm.raw_output), None  # reports why it is invalid

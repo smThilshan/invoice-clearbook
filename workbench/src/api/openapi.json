@@ -461,6 +461,10 @@
               }
             ]
           },
+          "repaired_unit_prices": {
+            "title": "Repaired Unit Prices",
+            "type": "integer"
+          },
           "run_id": {
             "format": "uuid",
             "title": "Run Id",
@@ -552,7 +556,8 @@
           "updated_at",
           "corrections",
           "timings",
-          "cleaned_descriptions"
+          "cleaned_descriptions",
+          "repaired_unit_prices"
         ],
         "title": "DocumentDetail",
         "type": "object"

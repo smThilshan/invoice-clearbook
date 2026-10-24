@@ -721,6 +721,8 @@ export interface components {
             /** Page Count */
             page_count: number | null;
             queue: components["schemas"]["QueueCategory"] | null;
+            /** Repaired Unit Prices */
+            repaired_unit_prices: number;
             /**
              * Run Id
              * Format: uuid

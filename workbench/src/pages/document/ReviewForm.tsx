@@ -287,6 +287,7 @@ export function ReviewForm({
           options={options}
           coding={document.coding}
           cleaned={document.cleaned_descriptions}
+          repaired={document.repaired_unit_prices}
           corrected={corrected}
           editable={editable}
           onFocusField={setActive}
@@ -621,6 +622,7 @@ function Lines({
   options,
   coding,
   cleaned,
+  repaired,
   corrected,
   editable,
   onFocusField,
@@ -635,6 +637,7 @@ function Lines({
   options: CodingOptions | undefined
   coding: DocumentDetail['coding']
   cleaned: number
+  repaired: number
   corrected: Map<string, Correction>
   editable: boolean
   onFocusField: (field: ActiveField) => void
@@ -662,6 +665,13 @@ function Lines({
         <p className="text-xs text-muted-foreground">
           Item codes or quantity prefixes removed from {cleaned}{' '}
           {cleaned === 1 ? 'description' : 'descriptions'}, as the page shows them in other columns.
+        </p>
+      )}
+      {repaired > 0 && (
+        // Decision 44: a unit price worked out from the line total, only when the page proves it.
+        <p className="text-xs text-muted-foreground">
+          Unit price worked out from the line total on {repaired}{' '}
+          {repaired === 1 ? 'line' : 'lines'}: the page prints only each line's total.
         </p>
       )}
       {editable && charges.length > 0 && !chargesAdded && (
