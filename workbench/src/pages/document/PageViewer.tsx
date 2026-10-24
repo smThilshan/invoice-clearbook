@@ -132,8 +132,9 @@ export function PageViewer({
               data-exact={place.exact}
               aria-hidden
               className={cn(
-                'pointer-events-none absolute rounded-sm border-2 border-warning/40 bg-warning',
-                !place.exact && 'border-dashed bg-warning',
+                // See-through: the printed text under the mark must stay readable.
+                'pointer-events-none absolute rounded-sm border-2 border-warning bg-warning/15',
+                !place.exact && 'border-dashed bg-warning/10',
                 index === 0 && 'ring-2 ring-warning/50',
               )}
               style={boxStyle(place.box)}
