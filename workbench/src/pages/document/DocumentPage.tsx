@@ -155,7 +155,7 @@ export function DocumentPage() {
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
         <section
           aria-label="Source document"
-          className="flex min-h-[50vh] flex-col rounded-xl border bg-background p-3 shadow-sm xl:sticky xl:top-4 xl:h-[calc(100vh-8rem)]"
+          className="flex min-h-[50vh] flex-col rounded-xl border bg-background p-3 shadow-sm xl:sticky xl:top-20 xl:h-[calc(100vh-12rem)]"
         >
           <h3 className="mb-3 px-1 text-sm font-semibold">Source document</h3>
           <PageViewer
@@ -220,19 +220,11 @@ function Header({
   position: string | null
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    // Sticky: Back, previous / next and the document's status stay in view while scrolling. It
+    // sticks into the scroll area's top padding (main: p-4, sm:py-6) and fills it, so nothing
+    // scrolls past above it; the negative margin keeps the page where it was at rest.
+    <div className="sticky -top-4 z-20 -mt-4 flex flex-wrap items-center gap-3 border-b bg-background pt-4 pb-2 sm:-top-6 sm:-mt-6 sm:pt-6">
       <BackButton onBack={onBack} />
-      {position && (
-        <nav aria-label="Documents in this list" className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" aria-label="Previous document" disabled={!onPrevious} onClick={onPrevious}>
-            <ChevronLeft />
-          </Button>
-          <span className="text-sm tabular-nums text-muted-foreground">{position}</span>
-          <Button variant="ghost" size="icon-sm" aria-label="Next document" disabled={!onNext} onClick={onNext}>
-            <ChevronRight />
-          </Button>
-        </nav>
-      )}
       <h2 className="text-lg font-semibold">{doc.file}</h2>
       <Badge variant="outline">{statusLabel(doc.status)}</Badge>
       {doc.queue && <Badge variant="secondary">{QUEUE_LABELS[doc.queue]}</Badge>}
@@ -248,6 +240,17 @@ function Header({
           {doc.timings.total_ms !== null && `Processed in ${formatDuration(workMs(doc.timings))} · `}
           model {formatDuration(doc.timings.extract_ms)}
         </span>
+      )}
+      {position && (
+        <nav aria-label="Documents in this list" className="ml-auto flex items-center gap-1">
+          <Button variant="ghost" size="icon-sm" aria-label="Previous document" disabled={!onPrevious} onClick={onPrevious}>
+            <ChevronLeft />
+          </Button>
+          <span className="text-sm tabular-nums text-muted-foreground">{position}</span>
+          <Button variant="ghost" size="icon-sm" aria-label="Next document" disabled={!onNext} onClick={onNext}>
+            <ChevronRight />
+          </Button>
+        </nav>
       )}
     </div>
   )
