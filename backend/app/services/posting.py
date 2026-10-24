@@ -144,6 +144,68 @@ def waiting(session: Session, client_id: str) -> int:
     ).one()
 
 
+@dataclass(frozen=True, slots=True)
+class PostingSummary:
+    """Where a client's approved documents are, so the screen can say what is happening, whether
+    it is done, and why (task 5.1)."""
+
+    ready: int  # bills to send now (or being sent)
+    retrying: int  # bills waiting to try again after a temporary failure
+    retry_at: datetime | None  # the earliest next try
+    retry_reason: str | None  # the latest temporary failure, e.g. Xero's rate limit
+    not_yet: dict[str, int]  # document type -> count: approved, but not sent in this version
+    sent_back: int  # back in review because they could not be sent
+    posted: int  # in the accounting system
+
+
+def summary(session: Session, client_id: str) -> PostingSummary:
+    rows = session.execute(
+        select(Document.document_type, Outbox.status, Outbox.last_error, Outbox.next_attempt_at)
+        .join(Document, Document.id == Outbox.document_id)
+        .where(Outbox.client_id == client_id, Outbox.status.in_(ACTIVE_OUTBOX))
+    ).all()
+    now = datetime.now(UTC)
+    ready = retrying = 0
+    retry_at: datetime | None = None
+    retry_reason: str | None = None
+    not_yet: dict[str, int] = {}
+    for document_type, status, last_error, next_attempt_at in rows:
+        if document_type is not DocumentType.BILL:
+            key = document_type.value if document_type else "UNKNOWN"
+            not_yet[key] = not_yet.get(key, 0) + 1
+        elif status is OutboxStatus.PENDING and last_error and next_attempt_at > now:
+            retrying += 1
+            if retry_at is None or next_attempt_at < retry_at:
+                retry_at, retry_reason = next_attempt_at, last_error
+        else:
+            ready += 1
+    counts = dict(
+        session.execute(
+            select(Document.status, func.count())
+            .where(
+                Document.client_id == client_id,
+                or_(
+                    Document.status == DocumentStatus.POSTED,
+                    and_(
+                        Document.status == DocumentStatus.IN_REVIEW,
+                        Document.failure_reason.like("Not sent to Xero:%"),
+                    ),
+                ),
+            )
+            .group_by(Document.status)
+        ).all()
+    )
+    return PostingSummary(
+        ready=ready,
+        retrying=retrying,
+        retry_at=retry_at,
+        retry_reason=retry_reason,
+        not_yet=not_yet,
+        sent_back=counts.get(DocumentStatus.IN_REVIEW, 0),
+        posted=counts.get(DocumentStatus.POSTED, 0),
+    )
+
+
 # --- 1. claim --------------------------------------------------------------------------------
 
 

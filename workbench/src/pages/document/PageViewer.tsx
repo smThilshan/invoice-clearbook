@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Scan, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { pageImageUrl, type Place } from '@/api/client'
@@ -33,6 +33,9 @@ export function PageViewer({
 }) {
   const [page, setPage] = useState(1)
   const [zoom, setZoom] = useState(100)
+  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreenError, setFullscreenError] = useState<string>()
+  const viewerRef = useRef<HTMLDivElement>(null)
   const firstBox = useRef<HTMLDivElement>(null)
   const places = highlight?.places ?? []
   const first = places[0]
@@ -48,6 +51,24 @@ export function PageViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when the place changes
   }, [firstKey])
 
+  useEffect(() => {
+    const updateFullscreen = () => setFullscreen(document.fullscreenElement === viewerRef.current)
+    document.addEventListener('fullscreenchange', updateFullscreen)
+    return () => document.removeEventListener('fullscreenchange', updateFullscreen)
+  }, [])
+
+  async function toggleFullscreen() {
+    const viewer = viewerRef.current
+    if (!viewer) return
+    setFullscreenError(undefined)
+    try {
+      if (document.fullscreenElement === viewer) await document.exitFullscreen()
+      else await viewer.requestFullscreen()
+    } catch {
+      setFullscreenError('Could not open full-screen view. Check your browser permissions and try again.')
+    }
+  }
+
   if (pageCount < 1) {
     return <p className="text-sm text-muted-foreground">No page pictures for this document.</p>
   }
@@ -55,7 +76,7 @@ export function PageViewer({
   const onPage = places.filter((place) => place.page === page)
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div ref={viewerRef} className="document-page-viewer flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={page <= 1}
@@ -80,11 +101,21 @@ export function PageViewer({
             onClick={() => setZoom(zoom + ZOOM_STEP)}>
             <ZoomIn />
           </Button>
-          <Button variant="outline" size="icon-sm" aria-label="Fit width" onClick={() => setZoom(100)}>
-            <Maximize2 />
+          <Button variant="outline" size="icon-sm" aria-label="Fit width" title="Fit width" onClick={() => setZoom(100)}>
+            <Scan />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label={fullscreen ? 'Exit full screen' : 'Open full screen'}
+            title={fullscreen ? 'Exit full screen' : 'Open full screen'}
+            onClick={() => void toggleFullscreen()}
+          >
+            {fullscreen ? <Minimize2 /> : <Maximize2 />}
           </Button>
         </div>
       </div>
+      {fullscreenError && <p role="alert" className="text-sm text-destructive">{fullscreenError}</p>}
       {highlight && <HighlightStatus highlight={highlight} page={page} onPage={setPage} />}
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border bg-muted/40">
         <div className="relative" style={{ width: `${zoom}%` }}>

@@ -72,6 +72,9 @@
             ],
             "title": "Organisation"
           },
+          "posting": {
+            "$ref": "#/components/schemas/PostingOut"
+          },
           "provider": {
             "anyOf": [
               {
@@ -95,7 +98,8 @@
           "organisation",
           "connected_at",
           "master_data_from",
-          "waiting"
+          "waiting",
+          "posting"
         ],
         "title": "AccountingStatus",
         "type": "object"
@@ -1765,6 +1769,68 @@
           "path"
         ],
         "title": "PlaceOut",
+        "type": "object"
+      },
+      "PostingOut": {
+        "description": "Where the client's approved documents are (see services/posting.PostingSummary).",
+        "properties": {
+          "not_yet": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Not Yet",
+            "type": "object"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "integer"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At"
+          },
+          "retry_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Reason"
+          },
+          "retrying": {
+            "title": "Retrying",
+            "type": "integer"
+          },
+          "sent_back": {
+            "title": "Sent Back",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ready",
+          "retrying",
+          "retry_at",
+          "retry_reason",
+          "not_yet",
+          "sent_back",
+          "posted"
+        ],
+        "title": "PostingOut",
         "type": "object"
       },
       "QueueCategory": {

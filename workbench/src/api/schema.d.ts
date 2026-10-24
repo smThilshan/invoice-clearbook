@@ -601,6 +601,7 @@ export interface components {
             master_data_from: string;
             /** Organisation */
             organisation: string | null;
+            posting: components["schemas"]["PostingOut"];
             /** Provider */
             provider: string | null;
             /** Waiting */
@@ -1086,6 +1087,28 @@ export interface components {
             label: string;
             /** Path */
             path: string;
+        };
+        /**
+         * PostingOut
+         * @description Where the client's approved documents are (see services/posting.PostingSummary).
+         */
+        PostingOut: {
+            /** Not Yet */
+            not_yet: {
+                [key: string]: number;
+            };
+            /** Posted */
+            posted: number;
+            /** Ready */
+            ready: number;
+            /** Retry At */
+            retry_at: string | null;
+            /** Retry Reason */
+            retry_reason: string | null;
+            /** Retrying */
+            retrying: number;
+            /** Sent Back */
+            sent_back: number;
         };
         /**
          * QueueCategory

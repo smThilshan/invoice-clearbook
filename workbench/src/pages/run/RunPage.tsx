@@ -6,7 +6,7 @@ import type { Client, Folder, FolderPlace } from '@/api/client'
 import { useCreateClient, useFolder, usePlaces, useStartRun, useTypicalTime } from '@/api/queries'
 import { ClientSelect } from '@/components/ClientSelect'
 import { ErrorAlert } from '@/components/ErrorAlert'
-import { PageHeader } from '@/components/PageHeader'
+import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -88,13 +88,13 @@ export function RunPage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <PageContainer className="space-y-6">
       <PageHeader
         title="Run"
         description="Pick a client and a folder (on this Mac or a shared drive), confirm the date, and start processing. Sub-folders are included."
       />
 
-      <Card>
+      <Card className="overflow-hidden shadow-sm">
         <CardHeader>
           <CardTitle>1. Client</CardTitle>
           <CardDescription>The business these documents belong to.</CardDescription>
@@ -106,7 +106,7 @@ export function RunPage() {
       </Card>
 
       {client && (
-        <Card>
+        <Card className="overflow-hidden shadow-sm">
           <CardHeader>
             <CardTitle>2. Folder</CardTitle>
             <CardDescription>
@@ -141,7 +141,7 @@ export function RunPage() {
       )}
 
       {client && place && current && (
-        <Card>
+        <Card className="overflow-hidden shadow-sm">
           <CardHeader>
             <CardTitle>3. Date</CardTitle>
             <CardDescription>The date the documents in this folder belong to.</CardDescription>
@@ -188,7 +188,7 @@ export function RunPage() {
           </Button>
         </div>
       )}
-    </div>
+    </PageContainer>
   )
 }
 

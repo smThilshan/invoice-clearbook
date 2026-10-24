@@ -4,7 +4,6 @@ import { NavLink, Outlet, useLocation } from 'react-router'
 
 import { SystemStatus } from '@/components/SystemStatus'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
-import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
 const NAV = [
@@ -47,8 +46,8 @@ function NavItem({
       aria-label={label}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-2 rounded-md py-2 text-sm font-medium',
-          folded ? 'justify-center px-2' : 'px-3',
+          'flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium sm:shrink',
+          folded && 'sm:justify-center sm:px-2',
           isActive || inside ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:bg-muted',
         )
       }
@@ -78,24 +77,42 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <header className={cn('flex flex-wrap items-center justify-between gap-4 px-6', reviewing ? 'py-2' : 'py-3')}>
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-lg font-semibold tracking-tight">Clearbook</h1>
-          {!reviewing && <p className="text-xs text-muted-foreground">Missan invoice workbench</p>}
+    <div className="flex h-screen h-dvh flex-col overflow-hidden bg-muted/30 text-foreground">
+      <header
+        className={cn(
+          'flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6',
+          reviewing ? 'py-2' : 'py-3',
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="grid size-8 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground"
+            aria-hidden
+          >
+            C
+          </div>
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-lg font-semibold tracking-tight">Clearbook</h1>
+            {!reviewing && <p className="text-xs text-muted-foreground">Missan invoice workbench</p>}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <SystemStatus compact={reviewing} />
           <ThemeSwitch />
         </div>
       </header>
-      <Separator />
-      <div className="flex flex-1">
-        <nav aria-label="Main" className={cn('shrink-0 space-y-1 p-2 transition-[width]', folded ? 'w-14' : 'w-52 p-3')}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row">
+        <nav
+          aria-label="Main"
+          className={cn(
+            'flex w-full shrink-0 gap-1 overflow-x-auto border-b bg-background p-2 sm:flex-col sm:space-y-1 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:transition-[width]',
+            folded ? 'sm:w-14' : 'sm:w-52 sm:p-3',
+          )}
+        >
           {NAV.map(({ to, label, icon: Icon, also }) => (
             <NavItem key={to} to={to} also={also} label={label} folded={folded}>
               <Icon className="size-4 shrink-0" aria-hidden />
-              {!folded && label}
+              <span className={cn(folded && 'sm:hidden')}>{label}</span>
             </NavItem>
           ))}
           <button
@@ -103,15 +120,17 @@ export function AppLayout() {
             onClick={toggle}
             aria-label={folded ? 'Expand sidebar' : 'Collapse sidebar'}
             title={folded ? 'Expand sidebar' : 'Collapse sidebar'}
-            className={cn('mt-4 flex w-full items-center rounded-md py-2 text-muted-foreground hover:bg-muted', folded ? 'justify-center px-2' : 'gap-2 px-3 text-xs')}
+            className={cn(
+              'mt-4 hidden w-full items-center rounded-md py-2 text-muted-foreground hover:bg-muted sm:flex',
+              folded ? 'justify-center px-2' : 'gap-2 px-3 text-xs',
+            )}
           >
             {folded ? <PanelLeftOpen className="size-4" aria-hidden /> : <PanelLeftClose className="size-4" aria-hidden />}
             {!folded && 'Collapse'}
           </button>
         </nav>
-        <Separator orientation="vertical" />
         {/* min-w-0: a wide table scrolls inside its own box instead of widening the page */}
-        <main className={cn('min-w-0 flex-1', reviewing ? 'p-4' : 'p-6')}>
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:px-10 sm:py-6 lg:px-12">
           <Outlet />
         </main>
       </div>

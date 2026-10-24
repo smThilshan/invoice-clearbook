@@ -55,8 +55,13 @@ export function useCreateClient() {
   })
 }
 
-export function useAccounting(clientId: string) {
-  return useQuery({ queryKey: ['accounting', clientId], queryFn: () => api.accounting(clientId) })
+/** `refreshMs`: poll while something is under way (sending bills to Xero). */
+export function useAccounting(clientId: string, refreshMs: number | false = false) {
+  return useQuery({
+    queryKey: ['accounting', clientId],
+    queryFn: () => api.accounting(clientId),
+    refetchInterval: refreshMs,
+  })
 }
 
 export function useDisconnectAccounting() {

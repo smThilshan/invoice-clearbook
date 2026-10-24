@@ -164,7 +164,7 @@ export function ReviewForm({
   return (
     <form
       aria-label="Review"
-      className="space-y-6"
+      className="space-y-6 rounded-xl border bg-background p-4 shadow-sm sm:p-5"
       onSubmit={handleSubmit((values) => onSave({ values, confirmed: [...confirmed] }))}
     >
       {document.invoice === null && (

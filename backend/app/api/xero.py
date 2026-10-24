@@ -4,6 +4,7 @@ them back to the Workbench with the outcome. No login yet: the API listens on lo
 """
 
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime
 from typing import Annotated
 from urllib.parse import urlencode
@@ -52,6 +53,18 @@ def get_xero_system() -> Callable[[str, str], AccountingSystem]:
 XeroSystemDep = Annotated[Callable[[str, str], AccountingSystem], Depends(get_xero_system)]
 
 
+class PostingOut(BaseModel):
+    """Where the client's approved documents are (see services/posting.PostingSummary)."""
+
+    ready: int
+    retrying: int
+    retry_at: datetime | None
+    retry_reason: str | None
+    not_yet: dict[str, int]  # document type -> count, e.g. {"RECEIPT": 2}
+    sent_back: int
+    posted: int
+
+
 class AccountingStatus(BaseModel):
     configured: bool  # the Xero app keys are in .env
     connected: bool
@@ -60,6 +73,7 @@ class AccountingStatus(BaseModel):
     connected_at: datetime | None
     master_data_from: str  # "XERO" once synced, else "MANUAL" (CSV import)
     waiting: int  # approved documents not posted yet
+    posting: PostingOut
 
 
 class SyncCounts(BaseModel):
@@ -133,6 +147,7 @@ def accounting_status(client_id: str, session: SessionDep, auth: XeroDep) -> Acc
         connected_at=connection.created_at if connection else None,
         master_data_from=client.accounting_provider.value,
         waiting=posting.waiting(session, client_id),
+        posting=PostingOut(**asdict(posting.summary(session, client_id))),
     )
 
 

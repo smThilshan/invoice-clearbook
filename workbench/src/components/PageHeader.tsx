@@ -1,5 +1,18 @@
 import type { ReactNode } from 'react'
 
+import { cn } from '@/lib/utils'
+
+/** Shared outer width and horizontal alignment for every Workbench screen. */
+export function PageContainer({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return <div className={cn('mx-auto w-full max-w-7xl', className)}>{children}</div>
+}
+
 /** The same top of every page (task 4.18): a title, one line of help, actions on the right. */
 export function PageHeader({
   title,

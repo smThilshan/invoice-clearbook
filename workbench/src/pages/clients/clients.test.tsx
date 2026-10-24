@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { AccountingStatus, Readiness, SyncResult } from '@/api/client'
+import type { AccountingStatus, PostingSummary, Readiness, SyncResult } from '@/api/client'
 import { mockApi, renderApp } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
@@ -10,15 +10,23 @@ const CLIENTS = [
   { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' },
   { client_id: 'spice-route', name: 'Spice Route' },
 ]
+const NOTHING: PostingSummary = {
+  ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
+}  // prettier-ignore
 const NOT_CONNECTED: AccountingStatus = {
   configured: true, connected: false, provider: null, organisation: null, connected_at: null,
-  master_data_from: 'MANUAL', waiting: 0,
+  master_data_from: 'MANUAL', waiting: 0, posting: NOTHING,
 }  // prettier-ignore
 const CONNECTED: AccountingStatus = {
   configured: true, connected: true, provider: 'XERO', organisation: 'Demo Company (Global)',
-  connected_at: '2026-10-23T10:00:00Z', master_data_from: 'MANUAL', waiting: 0,
+  connected_at: '2026-10-23T10:00:00Z', master_data_from: 'MANUAL', waiting: 0, posting: NOTHING,
 }  // prettier-ignore
-const SYNCED_WAITING: AccountingStatus = { ...CONNECTED, master_data_from: 'XERO', waiting: 4 }
+const SYNCED_WAITING: AccountingStatus = {
+  ...CONNECTED, master_data_from: 'XERO', waiting: 3, posting: { ...NOTHING, ready: 3 },
+}  // prettier-ignore
+const SENT: AccountingStatus = {
+  ...SYNCED_WAITING, waiting: 0, posting: { ...NOTHING, posted: 2, sent_back: 1 },
+}  // prettier-ignore
 const SYNCED: SyncResult = {
   accounts: { created: 2, updated: 0, unchanged: 0 },
   tax_rates: { created: 2, updated: 0, unchanged: 0 },
@@ -90,22 +98,44 @@ describe('clients', () => {
     expect(result).toHaveTextContent('1 other rate(s) are for sales or not matched')
   })
 
-  it('sends the approved bills waiting to be posted', async () => {
+  it('sends the bills ready to go, then says what happened to them', async () => {
+    let sent = false
     const api = mockApi({
       '/health/ready': READY,
       '/clients': CLIENTS.slice(0, 1),
-      '/clients/cafe-al-noor/accounting': SYNCED_WAITING,
-      'POST /clients/cafe-al-noor/accounting/send': SYNCED_WAITING,
+      '/clients/cafe-al-noor/accounting': () => (sent ? SENT : SYNCED_WAITING),
+      'POST /clients/cafe-al-noor/accounting/send': () => {
+        sent = true
+        return SYNCED_WAITING
+      },
     })
     const user = userEvent.setup()
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByText('4 approved documents not posted yet')).toBeInTheDocument()
-    await user.click(within(row).getByRole('button', { name: 'Send waiting bills' }))
+    expect(await within(row).findByText('3 approved bills ready to send to Xero.')).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'Send 3 bills to Xero' }))
 
     await waitFor(() => expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/send'))
-    expect(await within(row).findByText(/Awaiting approval/)).toBeInTheDocument()
+    const done = await within(row).findByText(/^Done\./, {}, { timeout: 6000 })
+    expect(done.parentElement).toHaveTextContent(
+      'Done. 2 bills sent to Xero: find them under Bills to pay, Awaiting approval. 1 bill came back to review with the reason.',
+    )
+    expect(within(row).getByText(/1 bill sent back to review/)).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /Send .* to Xero/ })).not.toBeInTheDocument()
+  })
+
+  it('says plainly when approved documents cannot be sent yet, with no button', async () => {
+    const receipts = { ...SYNCED_WAITING, waiting: 2, posting: { ...NOTHING, not_yet: { RECEIPT: 2 } } }
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': receipts })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(
+      await within(row).findByText(/2 approved receipts: receipts are not sent to Xero in this version yet/),
+    ).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /Send/ })).not.toBeInTheDocument()
   })
 
   it('says how a Xero sign-in ended when Xero sends the browser back', async () => {

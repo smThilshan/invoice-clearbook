@@ -5,7 +5,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import type { DocumentSummary, QueueCategory, QueueQuery, RunOption } from '@/api/client'
 import { useClients, useQueue, useRuns } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
-import { PageHeader } from '@/components/PageHeader'
+import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { ClientSelect } from '@/components/ClientSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -103,7 +103,7 @@ export function QueuePage() {
   }
 
   return (
-    <div className="space-y-5">
+    <PageContainer className="space-y-6">
       {flash && (
         <p role="status" aria-label="Done" className="text-sm font-medium text-success">
           {flash}
@@ -114,41 +114,68 @@ export function QueuePage() {
         description="Exception first, then Check, then Ready; oldest first inside each."
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <ClientSelect
-          value={clientId}
-          onChange={(c) => update({ client: c.client_id, run: undefined })}
-        />
-        <Toggle label="Category">
-          {CATEGORIES.map((c) => (
-            <ToggleButton key={c ?? 'ALL'} pressed={category === c} onClick={() => update({ queue: c })}>
-              {c ? QUEUE_LABELS[c] : 'All'}
-              {counts && (
-                <span className="ml-1.5 tabular-nums text-muted-foreground">
-                  {c ? (counts[c] ?? 0) : Object.values(counts).reduce((a, b) => a + (b ?? 0), 0)}
-                </span>
+      {clientId && counts && (
+        <section aria-label="Queue overview" className="grid gap-3 sm:grid-cols-3">
+          {(['EXCEPTION', 'CHECK', 'READY'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => update({ queue: category === key ? undefined : key })}
+              aria-pressed={category === key}
+              className={cn(
+                'rounded-xl border bg-background p-4 text-left shadow-sm transition-colors hover:bg-muted/50',
+                category === key && 'border-primary ring-1 ring-primary/20',
               )}
-            </ToggleButton>
-          ))}
-        </Toggle>
-        <Toggle label="List">
-          {LISTS.map((list) => (
-            <ToggleButton
-              key={list.status}
-              pressed={status === list.status}
-              onClick={() =>
-                update({ status: list.status === 'IN_REVIEW' ? undefined : list.status })
-              }
             >
-              {list.label}
-            </ToggleButton>
+              <span className="text-sm text-muted-foreground">{QUEUE_LABELS[key]}</span>
+              <span className="mt-1 block text-2xl font-semibold tabular-nums">{counts[key] ?? 0}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">documents to review</span>
+            </button>
           ))}
-        </Toggle>
-        {clientId && (
-          <RunFilter clientId={clientId} runId={runId} onChange={(run) => update({ run })} />
-        )}
-        {clientId && <SearchBox value={search} onChange={(q) => update({ q: q || undefined })} />}
-      </div>
+        </section>
+      )}
+
+      <section aria-label="Queue filters" className="space-y-3 rounded-xl border bg-background p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <ClientSelect
+            value={clientId}
+            onChange={(c) => update({ client: c.client_id, run: undefined })}
+          />
+          <Toggle label="Category">
+            {CATEGORIES.map((c) => (
+              <ToggleButton
+                key={c ?? 'ALL'}
+                pressed={category === c}
+                onClick={() => update({ queue: c })}
+              >
+                {c ? QUEUE_LABELS[c] : 'All'}
+                {counts && (
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">
+                    {c ? (counts[c] ?? 0) : Object.values(counts).reduce((a, b) => a + (b ?? 0), 0)}
+                  </span>
+                )}
+              </ToggleButton>
+            ))}
+          </Toggle>
+          <Toggle label="List">
+            {LISTS.map((list) => (
+              <ToggleButton
+                key={list.status}
+                pressed={status === list.status}
+                onClick={() =>
+                  update({ status: list.status === 'IN_REVIEW' ? undefined : list.status })
+                }
+              >
+                {list.label}
+              </ToggleButton>
+            ))}
+          </Toggle>
+          {clientId && (
+            <RunFilter clientId={clientId} runId={runId} onChange={(run) => update({ run })} />
+          )}
+          {clientId && <SearchBox value={search} onChange={(q) => update({ q: q || undefined })} />}
+        </div>
+      </section>
 
       {clientId && queue.data && queue.data.processing > 0 && (
         <p role="note" aria-label="Still processing" className="flex flex-wrap items-center gap-2 rounded-lg border border-info/40 bg-info-soft px-3 py-2 text-sm">
@@ -185,7 +212,7 @@ export function QueuePage() {
           />
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -292,10 +319,10 @@ function DocumentTable({ documents }: { documents: DocumentSummary[] }) {
     ids: documents.map((d) => d.document_id),
   }
   return (
-    <div className="rounded-lg border">
+    <div className="overflow-hidden rounded-xl border bg-background shadow-sm">
       <Table aria-label="Documents" className="table-fixed">
         <TableHeader>
-          <TableRow>
+          <TableRow className="bg-muted/50 hover:bg-muted/50">
             <TableHead className="w-28">Category</TableHead>
             <TableHead>Supplier</TableHead>
             <TableHead className="hidden w-40 lg:table-cell">Number</TableHead>

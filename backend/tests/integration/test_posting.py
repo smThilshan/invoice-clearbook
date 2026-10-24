@@ -242,3 +242,29 @@ def test_only_bills_of_clients_using_xero_are_taken(session: Session, xero: Fake
     assert session.scalars(select(Outbox.status).where(Outbox.document_id == bill.id)).one() is (
         OutboxStatus.DONE
     )
+
+
+def test_the_summary_says_where_each_approved_document_is(
+    session: Session, xero: FakePosting
+) -> None:
+    approved(session, invoice_number="INV-1")  # posted below
+    send(session, xero)
+    unknown_account = Line(description="Rice", amount=Decimal("1000.00"), account_code="5010",
+                           tax_type=TaxType.STANDARD_5)  # fmt: skip
+    approved(session, invoice_number="INV-2", lines=[unknown_account])
+    send(session, xero)  # sent back: account not in Xero
+    _, busy = approved(session, invoice_number="INV-3")
+    xero.outcome = PostingUnavailable("Xero's request limit was reached")
+    send(session, xero)  # waiting to try again
+    approved(session, invoice_number="INV-4")  # ready
+    receipt, _ = approved(session, invoice_number="INV-5")
+    session.execute(update(Document).where(Document.id == receipt.id)
+                    .values(document_type=DocumentType.RECEIPT))  # fmt: skip
+
+    summary = posting.summary(session, CLIENT)
+
+    assert (summary.ready, summary.retrying, summary.sent_back, summary.posted) == (1, 1, 1, 1)
+    assert summary.not_yet == {"RECEIPT": 1}
+    assert summary.retry_reason == "Xero's request limit was reached"
+    session.refresh(busy)
+    assert summary.retry_at == busy.next_attempt_at

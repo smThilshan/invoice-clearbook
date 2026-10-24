@@ -24,7 +24,7 @@ import {
   useStopRun,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
-import { PageHeader } from '@/components/PageHeader'
+import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { ProgressBar } from '@/components/ProgressBar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -81,13 +81,19 @@ export function RunProgressPage() {
       : 'Run',
   )
 
-  if (run.isPending) return <Skeleton className="h-40 w-full max-w-4xl" />
+  if (run.isPending) {
+    return (
+      <PageContainer>
+        <Skeleton className="h-40 w-full" />
+      </PageContainer>
+    )
+  }
   if (run.isError || !progress) {
     return (
-      <div className="max-w-4xl space-y-4">
+      <PageContainer className="space-y-4">
         <ErrorAlert title="This run could not be loaded" error={run.error} />
         <BackToRun />
-      </div>
+      </PageContainer>
     )
   }
 
@@ -105,7 +111,7 @@ export function RunProgressPage() {
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <PageContainer className="space-y-6">
       <PageHeader
         title={`Run: ${client?.name ?? progress.client_id}`}
         description={
@@ -189,7 +195,7 @@ export function RunProgressPage() {
         )}
         <BackToRun />
       </div>
-    </div>
+    </PageContainer>
   )
 }
 

@@ -11,6 +11,7 @@ import {
   useUpdateDocument,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
+import { PageContainer } from '@/components/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -53,13 +54,19 @@ export function DocumentPage() {
   const open = (id: string, flash?: string) =>
     void navigate(`/documents/${id}`, { state: { ...(context as ReviewContext), flash } })
 
-  if (document.isPending) return <Skeleton className="h-96 w-full" />
+  if (document.isPending) {
+    return (
+      <PageContainer>
+        <Skeleton className="h-96 w-full" />
+      </PageContainer>
+    )
+  }
   if (document.isError) {
     return (
-      <div className="max-w-xl space-y-4">
+      <PageContainer className="space-y-4">
         <ErrorAlert title="This document could not be loaded" error={document.error} />
         <BackButton onBack={() => void navigate(listAddress())} />
-      </div>
+      </PageContainer>
     )
   }
 
@@ -84,7 +91,7 @@ export function DocumentPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <PageContainer className="flex flex-col gap-4">
       <Header
         document={doc}
         onBack={() => void navigate(listAddress(doc.client_id))}
@@ -132,14 +139,18 @@ export function DocumentPage() {
           {doc.queue ? `: now ${QUEUE_LABELS[doc.queue]}` : ''}.
         </p>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-8rem)]">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
+        <section
+          aria-label="Source document"
+          className="flex min-h-[50vh] flex-col rounded-xl border bg-background p-3 shadow-sm xl:sticky xl:top-4 xl:h-[calc(100vh-8rem)]"
+        >
+          <h3 className="mb-3 px-1 text-sm font-semibold">Source document</h3>
           <PageViewer
             documentId={doc.document_id}
             pageCount={doc.page_count ?? 0}
             highlight={highlightFor(target, located.data?.places, located.isFetching)}
           />
-        </div>
+        </section>
         {/* A new server version (after saving) starts a fresh form with its values. */}
         <ReviewForm
           key={doc.updated_at}
@@ -167,7 +178,7 @@ export function DocumentPage() {
           }
         />
       </div>
-    </div>
+    </PageContainer>
   )
 }
 
