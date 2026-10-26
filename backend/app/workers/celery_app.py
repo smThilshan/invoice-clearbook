@@ -10,7 +10,8 @@ or run twice in parallel:
 - no result backend: document status lives in Postgres, the single source of truth.
 - queue order (decision 31): a worker always takes a waiting quick job (read, verify, posting)
   before the next model extraction, which waits in its own queue. So each document reaches
-  review as soon as its extraction is done, not after the whole run. In production the
+  review as soon as its extraction is done, not after the whole run. (`redis_transport.py` keeps
+  that order: kombu alone does not.) In production the
   extract queue can have its own workers, sized to the model server.
 
 Pool: Linux (production) uses the default prefork pool, which enforces the hard time limit.
@@ -45,6 +46,8 @@ def create_celery_app(settings: Settings | None = None) -> Celery:
     settings = settings or get_settings()
     app = Celery("clearbook", broker=settings.redis_url, include=["app.workers.tasks"])
     app.conf.update(
+        # kombu's own Redis transport loses QUEUE_ORDER (see redis_transport.py)
+        broker_transport="app.workers.redis_transport:Transport",
         task_queues=tuple(_queue(name) for name in QUEUE_ORDER),
         task_default_queue=PIPELINE_QUEUE,
         task_routes={

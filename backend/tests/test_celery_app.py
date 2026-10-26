@@ -31,6 +31,29 @@ def test_queues_and_routing() -> None:
     assert router.route({}, "system.ping")["queue"].name == PIPELINE_QUEUE
 
 
+def test_worker_takes_quick_jobs_before_model_extraction() -> None:
+    """kombu's Redis channel ordered the queues as a set: random per worker start (decision 31)."""
+    from kombu.utils.scheduling import priority_cycle
+
+    from app.workers.redis_transport import Channel, Transport
+
+    with make_app().connection_for_read() as connection:
+        assert type(connection.transport) is Transport  # built, not connected
+    channel = Channel.__new__(Channel)  # the order logic only: no Redis connection
+    channel._active_queues = [EXTRACT_QUEUE, "other", POSTING_QUEUE, PIPELINE_QUEUE, EXTRACT_QUEUE]
+    channel.active_fanout_queues = set()
+    channel._queue_cycle = priority_cycle()
+
+    channel._update_queue_cycle()
+
+    assert channel._queue_cycle.consume(4) == [
+        PIPELINE_QUEUE,
+        POSTING_QUEUE,
+        EXTRACT_QUEUE,
+        "other",
+    ]
+
+
 def test_reliability_settings() -> None:
     conf = make_app(job_time_limit_seconds=900, job_visibility_timeout_seconds=1200).conf
 
