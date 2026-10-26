@@ -1666,7 +1666,8 @@
           "ok",
           "unreachable",
           "missing",
-          "incompatible"
+          "incompatible",
+          "not_loaded"
         ],
         "title": "ModelStatus",
         "type": "string"
@@ -3187,6 +3188,41 @@
       }
     },
     "/documents/{document_id}": {
+      "delete": {
+        "description": "Delete a rejected document permanently, files included (decision 45). 409 if it is not\nrejected, 422 if it is in the accounting system. Cannot be undone.",
+        "operationId": "delete_document_documents__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Document",
+        "tags": [
+          "documents"
+        ]
+      },
       "get": {
         "operationId": "get_document_documents__document_id__get",
         "parameters": [
@@ -3536,6 +3572,50 @@
           }
         },
         "summary": "Reject Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/restore": {
+      "post": {
+        "description": "A rejected document back to review, checked again (decision 45). 409 if it is not\nrejected; 422 if another live document now holds its supplier and invoice number.",
+        "operationId": "restore_document_documents__document_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Document",
         "tags": [
           "documents"
         ]

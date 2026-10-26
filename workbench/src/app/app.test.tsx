@@ -107,7 +107,7 @@ describe('system status', () => {
     expect(banner).toHaveTextContent(
       'Invoices cannot be read right now. Reviews, approvals and sending still work. Ask the person who runs the system to start it.',
     )
-    expect(banner).toHaveAttribute('title', 'AI model: Ollama not reachable (ollama serve)')
+    expect(banner).toHaveAttribute('title', 'AI model: model server not reachable (make llm-load)')
   })
 
   it('puts the worst problem first when several are down', async () => {

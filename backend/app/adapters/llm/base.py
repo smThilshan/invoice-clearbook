@@ -17,6 +17,7 @@ class ModelStatus(StrEnum):
     UNREACHABLE = "unreachable"  # model server down or not answering
     MISSING = "missing"  # server up, configured model not installed
     INCOMPATIBLE = "incompatible"  # installed, but a Thinking variant or without vision
+    NOT_LOADED = "not_loaded"  # LM Studio: not loaded, or with too small a context (decision 46)
 
 
 @dataclass(frozen=True, slots=True)

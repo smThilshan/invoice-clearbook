@@ -207,7 +207,12 @@ export interface paths {
         get: operations["get_document_documents__document_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Document
+         * @description Delete a rejected document permanently, files included (decision 45). 409 if it is not
+         *     rejected, 422 if it is in the accounting system. Cannot be undone.
+         */
+        delete: operations["delete_document_documents__document_id__delete"];
         options?: never;
         head?: never;
         /**
@@ -308,6 +313,27 @@ export interface paths {
         put?: never;
         /** Reject Document */
         post: operations["reject_document_documents__document_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{document_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Document
+         * @description A rejected document back to review, checked again (decision 45). 409 if it is not
+         *     rejected; 422 if another live document now holds its supplier and invoice number.
+         */
+        post: operations["restore_document_documents__document_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1048,7 +1074,7 @@ export interface components {
          * @description Is the configured model ready to extract? (decision 2: Instruct, with vision)
          * @enum {string}
          */
-        ModelStatus: "ok" | "unreachable" | "missing" | "incompatible";
+        ModelStatus: "ok" | "unreachable" | "missing" | "incompatible" | "not_loaded";
         /** PageTextOut */
         PageTextOut: {
             /** Height */
@@ -1775,6 +1801,35 @@ export interface operations {
             };
         };
     };
+    delete_document_documents__document_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_document_documents__document_id__patch: {
         parameters: {
             query?: never;
@@ -1953,6 +2008,37 @@ export interface operations {
                 "application/json": components["schemas"]["RejectBody"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_document_documents__document_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

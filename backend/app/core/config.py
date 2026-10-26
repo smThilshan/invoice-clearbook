@@ -20,7 +20,7 @@ _PLACEHOLDER_SECRETS = frozenset({"", "change-me"})
 
 AppEnv = Literal["dev", "test", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-LlmProvider = Literal["ollama"]  # "vllm" arrives with its client (Phase 6)
+LlmProvider = Literal["lmstudio", "ollama"]  # "vllm" arrives with its client (Phase 6)
 
 
 class Settings(BaseSettings):
@@ -101,10 +101,10 @@ class Settings(BaseSettings):
     ocr_detection_model: str = "PP-OCRv5_mobile_det"
     ocr_recognition_model: str = "PP-OCRv5_mobile_rec"
 
-    # Model server (decision 3): Ollama native API in dev, vLLM in prod; switching is config only.
-    llm_provider: LlmProvider = "ollama"
-    llm_base_url: str = "http://localhost:11434"
-    llm_model: str = "qwen3-vl:4b-instruct"
+    # Model server (decisions 3, 46): LM Studio (MLX) in dev, vLLM in prod; switch by config only.
+    llm_provider: LlmProvider = "lmstudio"
+    llm_base_url: str = "http://localhost:1234"
+    llm_model: str = "qwen/qwen3-vl-4b"
     # Image + OCR text + schema must fit, or the server silently truncates the input.
     llm_context_tokens: int = Field(default=16384, ge=2048)
     llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow

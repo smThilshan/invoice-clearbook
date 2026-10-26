@@ -218,7 +218,7 @@ Daily reconciliation: count + total per day vs the accounting system.
 - The original file is attached to the posted document in the accounting system (decision 41, replacing "data only, no attachment"). Missan's folders remain the official archive.
 
 ## 15. Security
-- **[MVP]** Everything local; model via local Ollama; secrets in `.env` (not committed); no sensitive values in logs.
+- **[MVP]** Everything local; model via local LM Studio; secrets in `.env` (not committed); no sensitive values in logs.
 - **[Phase 6, decision 26]** Basic JWT auth with roles (reviewer, approver, admin). Deferred until after pilot testing; until then the API and Workbench run on one machine and listen on localhost only.
 - **[LATER]** Firewall (outbound to the accounting system's API only), TLS, disk + bucket encryption, Vault/Docker secrets, SSO/MFA, append-only audit log enforced at DB level, ClamAV, fraud alerts, masked logs in self-hosted Loki.
 - Prompt injection: hidden text cannot change outputs beyond the schema; grounding, validation and human review catch the rest.
@@ -229,18 +229,18 @@ Daily reconciliation: count + total per day vs the accounting system.
 | Text reading | PaddleOCR 3.0.2 / PaddlePaddle 3.0.0 (pinned, decision 22), PP-OCRv5 mobile models on CPU — text + positions for highlights and grounding |
 | Digital PDFs | PyMuPDF text layer |
 | Understanding | **Qwen3-VL-4B-Instruct** (pinned revision) — the model for the whole system, dev through production |
-| Dev serving | Ollama native API, on the 16 GB Mac mini (`qwen3-vl:4b-instruct`, never plain `qwen3-vl:4b` = Thinking), JSON schema enforced |
+| Dev serving | LM Studio (MLX) on the 16 GB Mac mini (`qwen/qwen3-vl-4b` = Instruct MLX 4bit, decision 46; never a Thinking variant), JSON schema enforced; Ollama client kept |
 | Prod serving | vLLM on the GPU server, BF16, guided JSON, LoRA adapter serving [LATER] |
 
 - Always send OCR text with the image; cap page images ~1500 px long side.
 - If line items are messy, split extraction into header call + lines call.
-- `ExtractionClient` hides the difference between Ollama and vLLM structured-output parameters; switching is config only.
+- `ExtractionClient` hides the difference between LM Studio, Ollama and vLLM structured-output parameters; switching is config only.
 - Not used: RAG/vector DBs, third-party LLM APIs, LLM-as-judge, training from scratch.
 
 ## 17. Infrastructure
 | Env | Setup |
 |---|---|
-| Dev [MVP] | 16 GB Mac mini: Ollama native; Postgres 16 + Redis in Docker Compose; FastAPI, Celery, Workbench run locally; `manual` adapter by default, Xero Demo Company to test the Xero adapter |
+| Dev [MVP] | 16 GB Mac mini: LM Studio native (decision 46); Postgres 16 + Redis in Docker Compose; FastAPI, Celery, Workbench run locally; `manual` adapter by default, Xero Demo Company to test the Xero adapter |
 | Prod [LATER] | GPU server with one 24–32 GB professional GPU (e.g. L4 / RTX 4000 Ada / RTX 5000 Ada), 16+ cores, 64–128 GB RAM, mirrored NVMe, Ubuntu 22.04 LTS, Docker Compose + NVIDIA Container Toolkit, nightly backups, UPS |
 
 ## 18. Tech stack
@@ -251,7 +251,7 @@ Daily reconciliation: count + total per day vs the accounting system.
 | Jobs | Celery + Redis (queues: `pipeline`, `posting`) |
 | DB | PostgreSQL 16 + pg_trgm, SQLAlchemy 2.0, Alembic |
 | Reading | PyMuPDF, OpenCV, PaddleOCR |
-| Extraction | Qwen3-VL-4B via Ollama (dev) / vLLM (prod) |
+| Extraction | Qwen3-VL-4B via LM Studio (dev) / vLLM (prod) |
 | Accounting | Port + adapters: `manual` (CSV in, export out), Xero (xero-python SDK) |
 | Auth | JWT with roles |
 | Quality | pytest, ruff, mypy, pre-commit |

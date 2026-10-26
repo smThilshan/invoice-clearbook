@@ -20,7 +20,7 @@ quick-confirm grid, fine-tuning, Kubernetes, extra duplicate checks beyond hash 
 - Jobs: Celery + Redis
 - DB: PostgreSQL 16 with pg_trgm
 - Reading: PyMuPDF (digital PDFs), OpenCV + PaddleOCR 3.0.2 pinned (scans/photos; decision 22)
-- Model: Qwen3-VL-4B via Ollama (dev, native on Mac) / vLLM (prod), OpenAI-compatible API
+- Model: Qwen3-VL-4B via LM Studio (dev, MLX on Mac; decision 46) / vLLM (prod); Ollama client kept
 - Accounting systems: adapters behind one port; Xero via xero-python SDK (Phase 5); none required
 - Frontend (`workbench/`): React + TypeScript + Vite, react-pdf, React Hook Form, TanStack Query
 - Tooling: uv, ruff, mypy, pytest, pre-commit, Docker Compose
@@ -32,7 +32,7 @@ backend/app/
   domain/      Invoice schema, enums, state machine (the core — change carefully)
   pipeline/    ingest, read, extract, verify, coding
   adapters/
-    llm/       ExtractionClient (Ollama now, vLLM later)
+    llm/       ExtractionClient (LM Studio now, Ollama kept, vLLM later)
     accounting/  AccountingSystem port + one folder per provider (manual/, xero/, later zoho/ ...)
     storage/   Storage interface (local filesystem now, MinIO later)
   workers/     Celery tasks — thin, call pipeline/services
@@ -85,8 +85,8 @@ make lint      # ruff + mypy
 make test      # pytest
 make check     # backend + Workbench lint and tests (run before every commit)
 ```
-Ollama runs natively (not in Docker): `ollama serve`, model `qwen3-vl:4b-instruct`
-(never plain `qwen3-vl:4b`: that tag is the Thinking variant; decision 2).
+The model runs in LM Studio, natively (not in Docker): `make llm-load` starts its server and loads
+`qwen/qwen3-vl-4b` (Qwen3-VL-4B-Instruct MLX 4bit) with `LLM_CONTEXT_TOKENS` (decision 46). Never a Thinking variant (decision 2).
 
 ## How to work in this repo (Claude Code)
 - Read this file and the relevant part of `docs/` before any non-trivial task.

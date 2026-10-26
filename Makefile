@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read seed import-master-data resume retry-document add-client list-clients
+.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -79,6 +79,13 @@ seed: ## Load the fictional F&B sample master data for the default client
 import-master-data: ## Import master data CSVs: make import-master-data DIR=path [CLIENT=id]
 	@test -n "$(DIR)" || { echo 'usage: make import-master-data DIR=path [CLIENT=id]'; exit 1; }
 	@$(UV) python scripts/import_master_data.py "$(abspath $(DIR))" $(if $(CLIENT),--client $(CLIENT))
+
+LMS := $(HOME)/.lmstudio/bin/lms
+
+llm-load: ## LM Studio: start its server, load LLM_MODEL with LLM_CONTEXT_TOKENS (decision 46)
+	@set -- $$($(UV) python -c "from app.core.config import get_settings as g; s = g(); print(s.llm_model, s.llm_context_tokens)") && \
+	$(LMS) server start && { $(LMS) unload "$$1" >/dev/null 2>&1 || true; } && \
+	$(LMS) load "$$1" --context-length "$$2" --yes
 
 smoke-read: ## Read step (text layer / OCR) on data/samples/, metrics only
 	@$(UV) python scripts/smoke_read.py

@@ -7,9 +7,10 @@ const ASK = 'Ask the person who runs the system to start it.'
 
 const MODEL_DETAILS: Record<ModelStatus, string> = {
   ok: 'ready',
-  unreachable: 'Ollama not reachable (ollama serve)',
+  unreachable: 'model server not reachable (make llm-load)',
   missing: 'model not installed',
   incompatible: 'wrong model variant (needs the Instruct one)',
+  not_loaded: 'model not loaded with enough context (make llm-load)',
 }
 
 interface Problem {

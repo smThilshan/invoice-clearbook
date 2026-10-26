@@ -35,6 +35,8 @@ STOP_CHECK_SECONDS = 2.0  # how often a stoppable call asks whether to stop
 
 
 class OllamaExtractionClient:
+    _chat_path = "/api/chat"
+
     def __init__(
         self,
         *,
@@ -123,34 +125,41 @@ class OllamaExtractionClient:
 
     def _send(self, client: httpx.Client, payload: dict[str, Any]) -> dict[str, Any]:
         try:
-            response = client.post("/api/chat", json=payload)
+            response = client.post(self._chat_path, json=payload)
             response.raise_for_status()
             body: dict[str, Any] = response.json()
-            body["message"]["content"]
+            self._answer(body)
         except httpx.TimeoutException as exc:
             raise ExtractionError(f"model timed out after {self._timeout_seconds:.0f}s") from exc
         except httpx.HTTPStatusError as exc:
-            # Ollama's error bodies are short ("model not found"); they never echo the prompt.
+            # The servers' error bodies are short ("model not found"); they never echo the prompt.
             detail = exc.response.text[:200]
             status = exc.response.status_code
             raise ExtractionError(f"model server HTTP {status}: {detail}") from exc
         except httpx.HTTPError as exc:
             raise ExtractionError(f"cannot reach model server: {type(exc).__name__}") from exc
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, LookupError, TypeError) as exc:
             raise ExtractionError("model server returned an unexpected response") from exc
         return body
 
-    def _result(self, body: dict[str, Any], started: float) -> ExtractionResult:
-        result = ExtractionResult(
+    def _answer(self, body: dict[str, Any]) -> str:
+        content: str = body["message"]["content"]
+        return content
+
+    def _read(self, body: dict[str, Any], duration_ms: int) -> ExtractionResult:
+        return ExtractionResult(
             model=self._model,
-            raw_output=body["message"]["content"],
+            raw_output=self._answer(body),
             truncated=body.get("done_reason") == "length",
-            duration_ms=round((time.perf_counter() - started) * 1000),
+            duration_ms=duration_ms,
             prompt_tokens=body.get("prompt_eval_count"),
             output_tokens=body.get("eval_count"),
             reading_ms=_ms(body.get("prompt_eval_duration")),
             writing_ms=_ms(body.get("eval_duration")),
         )
+
+    def _result(self, body: dict[str, Any], started: float) -> ExtractionResult:
+        result = self._read(body, round((time.perf_counter() - started) * 1000))
         # Metrics only: never prompt or output text (they contain invoice data).
         logger.info(
             "extraction done model=%s ms=%d reading_ms=%s writing_ms=%s prompt_tokens=%s "

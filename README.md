@@ -10,15 +10,15 @@ No client data leaves the local servers.
 - Rules for Claude Code: `CLAUDE.md`
 
 ## Requirements (dev)
-- macOS, Docker Desktop, uv, Node 20+, Ollama
-- `ollama pull qwen3-vl:4b-instruct` (never plain `qwen3-vl:4b`: that tag is the Thinking variant; decision 2)
+- macOS, Docker Desktop, uv, Node 20+, LM Studio (decision 46)
+- In LM Studio download `Qwen3-VL-4B-Instruct` (MLX 4bit, id `qwen/qwen3-vl-4b`); never a Thinking variant (decision 2)
 - Optional: Xero developer app (Client ID/Secret) + Demo Company, only to test the Xero adapter (Phase 5)
 
 ## Run
 ```bash
 cp .env.example .env      # fill in values
 make install              # backend deps + git hooks
-ollama serve              # separate terminal, native (not Docker)
+make llm-load             # LM Studio server + model with the right context
 make up                   # Postgres + Redis
 make migrate
 make api                  # FastAPI → curl localhost:8000/health/ready

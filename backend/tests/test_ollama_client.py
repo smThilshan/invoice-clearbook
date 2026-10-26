@@ -126,7 +126,10 @@ def test_malformed_response_raises_extraction_error(body: dict[str, Any]) -> Non
 
 def test_factory_takes_model_and_url_from_settings() -> None:
     settings = Settings(
-        _env_file=None, llm_model="custom-model:1b", llm_base_url="http://gpu-box:11434"
+        _env_file=None,
+        llm_provider="ollama",
+        llm_model="custom-model:1b",
+        llm_base_url="http://gpu-box:11434",
     )
 
     client = get_extraction_client(settings)
