@@ -16,13 +16,13 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run --directory backend ruff check --fix
+        entry: uv run --project backend ruff check --fix
         language: system
         types: [python]
         files: ^backend/
       - id: ruff-format
         name: ruff format
-        entry: uv run --directory backend ruff format
+        entry: uv run --project backend ruff format
         language: system
         types: [python]
         files: ^backend/
