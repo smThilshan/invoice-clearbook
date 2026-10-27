@@ -25,7 +25,10 @@ const listing = (place: string, path: string, folders: Sub[], files = 0): PlaceL
     : files + folders.reduce((sum, [, , n]) => sum + (n ?? 0), 0),
 })  // prettier-ignore
 const FOLDERS: Record<string, PlaceListing> = {
-  'client:': listing('client', '', [['October 2026', '2026-10-31', 2], ['Supplier bills', null, 0]]),
+  'client:': listing('client', '', [
+    ['October 2026', '2026-10-31', 2], ['August', '2026-08-31', 1], ['Supplier bills', null, 0],
+  ]),
+  'client:August': listing('client', 'August', [], 1),
   'client:October 2026': listing('client', 'October 2026', [['21', '2026-10-21', 2]]),
   'client:October 2026/21': listing('client', 'October 2026/21', [], 2),
   'client:Supplier bills': listing('client', 'Supplier bills', []),
@@ -138,6 +141,20 @@ describe('run screen', () => {
     expect(screen.getByTestId('date-hint')).toHaveTextContent('Taken from the folder name.')
     expect(await screen.findByTestId('file-count')).toHaveTextContent('2 invoice files')
     expect(screen.getByText('No sub-folders here.')).toBeInTheDocument()
+  })
+
+  it('says which year is assumed for a folder name without one', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await openFolder(user, 'August')
+
+    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-08-31')
+    expect(screen.getByTestId('date-hint')).toHaveTextContent(
+      'which has no year: 2026 is assumed. Change it if the documents are from another year.',
+    )
   })
 
   it('goes back up with the folder path and uses the month end for a month folder', async () => {

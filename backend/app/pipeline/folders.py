@@ -69,11 +69,11 @@ _MONTH_YEAR = re.compile(
     r"|(?P<year2>\d{4})[\s\-_.](?P<num2>\d{1,2})"  # 2026-10
     r"|(?P<num3>\d{1,2})[\s\-_.](?P<year3>\d{4}))$"  # 10-2026
 )
-# No year (decision 31): "May", "May 1", "1 May", "May-01", "May 1st"
+# No year (decision 31): "May", "May 1", "1 May", "May-01", "May 1st", "01st of May"
 _MONTH_ONLY = re.compile(rf"^(?P<name>{_NAME})$")
 _MONTH_DAY = re.compile(
     rf"^(?:(?P<name>{_NAME})[\s\-_.]*(?P<day>\d{{1,2}})(?:st|nd|rd|th)?"
-    rf"|(?P<day2>\d{{1,2}})(?:st|nd|rd|th)?[\s\-_.]*(?P<name2>{_NAME}))$",
+    rf"|(?P<day2>\d{{1,2}})(?:st|nd|rd|th)?[\s\-_.]*(?:of[\s\-_.]+)?(?P<name2>{_NAME}))$",
     re.IGNORECASE,
 )
 _DAY = re.compile(r"^\d{1,2}$")

@@ -173,3 +173,22 @@ def test_non_postables_are_not_coded(session: Session, chart: ChartOfAccounts) -
 
     assert result == CodingResult([], [])
     assert result.apply(quote) == quote  # its lines stay as extracted, uncoded
+
+
+def test_a_rounding_line_keeps_no_vat_and_follows_the_goods_account(
+    session: Session, chart: ChartOfAccounts
+) -> None:
+    """Decision 58: the cash rounding comes from the page with no VAT; whatever the model
+    says for it, it goes with the goods (the largest other line)."""
+    invoice = receipt("Rice 5kg", "Dish soap")
+    soap = invoice.lines[1].model_copy(update={"amount": Decimal("2.00")})
+    rounding = Line(description="Rounding", amount=Decimal("0.02"), tax_type=TaxType.NONE)
+    lines = [invoice.lines[0], soap, rounding]
+    coder = FakeCoder({"accounts": ["5000", "5040", "5040"]})
+
+    result = code(session, chart, invoice.model_copy(update={"lines": lines}), coder)
+
+    assert [c.account_code for c in result.lines] == ["5000", "5040", "5000"]
+    assert [c.tax_type for c in result.lines] == [TaxType.STANDARD_5, TaxType.STANDARD_5,
+                                                  TaxType.NONE]  # fmt: skip
+    assert (result.lines[2].tax_code, result.lines[2].tax_confidence) == ("NOVAT", Confidence.HIGH)

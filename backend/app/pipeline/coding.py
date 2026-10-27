@@ -197,19 +197,32 @@ def code_document(
         if problem:
             issues.append(problem)
 
-    lines = [
-        LineCoding(
-            line=index,
-            account_code=code,
-            account_source=source if code else Source.NONE,
-            account_confidence=confidence if code else Confidence.NONE,
-            tax_type=tax_type,
-            tax_code=tax_code,
-            tax_confidence=tax_confidence if tax_type else Confidence.NONE,
-        )
-        for index, code in enumerate(accounts)
-    ]
+    # A line that already has a tax type got it from the page: the cash rounding (decision 58),
+    # no VAT. Its tax type stays, and its account follows the goods: the largest other line.
+    goods = _goods_account(invoice, accounts)
+    lines = []
+    for index, (line, code) in enumerate(zip(invoice.lines, accounts, strict=True)):
+        own_tax = line.tax_type
+        account = goods if own_tax is not None else code
+        lines.append(
+            LineCoding(
+                line=index,
+                account_code=account,
+                account_source=source if account else Source.NONE,
+                account_confidence=confidence if account else Confidence.NONE,
+                tax_type=own_tax or tax_type,
+                tax_code=chart.tax_codes.get(own_tax) if own_tax else tax_code,
+                tax_confidence=(Confidence.HIGH if own_tax
+                                else tax_confidence if tax_type else Confidence.NONE),
+            )
+        )  # fmt: skip
     return CodingResult(lines, issues)
+
+
+def _goods_account(invoice: Invoice, accounts: list[str | None]) -> str | None:
+    goods = [(line.amount, code) for line, code in zip(invoice.lines, accounts, strict=True)
+             if line.tax_type is None and code is not None]  # fmt: skip
+    return max(goods, key=lambda item: abs(item[0]))[1] if goods else None
 
 
 def check_codes(invoice: Invoice, chart: ChartOfAccounts) -> list[Issue]:

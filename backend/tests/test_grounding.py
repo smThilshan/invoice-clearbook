@@ -137,6 +137,27 @@ def test_text_layer_gets_no_ocr_tolerance() -> None:
     assert found == {"total", "invoice_number"}
 
 
+def test_a_subtotal_worked_out_as_total_less_vat_is_grounded() -> None:
+    """Decision 58: Total Amount 3.32 + Tax 0.16 + Rounding 0.02 = 3.50; the lines hold the
+    rounding, so the subtotal is 3.34, printed nowhere."""
+    printed = page(PRINTED.replace("1,000.00", "998.00").replace("1,050.00", "1,050.00 (rounded)"))
+
+    assert "subtotal" not in fields(invoice(subtotal=Decimal("1000.00")), printed)
+    assert "subtotal" in fields(invoice(subtotal=Decimal("999.00")), printed)
+    assert "subtotal" in fields(invoice(subtotal=Decimal("1000.00"), total=Decimal("1050.00"),
+                                        vat=Decimal("51.00")), printed)  # fmt: skip
+
+
+@pytest.mark.parametrize("printed", ["Date :Ol-Aug-2025 10:22", "Dated I-Aug-25", "lO/Aug/2025"])
+def test_a_day_misread_before_a_month_name_is_read_on_ocr_pages(printed: str) -> None:
+    """Al Shahama "Ol-Aug-2025", Sparklean "I-Aug-25": the letters touch no digit."""
+    day = date(2025, 8, 10) if printed.startswith("lO") else date(2025, 8, 1)
+    text = PRINTED.replace("Date: 15 Oct 2026", printed)
+
+    assert "invoice_date" not in fields(invoice(invoice_date=day), page(text, source="ocr"))
+    assert "invoice_date" in fields(invoice(invoice_date=day), page(text, source="text_layer"))
+
+
 def test_ocr_tolerance_does_not_invent_unrelated_values() -> None:
     assert "total" in fields(invoice(total=Decimal("9999.00")), page(OCR_MISREAD, source="ocr"))
 

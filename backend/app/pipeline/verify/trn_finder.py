@@ -8,11 +8,12 @@ the model's (rule 7: the model never checks itself). Text matching only, no mode
   No/Number, VAT No, TIN, الرقم الضريبي. Small misspellings of REGISTRATION from scanners
   ("REGISTRALION") still count. Excise, licence or phone numbers have other labels: never taken.
 - On OCR text (ours or a scanner's) letters read for digits are corrected (S=5, O=0, l=1).
-- Whose: a TRN in a customer block (Customer, Bill to, Sold to, ...) is the customer's. Of the
-  other labels, the highest on the first page is the supplier's (its header), even when its
-  number cannot be read (a scanner's "10029634270000?"): then the supplier TRN is unknown, and
-  the next TRN down is not mistaken for it. With exactly two TRN labels and no customer label,
-  the lower one is the customer's.
+- Whose: a TRN in a customer block (Customer, Bill to, Sold to, ...) is the customer's; a shop
+  slip's "CUSTOMER COPY" (the copy handed to the customer; OCR: "CORY") is not a customer
+  block. Of the other labels, the highest on the first page is the supplier's (its header),
+  even when its number cannot be read (a scanner's "10029634270000?"): then the supplier TRN
+  is unknown, and the next TRN down is not mistaken for it. With exactly two TRN labels and no
+  customer label, the lower one is the customer's.
 - Not sure or unreadable = None: the caller falls back to the plain grounding check.
 """
 
@@ -38,8 +39,8 @@ _LABEL = re.compile(
     re.IGNORECASE,
 )
 _CUSTOMER = re.compile(
-    r"\b(?:CUSTOMER|CLIENT|BUYER|PURCHASER|RECIPIENT|CONSIGNEE|(?:BILL|SOLD|SHIP|INVOICE)\s*TO"
-    r"|DELIVER(?:Y|ED)?\s*TO)\b|العميل",
+    r"\b(?:CUSTOMER(?!\s*C[O0][PR]Y)|CLIENT|BUYER|PURCHASER|RECIPIENT|CONSIGNEE"
+    r"|(?:BILL|SOLD|SHIP|INVOICE)\s*TO|DELIVER(?:Y|ED)?\s*TO)\b|العميل",
     re.IGNORECASE,
 )
 

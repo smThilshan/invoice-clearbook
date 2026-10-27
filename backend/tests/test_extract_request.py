@@ -10,6 +10,7 @@ from app.pipeline.extract import (
     EXTRACTION_SCHEMA,
     SYSTEM_PROMPT,
     build_request,
+    clear_null_text,
     parse_answer_dates,
     validate_answer,
 )
@@ -172,3 +173,28 @@ def test_a_valid_answer_has_its_descriptions_cleaned_and_the_raw_answer_is_untou
     assert error is None and invoice is not None
     assert invoice.lines[0].description == "Sugar 1kg"
     assert llm.raw_output == raw  # the model's own answer is kept as it was (decision 42)
+
+
+def test_null_written_as_text_is_null() -> None:
+    """Decision 57, Al Shahama: "null" as text made a customer TRN of 0 digits and an
+    original-invoice reference on a bill."""
+    raw = json.dumps({
+        "document_type": "BILL", "invoice_number": "357", "recipient_name": "null",
+        "recipient_trn": "null", "original_invoice_ref": "None", "po_number": " N/A ",
+        "due_date": "null", "lines": [{"description": "null", "amount": 0.12}],
+        "evidence": {"invoice_number": "357"},
+    })  # fmt: skip
+
+    invoice, error = validate_answer(answer(raw))
+
+    assert error is None and invoice is not None
+    assert invoice.invoice_number == "357"
+    assert (invoice.recipient_name, invoice.recipient_trn, invoice.original_invoice_ref,
+            invoice.po_number, invoice.due_date) == (None, None, None, None, None)  # fmt: skip
+    assert invoice.lines[0].description is None
+
+
+def test_only_the_whole_text_null_is_cleared() -> None:
+    names = {"a": "Nullabor Foods", "b": "NONE LEFT", "c": 0, "d": None}
+
+    assert clear_null_text(names) == names

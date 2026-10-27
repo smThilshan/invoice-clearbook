@@ -123,7 +123,7 @@ def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
         answer = None
     try:
         if isinstance(answer, dict):
-            invoice = Invoice.model_validate(parse_answer_dates(answer))
+            invoice = Invoice.model_validate(parse_answer_dates(clear_null_text(answer)))
             # Decision 34: the amounts decide the VAT type, not the model's guess. The model is
             # still asked so its prompt stays unchanged: any wording change shifts other fields.
             invoice = invoice.model_copy(update={"amount_type": vat_type_from_amounts(invoice)})
@@ -138,6 +138,24 @@ def validate_answer(llm: ExtractionResult) -> tuple[Invoice | None, str | None]:
         problems = ", ".join(f"{'.'.join(map(str, e['loc'])) or 'root'}:{e['type']}"
                              for e in exc.errors())  # fmt: skip
         return None, f"{exc.error_count()} schema error(s): {problems}"
+
+
+# The model sometimes writes null as text ("recipient_trn": "null"); the checks then took it
+# for a value (decision 57). Never a real value on a document.
+_NULL_TEXT = frozenset({"null", "none", "n/a"})
+
+
+def clear_null_text(value: Any) -> Any:
+    """Null written as text -> null, in every field and line. The evidence is the text copied
+    from the page: kept as written."""
+    if isinstance(value, str):
+        return None if value.strip().lower() in _NULL_TEXT else value
+    if isinstance(value, dict):
+        return {key: item if key == "evidence" else clear_null_text(item)
+                for key, item in value.items()}  # fmt: skip
+    if isinstance(value, list):
+        return [clear_null_text(item) for item in value]
+    return value
 
 
 def parse_answer_dates(answer: dict[str, Any]) -> dict[str, Any]:

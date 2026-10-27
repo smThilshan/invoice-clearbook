@@ -156,7 +156,7 @@ export function RunPage() {
               onChange={(event) => setDate(event.target.value)}
             />
             <p className="text-sm text-muted-foreground" data-testid="date-hint">
-              {dateHint(date, folderDate)}
+              {dateHint(date, folderDate, current?.path ?? '')}
             </p>
           </CardContent>
         </Card>
@@ -409,7 +409,14 @@ function RunSummary({
   )
 }
 
-function dateHint(date: string, folderDate: string | null): string {
+function dateHint(date: string, folderDate: string | null, path: string): string {
+  if (folderDate && date === folderDate && !/\b(19|20)\d\d\b/.test(path)) {
+    // Decision 31: the most recent such date is assumed; old documents need the year changed.
+    return (
+      `Taken from the folder name, which has no year: ${folderDate.slice(0, 4)} is assumed. ` +
+      'Change it if the documents are from another year.'
+    )
+  }
   if (folderDate && date === folderDate) return 'Taken from the folder name.'
   if (date === '' && folderDate) return 'No date: the period check is skipped for this run.'
   if (date === '') {

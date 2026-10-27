@@ -2,6 +2,8 @@
 
 from typing import Literal
 
+import pytest
+
 from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
 from app.pipeline.read import PageText, TextSpan
@@ -80,6 +82,19 @@ def test_trn_under_a_customer_label_is_the_customer_one() -> None:
     )
 
     assert result == PrintedTrns(None, CUSTOMER)
+
+
+@pytest.mark.parametrize("copy", ["CUSTOMER COPY", "Customer Copy", "CUSTOMER CORY"])
+def test_customer_copy_on_a_shop_slip_is_not_a_customer_block(copy: str) -> None:
+    """Al Shahama: "CUSTOMER COPY" (OCR: "CORY") right above the shop's own TRN."""
+    result = found(
+        (0.10, 0.20, "AL SHAHAMA SUPERMARKET"),
+        (0.14, 0.30, "TAX INVOICE"),
+        (0.15, 0.30, copy),
+        (0.16, 0.30, f"TRN: {SUPPLIER}"),
+    )
+
+    assert result == PrintedTrns(SUPPLIER, None)
 
 
 def test_trn_printed_in_groups_is_read_whole() -> None:

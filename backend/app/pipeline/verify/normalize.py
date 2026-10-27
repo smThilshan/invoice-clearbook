@@ -34,8 +34,18 @@ OCR_DIGITS = str.maketrans("OoQDlIiSsBZz", "000011155822")
 _CONFUSABLE_NEAR_DIGIT = re.compile(r"(?<=[\d.,])[OoQDlIiSsBZz]|[OoQDlIiSsBZz](?=[\d.,])")
 
 
+# A day misread before a month name ("Ol-Aug-2025", "I-Aug-25"): its letters touch no digit.
+_DAY_BEFORE_MONTH = re.compile(
+    r"(?<![A-Za-z0-9])[0-9OoQDlIi]{1,2}(?=[\-/.](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov"
+    r"|dec)[a-z]*[\-/.]\d)",
+    re.IGNORECASE,
+)
+
+
 def fold_ocr_digits(text: str) -> str:
-    """'1,O5O.1O' -> '1,050.10'. Repeated, because each fix can expose a neighbour."""
+    """'1,O5O.1O' -> '1,050.10', 'Ol-Aug-2025' -> '01-Aug-2025'. Repeated, because each fix
+    can expose a neighbour."""
+    text = _DAY_BEFORE_MONTH.sub(lambda m: m.group().translate(OCR_DIGITS), text)
     previous = None
     while previous != text:
         previous = text

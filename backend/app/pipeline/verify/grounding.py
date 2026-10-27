@@ -108,9 +108,23 @@ def _amounts(invoice: Invoice, witness: _Witness) -> list[Issue]:
         value = getattr(invoice, field)
         if value is None or value == 0:  # zero VAT is often left blank
             continue
-        if abs(value) not in witness.amounts:
+        if abs(value) not in witness.amounts and not _worked_out(invoice, field, witness):
             issues.append(_not_found(field, label, value, Severity.ERROR))
     return issues
+
+
+def _worked_out(invoice: Invoice, field: str, witness: _Witness) -> bool:
+    """A subtotal that is the printed total less the printed VAT: the lines hold a charge the
+    printed subtotal leaves out, such as a cash rounding (decisions 49, 58)."""
+    total, vat = invoice.total, invoice.vat
+    return (
+        field == "subtotal"
+        and total is not None
+        and vat is not None
+        and abs(total) in witness.amounts
+        and abs(vat) in witness.amounts
+        and invoice.subtotal == total - vat
+    )
 
 
 def not_a_tax_invoice(invoice: Invoice, pages: Sequence[PageText]) -> bool:

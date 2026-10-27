@@ -160,6 +160,8 @@ def test_no_or_ambiguous_date_in_the_name_is_none(relative: str) -> None:
         ("1 May", date(2026, 5, 1)),
         ("May-01", date(2026, 5, 1)),
         ("May 1st", date(2026, 5, 1)),
+        ("August/01st of August", date(2026, 8, 1)),  # Al Shahama's folders
+        ("1 of May", date(2026, 5, 1)),
         ("september/sept 3", date(2026, 9, 3)),
         ("October", date(2026, 10, 31)),  # this month: its end, like "October 2026"
         ("December/December 30", date(2025, 12, 30)),  # not reached yet this year: last year's

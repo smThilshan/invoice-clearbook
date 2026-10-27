@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Any
 
-from app.domain.enums import AmountType, DocumentType
+from app.domain.enums import AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, TextSpan
@@ -126,11 +126,69 @@ def test_an_item_line_at_the_end_is_never_removed() -> None:
     assert apply_printed_summary(read, page(text)) == read
 
 
-def test_a_summary_that_disagrees_with_the_total_read_changes_nothing() -> None:
-    """Dream Night: items 3.99 = 3.80 + 0.19, but the total paid is 4.00 after rounding."""
+def rounding(invoice: Invoice) -> tuple[str | None, str, TaxType | None]:
+    last = invoice.lines[-1]
+    return last.description, str(last.amount), last.tax_type
+
+
+def test_a_printed_cash_rounding_becomes_a_line_without_vat() -> None:
+    """Al Shahama: 1.50 + 1.98 = 3.48 = 3.32 + 0.16; rounded to 3.50. 3.48 is not printed."""
+    text = ("APPLE GREEN 1.00 1.50\nLEAVES 1.00 1.98\nTotal Amount : 3.32\n"
+            "Total Tax : 0.16\nRounding: 0.02\nNet Amount : 3.50\nTendered Amount 10.00\n"
+            "Balance Amount 6.50")  # fmt: skip
+    read = receipt("1.50", "1.98", subtotal=Decimal("3.32"), vat=Decimal("0.16"),
+                   total=Decimal("3.50"))  # fmt: skip
+
+    fixed = apply_printed_summary(read, page(text))
+
+    assert amounts(fixed) == ["1.50", "1.98", "0.02"]
+    assert rounding(fixed) == ("Rounding", "0.02", TaxType.NONE)
+    assert summary(fixed) == ("3.34", "0.16", "3.50", AmountType.INCLUSIVE)
+
+
+def test_summary_rows_copied_as_lines_go_and_the_rounding_stays_as_its_own_line() -> None:
+    """Dream Night: items 3.99 = 3.80 + 0.19, paid 4.00; the rounding and VAT read as lines."""
     text = "YOGHURT 3.99 3.99\nTotal Before VAT: 3.80\nRoundoff: 0.01\nVAT: 0.19\nNetAmount 4.00"
     read = receipt("3.99", "0.01", "0.19", subtotal=Decimal("3.80"), vat=Decimal("0.19"),
                    total=Decimal("4.00"))  # fmt: skip
+
+    fixed = apply_printed_summary(read, page(text))
+
+    assert amounts(fixed) == ["3.99", "0.01"]
+    assert rounding(fixed) == ("Rounding", "0.01", TaxType.NONE)
+    assert summary(fixed) == ("3.81", "0.19", "4.00", AmountType.INCLUSIVE)
+
+
+def test_a_rounding_down_is_a_negative_line() -> None:
+    text = "AVOCADO 18.38\nTotal 17.50\nTotal Tax 0.88\nRounding -0.13\nNet Amount 18.25"
+    read = receipt("18.38", subtotal=Decimal("17.50"), vat=Decimal("0.88"),
+                   total=Decimal("18.25"))  # fmt: skip
+
+    fixed = apply_printed_summary(read, page(text))
+
+    assert rounding(fixed) == ("Rounding", "-0.13", TaxType.NONE)
+    assert summary(fixed) == ("17.37", "0.88", "18.25", AmountType.INCLUSIVE)
+
+
+def test_a_gap_below_the_total_with_vat_on_top_is_a_discount_not_a_rounding() -> None:
+    """Amexhub: 145.00 less a 0.24 discount, VAT 7.24 on top: the discount changes the VAT."""
+    text = "Chicken Breast 145.00\nDiscount 0.24\nVAT 5% 7.24\nTotal 152.00"
+    read = receipt("145.00", "0.24", "7.24", vat=Decimal("7.24"), total=Decimal("152.00"))
+
+    assert apply_printed_summary(read, page(text)) == read
+
+
+def test_a_difference_not_printed_as_a_rounding_changes_nothing() -> None:
+    text = "YOGHURT 3.99\nTotal Before VAT: 3.80\nVAT: 0.19\nNetAmount 4.00"
+    read = receipt("3.99", subtotal=Decimal("3.80"), vat=Decimal("0.19"), total=Decimal("4.00"))
+
+    assert apply_printed_summary(read, page(text)) == read
+
+
+def test_a_difference_above_a_rounding_is_left_to_the_accountant() -> None:
+    """A 0.50 gap is a fee or a missing item, not cash rounding."""
+    text = "YOGHURT 3.99\nTotal Before VAT: 3.80\nVAT: 0.19\nBag 0.50\nNetAmount 4.49"
+    read = receipt("3.99", subtotal=Decimal("3.80"), vat=Decimal("0.19"), total=Decimal("4.49"))
 
     assert apply_printed_summary(read, page(text)) == read
 
