@@ -183,6 +183,14 @@ describe('review screen', () => {
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe&queue=EXCEPTION'))
   })
 
+  it('shows the folder the file came from and its date at the top', async () => {
+    await open()
+
+    expect(screen.getByLabelText('Folder')).toHaveTextContent(
+      'Folder: May / May 4 · Folder date 4 May 2026',
+    )
+  })
+
   it('shows the amounts under the lines, as on the paper and in the accounting system', async () => {
     await open()
 

@@ -19,7 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { QUEUE_LABELS, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
+import { formatDate, QUEUE_LABELS, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
 import { neighbours, type ReviewContext, reviewContext } from '@/lib/reviewList'
 import { formatDuration, workMs } from '@/lib/timings'
 import { usePageTitle } from '@/lib/usePageTitle'
@@ -272,6 +272,7 @@ function Header({
           model {formatDuration(doc.timings.extract_ms)}
         </span>
       )}
+      <FolderLine document={doc} />
       {position && (
         <nav aria-label="Documents in this list" className="ml-auto flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" aria-label="Previous document" disabled={!onPrevious} onClick={onPrevious}>
@@ -284,6 +285,19 @@ function Header({
         </nav>
       )}
     </div>
+  )
+}
+
+/** Where the file came from: folder names often carry the date or the supplier, which helps
+ * when the document itself shows no date (an app's order screen). On its own row, last. */
+function FolderLine({ document: doc }: { document: DocumentDetail }) {
+  const folder = doc.source_path.split('/').slice(0, -1).join(' / ')
+  return (
+    <p className="order-last basis-full text-sm text-muted-foreground" aria-label="Folder">
+      Folder: <span className="font-medium text-foreground">{folder || 'the top folder'}</span>
+      {' · '}
+      {doc.folder_date ? `Folder date ${formatDate(doc.folder_date)}` : 'No folder date'}
+    </p>
   )
 }
 
