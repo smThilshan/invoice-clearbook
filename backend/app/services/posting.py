@@ -10,8 +10,10 @@ crash:
     3. finish  POSTED with the external ID / back to review with the reason / try again later
 
 A row left IN_PROGRESS by a crashed worker is claimed again after STALE_AFTER and resumes from
-its saved progress. Bills only for now (credit notes 5.7, receipts 5.8), and only for clients
-connected to an accounting system (the export, 5.2, comes later): other rows wait. The client's
+its saved progress. Bills and receipts for now (credit notes 5.7), and only for clients
+connected to an accounting system (the export, 5.2, comes later): other rows wait. A receipt is
+posted as a bill, due on its own date (decision 50): it stays Awaiting Approval like every bill,
+and its payment is recorded in the accounting system. The client's
 provider comes from the registry (decision 43): nothing here names one.
 """
 
@@ -57,6 +59,8 @@ FIRST_WAIT_SECONDS = 60
 MAX_WAIT_SECONDS = 30 * 60
 NOTE = "Created by Missan invoice automation after review and approval in the Review Workbench."
 TOLERANCE = Decimal("0.01")
+# Sent as bills (decision 50): a receipt is a bill already paid.
+POSTED_AS_BILLS = frozenset({DocumentType.BILL, DocumentType.RECEIPT})
 
 Sessions = Callable[[], AbstractContextManager[Session]]
 
@@ -176,7 +180,7 @@ def summary(session: Session, client_id: str) -> PostingSummary:
     retry_reason: str | None = None
     not_yet: dict[str, int] = {}
     for document_type, status, last_error, next_attempt_at in rows:
-        if document_type is not DocumentType.BILL:
+        if document_type not in POSTED_AS_BILLS:
             key = document_type.value if document_type else "UNKNOWN"
             not_yet[key] = not_yet.get(key, 0) + 1
         elif status is OutboxStatus.PENDING and last_error and next_attempt_at > now:
@@ -243,7 +247,7 @@ def _claim(
                     Outbox.updated_at < now - STALE_AFTER,
                 ),
             ),
-            Document.document_type == DocumentType.BILL,
+            Document.document_type.in_(POSTED_AS_BILLS),
             Client.accounting_provider.in_(list(registry)),
         )
         .order_by(Outbox.created_at)
@@ -343,7 +347,9 @@ def _bill(
             supplier_external_id=_known_contact(session, document, provider),
             invoice_number=invoice.invoice_number,
             invoice_date=invoice.invoice_date,
-            due_date=invoice.due_date,
+            # A receipt is paid already: due on its own date (decision 50).
+            due_date=invoice.due_date
+            or (invoice.invoice_date if invoice.document_type is DocumentType.RECEIPT else None),
             currency=invoice.currency,
             amount_type=invoice.amount_type,
             lines=lines,

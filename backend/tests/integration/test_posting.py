@@ -245,6 +245,34 @@ def test_only_bills_of_clients_using_xero_are_taken(session: Session, xero: Fake
     )
 
 
+def test_a_receipt_is_posted_as_a_bill_due_on_its_own_date(
+    session: Session, xero: FakePosting
+) -> None:
+    """Decision 50: Awaiting Approval like every bill; the payment is recorded in Xero."""
+    receipt, _ = approved(
+        session, document_type=DocumentType.RECEIPT, amount_type=AmountType.NO_TAX
+    )
+    session.execute(update(Document).where(Document.id == receipt.id)
+                    .values(document_type=DocumentType.RECEIPT))  # fmt: skip
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "posted"
+    (bill,) = xero.bills
+    assert (bill.invoice_date, bill.due_date) == (date(2026, 10, 15), date(2026, 10, 15))
+    assert posting.summary(session, CLIENT).not_yet == {}
+
+
+def test_a_receipt_with_a_printed_due_date_keeps_it(session: Session, xero: FakePosting) -> None:
+    receipt, _ = approved(session, document_type=DocumentType.RECEIPT, due_date=date(2026, 10, 20))
+    session.execute(update(Document).where(Document.id == receipt.id)
+                    .values(document_type=DocumentType.RECEIPT))  # fmt: skip
+
+    send(session, xero)
+
+    assert xero.bills[0].due_date == date(2026, 10, 20)
+
+
 def test_the_summary_says_where_each_approved_document_is(
     session: Session, xero: FakePosting
 ) -> None:
@@ -258,14 +286,14 @@ def test_the_summary_says_where_each_approved_document_is(
     xero.outcome = PostingUnavailable("Xero's request limit was reached")
     send(session, xero)  # waiting to try again
     approved(session, invoice_number="INV-4")  # ready
-    receipt, _ = approved(session, invoice_number="INV-5")
-    session.execute(update(Document).where(Document.id == receipt.id)
-                    .values(document_type=DocumentType.RECEIPT))  # fmt: skip
+    credit_note, _ = approved(session, invoice_number="INV-5")
+    session.execute(update(Document).where(Document.id == credit_note.id)
+                    .values(document_type=DocumentType.CREDIT_NOTE))  # fmt: skip
 
     summary = posting.summary(session, CLIENT)
 
     assert (summary.ready, summary.retrying, summary.sent_back, summary.posted) == (1, 1, 1, 1)
-    assert summary.not_yet == {"RECEIPT": 1}
+    assert summary.not_yet == {"CREDIT_NOTE": 1}
     assert summary.retry_reason == "Xero's request limit was reached"
     session.refresh(busy)
     assert summary.retry_at == busy.next_attempt_at

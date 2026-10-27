@@ -74,7 +74,7 @@ create the entries. Each adapter maps canonical types to its own objects; the Xe
 |---|---|---|---|
 | `BILL` | Missan owes a supplier | Invoice, Type `ACCPAY` | MVP |
 | `CREDIT_NOTE` | Supplier reduces what Missan owes | CreditNote `ACCPAYCREDIT`, allocated to original | MVP |
-| `RECEIPT` | Already paid by card/cash | BankTransaction `SPEND` | MVP |
+| `RECEIPT` | Already paid by card/cash | Invoice, Type `ACCPAY`, due on its own date; payment recorded in Xero (decision 50) | MVP |
 | `DEBIT_NOTE` | Supplier charges more | Extra bill (configurable) | LATER |
 | `SALES_INVOICE` | Customer owes Missan (made outside the accounting system) | Invoice `ACCREC` | LATER |
 | `NON_POSTABLE` | Quote, PO, proforma, statement, delivery note, remittance | Not posted; archived | MVP (detect + park) |

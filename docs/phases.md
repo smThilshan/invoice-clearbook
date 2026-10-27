@@ -85,7 +85,7 @@ Goal: folder → review → posted works for bills, credit notes and receipts, w
 - [ ] **5.5 Xero bills** — lookup (contact + number), create contact if new, create ACCPAY `SUBMITTED` with idempotency key, history note, save external ID → `POSTED` (decision 39; built: to tick after the first real bill reaches Xero)
 - [ ] **5.6 Xero error handling** — retry/backoff for 429/timeouts, business errors → `POST_ERROR` back to review with Xero message, token expiry pauses posting, rate limiter
 - [ ] **5.7 Xero credit notes** — ACCPAYCREDIT + allocation to original
-- [ ] **5.8 Xero receipts** — BankTransaction SPEND
+- [ ] **5.8 Xero receipts** — posted as ACCPAY bills (Awaiting Approval), due on their own date; the payment is recorded in Xero (bank-feed match or petty cash) (decision 50; built with the bill path: to tick after the first real receipt reaches Xero)
 - [ ] **5.9 Workbench posting status** — posted / exported / error shown, with link to the document in the accounting system
 - [ ] **5.10 End-to-end run** — real sample invoices through the full flow, manual and Xero; fix what breaks
 - [ ] **5.11 README + demo script**
