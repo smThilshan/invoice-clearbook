@@ -6,8 +6,13 @@ from sqlalchemy.orm import Session
 
 from app.domain.enums import DocumentStatus as S
 from app.domain.state_machine import InvalidTransitionError
-from app.models import AuditLog, Document
-from app.services.pipeline import fail_document, retry_document, stalled_documents
+from app.models import AuditLog, Correction, Document
+from app.services.pipeline import (
+    fail_document,
+    reextract_document,
+    retry_document,
+    stalled_documents,
+)
 from tests.integration.factories import make_document
 
 pytestmark = pytest.mark.integration
@@ -51,6 +56,34 @@ def test_retry_sends_failed_document_back_to_start(session: Session) -> None:
 def test_retry_refuses_documents_that_did_not_fail(session: Session) -> None:
     with pytest.raises(InvalidTransitionError):
         retry_document(session, make_document(session, status=S.READ), actor="admin:cli")
+
+
+@pytest.mark.parametrize("status", [S.IN_REVIEW, S.NON_POSTABLE])
+def test_reextract_sends_a_document_in_review_back_to_the_model(
+    session: Session, status: S
+) -> None:
+    doc = make_document(session, status=status, verified_fields=["total"], queue=None,
+                        coding=[{"line": 0}], issues=[{"code": "x"}])  # fmt: skip
+    session.add(
+        Correction(
+            client_id=doc.client_id, document_id=doc.id, field="total", corrected_by="workbench"
+        )
+    )
+    session.flush()
+
+    reextract_document(session, doc, actor="admin:cli")
+
+    assert doc.status is S.READ
+    assert (doc.verified_fields, doc.coding, doc.issues, doc.queue) == ([], None, None, None)
+    assert session.scalars(select(Correction).where(Correction.document_id == doc.id)).all() == []
+    entry = last_audit(session, doc)
+    assert (entry.from_status, entry.actor, entry.reason) == (status, "admin:cli", "extract again")
+
+
+@pytest.mark.parametrize("status", [S.APPROVED, S.POSTED, S.REJECTED, S.FAILED, S.EXTRACTED])
+def test_reextract_refuses_documents_not_waiting_in_review(session: Session, status: S) -> None:
+    with pytest.raises(InvalidTransitionError):
+        reextract_document(session, make_document(session, status=status), actor="admin:cli")
 
 
 def test_stalled_documents_are_old_and_waiting_for_a_step(session: Session) -> None:

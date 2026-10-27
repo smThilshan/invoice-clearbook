@@ -39,13 +39,14 @@ ALLOWED_TRANSITIONS: Final[Mapping[S, frozenset[S]]] = MappingProxyType(
         S.READ: frozenset({S.EXTRACTED, S.FAILED}),
         S.EXTRACTED: frozenset({S.VERIFIED, S.FAILED}),
         S.VERIFIED: frozenset({S.IN_REVIEW, S.NON_POSTABLE}),
-        S.IN_REVIEW: frozenset({S.APPROVED, S.REJECTED, S.NON_POSTABLE}),
+        # READ: the model reads it again after an app or model update (decision 55)
+        S.IN_REVIEW: frozenset({S.APPROVED, S.REJECTED, S.NON_POSTABLE, S.READ}),
         S.APPROVED: frozenset({S.POSTING}),
         S.POSTING: frozenset({S.POSTED, S.POST_ERROR}),  # retries stay in POSTING
         S.POST_ERROR: frozenset({S.IN_REVIEW}),
         S.POSTED: frozenset({S.SYNCED, S.VOIDED}),
         S.SYNCED: frozenset({S.VOIDED}),
-        S.NON_POSTABLE: frozenset({S.IN_REVIEW}),  # accountant un-parks a misclassified doc
+        S.NON_POSTABLE: frozenset({S.IN_REVIEW, S.READ}),  # un-parked, or read again (55)
         S.FAILED: frozenset({S.CAPTURED}),  # re-run the pipeline
         S.REJECTED: frozenset({S.IN_REVIEW}),  # brought back after a mistaken reject (dec. 45)
         S.DUPLICATE: frozenset(),

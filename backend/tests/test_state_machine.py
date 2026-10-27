@@ -66,3 +66,8 @@ def test_a_rejected_document_can_only_come_back_to_review() -> None:
 def test_posted_cannot_be_reopened_for_review() -> None:
     assert not can_transition(S.POSTED, S.IN_REVIEW)
     assert not can_transition(S.SYNCED, S.IN_REVIEW)
+
+
+def test_only_documents_waiting_in_review_can_go_back_to_the_model() -> None:
+    """Decision 55: extract again after an app or model update; never once approved."""
+    assert {s for s in S if can_transition(s, S.READ)} == {S.CAPTURED, S.IN_REVIEW, S.NON_POSTABLE}

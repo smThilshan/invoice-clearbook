@@ -2,6 +2,7 @@
 
     make resume                      # re-queue documents stranded between steps
     make retry-document ID=<uuid>    # send a FAILED document back to the start
+    make reextract ID="<uuid> ..."   # the model reads documents in review again (decision 55)
 
 The Workbench gets these as buttons later (task 4.2, behind login).
 """
@@ -15,7 +16,7 @@ from app.core.config import get_settings
 from app.core.db import session_scope
 from app.domain.state_machine import InvalidTransitionError
 from app.models import Document
-from app.services.pipeline import retry_document, stalled_documents
+from app.services.pipeline import reextract_document, retry_document, stalled_documents
 from app.workers.tasks import enqueue_next
 
 
@@ -50,13 +51,41 @@ def retry(document_id: str) -> int:
     return 0
 
 
+def reextract(document_ids: list[str]) -> int:
+    failed = 0
+    for document_id in document_ids:
+        with session_scope() as session:
+            document = session.get(Document, uuid.UUID(document_id))
+            if document is None:
+                print(f"document {document_id} not found", file=sys.stderr)
+                failed += 1
+                continue
+            try:
+                reextract_document(session, document, actor="admin:cli")
+            except InvalidTransitionError:
+                print(f"{document_id}: only documents in review or parked can be extracted "
+                      f"again (status: {document.status})")  # fmt: skip
+                failed += 1
+                continue
+            status = document.status
+        enqueue_next(document_id, status)
+        print(f"document {document_id} queued for the model again")
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("resume", help="re-queue documents stranded between steps")
     retry_cmd = commands.add_parser("retry", help="send a FAILED document back to the start")
     retry_cmd.add_argument("document_id")
+    reextract_cmd = commands.add_parser(
+        "reextract", help="the model reads documents in review or parked again"
+    )
+    reextract_cmd.add_argument("document_ids", nargs="+")
     args = parser.parse_args()
+    if args.command == "reextract":
+        return reextract(args.document_ids)
     return resume() if args.command == "resume" else retry(args.document_id)
 
 

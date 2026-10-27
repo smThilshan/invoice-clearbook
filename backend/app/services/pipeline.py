@@ -3,19 +3,20 @@
 Flow: CAPTURED -> read -> READ -> extract -> EXTRACTED -> verify -> IN_REVIEW (or parked).
 Each step queues the next only after its own transaction commits. A step that fails
 unexpectedly marks the document FAILED with the reason; FAILED documents can be retried from
-the start. Documents left between steps (a worker crashed after committing, before queuing
+the start. A document waiting in review can be extracted again (decision 55). Documents left
+between steps (a worker crashed after committing, before queuing
 the next step) are found by `stalled_documents` and resumed.
 """
 
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import can_transition, transition
-from app.models import Document, Run, RunStatus
+from app.models import Correction, Document, Run, RunStatus
 
 
 class Step(StrEnum):
@@ -57,6 +58,19 @@ def retry_document(session: Session, document: Document, *, actor: str) -> None:
         details={"previous_failure": previous},
     )
     document.failure_reason = None
+
+
+def reextract_document(session: Session, document: Document, *, actor: str) -> None:
+    """Back to the model (decision 55), for after an app or model update: the pages are kept
+    (not read again), the model's earlier answers stay in `extractions`. What review did on the
+    current version is replaced: verified fields, codes and correction rows. Only documents
+    waiting in review or parked; raises InvalidTransitionError otherwise."""
+    transition(session, document, DocumentStatus.READ, actor=actor, reason="extract again")
+    document.verified_fields = []
+    document.coding = None
+    document.issues = None
+    document.queue = None
+    session.execute(delete(Correction).where(Correction.document_id == document.id))
 
 
 def stalled_documents(session: Session, *, idle_for: timedelta, now: datetime) -> list[Document]:
