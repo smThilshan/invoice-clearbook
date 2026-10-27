@@ -74,6 +74,7 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
     failure_reason: null,
     cleaned_descriptions: 0,
     repaired_unit_prices: 0,
+    cleared_vat: null,
     updated_at: '2026-10-21T08:01:00Z',
     corrections: [],
     ...changes,
@@ -232,6 +233,13 @@ describe('review screen', () => {
 
     await waitFor(() => expect(sent(api)).toBeDefined())
     expect(sent(api).invoice.amount_type).toBe('EXCLUSIVE')
+  })
+
+  it('says when the VAT the AI read was cleared on a document that is no tax invoice', async () => {
+    await open(backend(detail({ invoice: { ...detail().invoice!, vat: null }, cleared_vat: '2.97' })))
+
+    expect(within(document.querySelector('[data-field="vat"]')!).getByText(/AI read: 2\.97\. Cleared/))
+      .toBeInTheDocument()
   })
 
   it('offers the subtotal when the lines already hold the charges (decision 49)', async () => {

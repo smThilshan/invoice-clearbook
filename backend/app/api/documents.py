@@ -29,6 +29,7 @@ from app.domain.state_machine import StaleStatusError
 from app.models import Document, Extraction
 from app.pipeline.descriptions import cleaned_count
 from app.pipeline.line_totals import repaired_count
+from app.pipeline.no_vat import cleared_vat
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
@@ -108,6 +109,7 @@ class DocumentDetail(DocumentSummary):
     timings: StepTimingsOut | None  # where the processing time went (task 4.9)
     cleaned_descriptions: int  # item codes / "5 x" removed after extraction (decision 42)
     repaired_unit_prices: int  # unit prices worked out from line totals (decision 44)
+    cleared_vat: str | None  # the VAT the model read on a document that is no tax invoice (52)
 
 
 class DocumentUpdate(BaseModel):
@@ -435,6 +437,7 @@ def _detail(session: Session, document: Document) -> DocumentDetail:
         timings=StepTimingsOut.of(load_timings(session, [document]).get(document.id)),
         cleaned_descriptions=cleaned_count(latest.raw_output, latest.data) if latest else 0,
         repaired_unit_prices=repaired_count(latest.raw_output, latest.data) if latest else 0,
+        cleared_vat=cleared_vat(latest.raw_output, latest.data) if latest else None,
     )
 
 

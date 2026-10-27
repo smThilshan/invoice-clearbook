@@ -12,10 +12,13 @@ from app.adapters.llm import (
     ExtractionResult,
     ModelStatus,
 )
+from app.adapters.storage.keys import ocr_key
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus, DocumentType
 from app.models import AuditLog, Document, Extraction
 from app.pipeline.extract import PROMPT_VERSION, ExtractOutcome, extract_document
+from app.pipeline.no_vat import cleared_vat
+from app.pipeline.read import PageText, TextSpan
 from tests.integration.test_read import captured, run_read
 from tests.read_fixtures import digital_pdf
 from tests.test_read_pages import FakeOcr
@@ -143,3 +146,35 @@ def test_not_read_document_is_skipped(session: Session, storage: LocalStorage) -
     assert result.outcome is ExtractOutcome.SKIPPED
     assert client.requests == []
     assert len(extractions(session, doc)) == 1
+
+
+def test_vat_on_a_page_that_is_no_tax_invoice_is_cleared_and_shown(
+    session: Session, storage: LocalStorage
+) -> None:
+    """Decision 52: an app screen prints neither VAT nor a supplier TRN."""
+    doc = read_doc(session, storage)
+    screen = PageText.from_json(storage.get(ocr_key(doc.client_id, doc.id, 1)))
+    screen.spans = [TextSpan("Order Details  Order ID: INV-00291  Total 1,050.10  Paid",
+                             (0, 0, 1, 0.1), None)]  # fmt: skip
+    storage.put(ocr_key(doc.client_id, doc.id, 1), screen.to_json())
+
+    order = json.loads(VALID) | {
+        "document_type": "RECEIPT",
+        "lines": [{"description": "Food", "qty": None, "unit_price": None, "amount": 1000.10},
+                  {"description": "Service fee", "qty": None, "unit_price": None, "amount": 50.00}],
+    }  # fmt: skip
+
+    extract_document(session, storage, FakeClient(json.dumps(order)), doc, max_images=3)
+
+    assert doc.invoice is not None
+    assert (doc.invoice["vat"], doc.invoice["amount_type"]) == (None, "NO_TAX")
+    [row] = extractions(session, doc)
+    assert cleared_vat(row.raw_output, row.data) == "50.0"
+
+
+def test_vat_on_a_tax_invoice_is_kept(session: Session, storage: LocalStorage) -> None:
+    doc = read_doc(session, storage)  # its page says "TAX INVOICE"
+
+    extract_document(session, storage, FakeClient(), doc, max_images=3)
+
+    assert doc.invoice is not None and Decimal(doc.invoice["vat"]) == Decimal("50.00")

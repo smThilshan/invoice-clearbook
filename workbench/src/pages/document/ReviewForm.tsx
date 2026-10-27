@@ -251,6 +251,7 @@ export function ReviewForm({
                   issues={issues.byField.get(spec.name)}
                   verified={verified.has(spec.name)}
                   correction={corrected.get(spec.name)}
+                  cleared={spec.name === 'vat' ? document.cleared_vat : null}
                   confirmed={confirmed.has(spec.name)}
                   onConfirm={(on) => toggleConfirmed(spec.name, on)}
                   onFocus={() => setActive(headerTarget(spec))}
@@ -327,6 +328,7 @@ function HeaderInput({
   issues,
   verified,
   correction,
+  cleared,
   confirmed,
   onConfirm,
   onFocus,
@@ -338,6 +340,7 @@ function HeaderInput({
   issues: Issue[] | undefined
   verified: boolean
   correction: Correction | undefined
+  cleared?: string | null
   confirmed: boolean
   onConfirm: (on: boolean) => void
   onFocus: () => void
@@ -369,6 +372,13 @@ function HeaderInput({
         {...register(spec.name)}
       />
       {correction && <AiRead value={shown(correction.model_value, spec.kind)} />}
+      {!correction && cleared && (
+        // Decision 52: no supplier TRN and no VAT printed, so the VAT the AI read was cleared.
+        <p className="text-xs text-muted-foreground">
+          AI read: {cleared}. Cleared: no VAT or supplier VAT registration no is printed, so it is
+          not a tax invoice and has no VAT.
+        </p>
+      )}
       {issues?.map((issue) => (
         <IssueNote key={issue.code} issue={issue}>
           {editable && issue.suggestion && (

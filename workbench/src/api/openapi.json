@@ -299,6 +299,17 @@
             "title": "Cleaned Descriptions",
             "type": "integer"
           },
+          "cleared_vat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleared Vat"
+          },
           "client_id": {
             "title": "Client Id",
             "type": "string"
@@ -557,7 +568,8 @@
           "corrections",
           "timings",
           "cleaned_descriptions",
-          "repaired_unit_prices"
+          "repaired_unit_prices",
+          "cleared_vat"
         ],
         "title": "DocumentDetail",
         "type": "object"

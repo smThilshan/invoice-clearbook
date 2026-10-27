@@ -80,7 +80,7 @@ def check_grounding(
     witness = _witness(pages)
     issues = [
         *_amounts(invoice, witness),
-        *_vat_printed(invoice, pages, witness),
+        *_vat_printed(invoice, pages),
         *_dates(invoice, witness),
         *_number(invoice, witness),
         *_trn(invoice, witness, find_printed_trns(pages)),
@@ -113,10 +113,17 @@ def _amounts(invoice: Invoice, witness: _Witness) -> list[Issue]:
     return issues
 
 
-def _vat_printed(invoice: Invoice, pages: Sequence[PageText], witness: _Witness) -> list[Issue]:
+def not_a_tax_invoice(invoice: Invoice, pages: Sequence[PageText]) -> bool:
+    """No supplier TRN and no VAT word anywhere (decision 47): an app or shop screen that
+    cannot hold VAT. Shared with extraction, which clears such a VAT (decision 52)."""
+    text = "\n".join(page.text for page in pages)
+    return invoice.vendor_trn is None and not _VAT_WORDS.search(text)
+
+
+def _vat_printed(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
     """Decision 47: VAT on a document that names no VAT was read from something else."""
     vat = invoice.vat
-    if vat is None or vat == 0 or invoice.vendor_trn is not None or _VAT_WORDS.search(witness.raw):
+    if vat is None or vat == 0 or not not_a_tax_invoice(invoice, pages):
         return []
     label = next((c.label for c in labelled_amounts(pages) if abs(c.amount) == abs(vat)), None)
     printed = f" {vat} is printed as '{label}'." if label else ""

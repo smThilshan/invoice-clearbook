@@ -702,6 +702,8 @@ export interface components {
         DocumentDetail: {
             /** Cleaned Descriptions */
             cleaned_descriptions: number;
+            /** Cleared Vat */
+            cleared_vat: string | null;
             /** Client Id */
             client_id: string;
             /** Coding */
