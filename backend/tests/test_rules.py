@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from app.core.config import Settings
-from app.domain.enums import AmountType, DocumentType
+from app.domain.enums import AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import DIRHAM_SIGN
@@ -420,3 +420,46 @@ def test_zero_vat_without_a_supplier_vat_registration_no_says_vat_cannot_be_recl
 
     assert issue.severity is Severity.WARNING
     assert "no input VAT can be reclaimed" in issue.message
+
+
+# --- line VAT codes (decision 53) ---------------------------------------------------------
+
+
+def coded(*tax_types: TaxType) -> list[Line]:
+    return [Line(description=f"Item {n}", amount=Decimal("50.00"), tax_type=tax)
+            for n, tax in enumerate(tax_types)]  # fmt: skip
+
+
+def no_vat_receipt(lines: list[Line]) -> Invoice:
+    return invoice(document_type=DocumentType.RECEIPT, vendor_trn=None, vat=None,
+                   amount_type=AmountType.NO_TAX, subtotal=Decimal("100.00"),
+                   total=Decimal("100.00"), lines=lines)  # fmt: skip
+
+
+def test_a_5_percent_line_on_a_document_without_vat_is_an_error() -> None:
+    receipt = no_vat_receipt(coded(TaxType.NONE, TaxType.STANDARD_5))
+
+    issue = only(receipt, "line_vat_without_document_vat")
+
+    assert (issue.severity, issue.field) == (Severity.ERROR, "lines[1].tax_type")
+
+
+@pytest.mark.parametrize(
+    "tax", [TaxType.NONE, TaxType.ZERO, TaxType.EXEMPT, TaxType.REVERSE_CHARGE]
+)
+def test_no_vat_codes_on_a_document_without_vat_are_fine(tax: TaxType) -> None:
+    assert "line_vat_without_document_vat" not in codes(no_vat_receipt(coded(tax, tax)))
+
+
+def test_zero_vat_counts_as_no_vat() -> None:
+    receipt = invoice(vat=Decimal("0"), total=Decimal("1000.00"),
+                      lines=coded(TaxType.STANDARD_5))  # fmt: skip
+
+    assert "line_vat_without_document_vat" in codes(receipt)
+
+
+def test_5_percent_lines_on_a_document_with_vat_are_fine() -> None:
+    bill = invoice(lines=[line.model_copy(update={"tax_type": TaxType.STANDARD_5})
+                          for line in invoice().lines])  # fmt: skip
+
+    assert issues(bill) == []

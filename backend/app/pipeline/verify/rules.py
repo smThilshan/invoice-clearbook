@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.core.config import Settings
-from app.domain.enums import AmountType, DocumentType
+from app.domain.enums import AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import (
@@ -270,6 +270,23 @@ def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     return issues
 
 
+def check_line_vat_codes(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
+    """A 5% VAT code on a line of a document without VAT would claim VAT in the accounting
+    system, which works the VAT out from the lines' codes (decision 53)."""
+    if invoice.vat:
+        return []
+    return [
+        _error(
+            "line_vat_without_document_vat",
+            f"lines[{index}].tax_type",
+            "This document has no VAT, but this line has the 5% VAT code: the accounting "
+            "system would claim VAT for it. Choose No VAT, or enter the document's VAT.",
+        )
+        for index, line in enumerate(invoice.lines)
+        if line.tax_type is TaxType.STANDARD_5
+    ]
+
+
 def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     issues = []
     for field, severity, label in (
@@ -440,6 +457,7 @@ RULES: tuple[Rule, ...] = (
     check_line_math,
     check_vat_type,
     check_vat,
+    check_line_vat_codes,
     check_trn,
     check_dates,
     check_period,
