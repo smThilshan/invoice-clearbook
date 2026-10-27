@@ -11,6 +11,11 @@ gets no such tolerance.
 A value not found is an error (architecture §8), except the due date (often printed as terms
 like "Net 30"): a warning. In review, a value the accountant confirms or types counts as
 human-verified (decision 24) and is no longer grounded: pass it in `verified`.
+
+A VAT amount must also be printed as VAT: a document with no supplier TRN that names no VAT or
+tax at all (an app's order screen) has none, and its "VAT" was read from a fee (decision 47).
+Pages that name VAT anywhere are not questioned (layouts vary too much to tell which amount is
+the VAT), nor documents with a supplier TRN: a tax invoice, whose VAT word OCR may have lost.
 """
 
 import re
@@ -22,6 +27,7 @@ from decimal import Decimal
 from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
 from app.pipeline.read import PageText
+from app.pipeline.verify.charges import labelled_amounts
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import (
     OCR_DIGITS,
@@ -47,6 +53,11 @@ _NUMBER_LABEL = re.compile(
     r"|رقم\s*(?:الفاتورة|الإيصال)",
     re.IGNORECASE,
 )
+# Any of these on the page: it may hold VAT (decision 47). TRN too, so a VAT word lost to OCR
+# on a real tax invoice does not raise an error.
+_VAT_WORDS = re.compile(
+    r"\b(?:v\.?\s?a\.?\s?t|tax|gst|trn)\b|ضريبة|ضريبي|القيمة\s*المضافة", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +80,7 @@ def check_grounding(
     witness = _witness(pages)
     issues = [
         *_amounts(invoice, witness),
+        *_vat_printed(invoice, pages, witness),
         *_dates(invoice, witness),
         *_number(invoice, witness),
         *_trn(invoice, witness, find_printed_trns(pages)),
@@ -99,6 +111,24 @@ def _amounts(invoice: Invoice, witness: _Witness) -> list[Issue]:
         if abs(value) not in witness.amounts:
             issues.append(_not_found(field, label, value, Severity.ERROR))
     return issues
+
+
+def _vat_printed(invoice: Invoice, pages: Sequence[PageText], witness: _Witness) -> list[Issue]:
+    """Decision 47: VAT on a document that names no VAT was read from something else."""
+    vat = invoice.vat
+    if vat is None or vat == 0 or invoice.vendor_trn is not None or _VAT_WORDS.search(witness.raw):
+        return []
+    label = next((c.label for c in labelled_amounts(pages) if abs(c.amount) == abs(vat)), None)
+    printed = f" {vat} is printed as '{label}'." if label else ""
+    return [
+        Issue(
+            "vat_not_printed",
+            Severity.ERROR,
+            "vat",
+            f"No VAT is printed on this document.{printed} Clear the VAT (an app or shop "
+            "screen without VAT is not a tax invoice); a fee can then be added as a line.",
+        )
+    ]
 
 
 def _dates(invoice: Invoice, witness: _Witness) -> list[Issue]:

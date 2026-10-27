@@ -185,3 +185,91 @@ def test_human_verified_fields_are_not_grounded() -> None:
     assert {i.field for i in check_grounding(typed, [page()], verified={"total"})} == {
         "invoice_number"
     }
+
+
+# --- VAT printed as VAT (decision 47) -----------------------------------------------------
+
+# A delivery app's order screen: no VAT anywhere, a service fee that sums like VAT would.
+APP_ORDER = """talabat mart
+25/03/2026 12:17
+Order ID: 3526727111
+1 x talabat White Fresh Eggs Large, 30 Pieces   D 21.50
+Subtotal   D 98.87
+Delivery fee   D 0.00
+Service fee   D 2.97
+Total   D 101.84
+Payment method   Cash"""
+
+
+def screen(text: str) -> PageText:
+    """One span per printed line, stacked down the page (so lines keep their labels)."""
+    rows = text.splitlines()
+    spans = [TextSpan(row, (0.05, i / len(rows), 0.95, (i + 0.5) / len(rows)), None)
+             for i, row in enumerate(rows)]  # fmt: skip
+    return PageText(1, 1000, 1400, "ocr", spans)
+
+
+def app_order(**changes: Any) -> Invoice:
+    fields: dict[str, Any] = {
+        "document_type": DocumentType.RECEIPT,
+        "invoice_number": "3526727111",
+        "invoice_date": date(2026, 3, 25),
+        "subtotal": Decimal("98.87"),
+        "vat": Decimal("2.97"),
+        "total": Decimal("101.84"),
+    }
+    fields.update(changes)
+    return Invoice(**fields)
+
+
+def test_vat_on_a_page_that_names_no_vat_is_an_error_naming_the_fee() -> None:
+    [issue] = check_grounding(app_order(), [screen(APP_ORDER)])
+
+    assert (issue.code, issue.severity, issue.field) == ("vat_not_printed", Severity.ERROR, "vat")
+    assert "2.97 is printed as 'Service fee'" in issue.message
+
+
+def test_vat_not_printed_without_a_matching_label_still_errors() -> None:
+    [issue] = check_grounding(app_order(vat=Decimal("4.94"), total=Decimal("103.81")),
+                              [screen(APP_ORDER + "\nTip D 4.94\nPaid D 103.81")])  # fmt: skip
+
+    assert issue.code == "vat_not_printed"
+    assert "printed as 'Tip'" in issue.message
+
+
+def test_no_vat_extracted_from_an_app_screen_is_fine() -> None:
+    assert check_grounding(app_order(vat=None, total=Decimal("98.87")),
+                           [screen(APP_ORDER.replace("101.84", "98.87"))]) == []  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "vat_word",
+    ["VAT 5%", "V.A.T", "Tax", "GST", "TRN 100999000000001", "ضريبة القيمة المضافة",
+     "الرقم الضريبي"],
+)  # fmt: skip
+def test_a_page_that_names_vat_anywhere_is_not_questioned(vat_word: str) -> None:
+    """Column layouts put the VAT far from its label: only pages with no VAT word are judged."""
+    text = APP_ORDER.replace("Service fee", "Charge") + f"\n{vat_word}"
+
+    issues = check_grounding(app_order(), [screen(text)])
+
+    assert "vat_not_printed" not in {issue.code for issue in issues}
+
+
+def test_a_tax_invoice_whose_vat_word_ocr_lost_is_not_questioned() -> None:
+    """A real shop slip: OCR read "VAT incl." as "incl. rote" and the TRN label as "INN"."""
+    slip = "VIVA Investment LLC\nINN: 1002/5510400003\nincl. rote) 10.03\nTOTAL 210.58"
+    receipt = app_order(vendor_trn="100275510400003", subtotal=Decimal("200.55"),
+                        vat=Decimal("10.03"), total=Decimal("210.58"))  # fmt: skip
+
+    codes = {issue.code for issue in check_grounding(receipt, [screen(slip)])}
+
+    assert "vat_not_printed" not in codes
+
+
+def test_the_usual_tax_invoice_passes() -> None:
+    assert issues_for(invoice()) == []
+
+
+def test_confirmed_vat_is_not_questioned() -> None:
+    assert check_grounding(app_order(), [screen(APP_ORDER)], verified={"vat"}) == []

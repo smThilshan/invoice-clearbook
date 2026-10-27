@@ -101,6 +101,16 @@ def find_charges(
     return None
 
 
+def labelled_amounts(pages: Sequence[PageText]) -> list[Charge]:
+    """Every printed line that reads as label + amount ("Service fee D 2.97"), top to bottom."""
+    return [
+        Charge(row.label, row.amount)
+        for page in pages
+        for line in page_lines(page)
+        if (row := _row(line.text))
+    ]
+
+
 def ensure_charge_text(
     storage: Storage,
     document: Document,
