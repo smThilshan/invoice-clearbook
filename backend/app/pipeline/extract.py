@@ -36,6 +36,7 @@ from app.pipeline.descriptions import clean_descriptions
 from app.pipeline.line_totals import repair_unit_prices
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.no_vat import clear_unprinted_vat
+from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.normalize import parse_date
 from app.pipeline.verify.vat_type import vat_type_from_amounts
@@ -175,7 +176,10 @@ def extract_document(
     # ExtractionError -> the task retries; ExtractionStopped -> the user force-stopped the run
     llm = client.extract(request, should_stop=should_stop)
     invoice, error = validate_answer(llm)
-    if invoice is not None:  # decision 52: no VAT on what is not a tax invoice
+    if invoice is not None:
+        # Decision 56: summary rows copied as items, and the totals, from the printed summary.
+        invoice = apply_printed_summary(invoice, pages)
+        # Decision 52: no VAT on what is not a tax invoice.
         invoice = clear_unprinted_vat(invoice, pages)
 
     attempt = (

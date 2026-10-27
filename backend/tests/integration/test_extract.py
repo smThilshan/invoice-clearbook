@@ -178,3 +178,33 @@ def test_vat_on_a_tax_invoice_is_kept(session: Session, storage: LocalStorage) -
     extract_document(session, storage, FakeClient(), doc, max_images=3)
 
     assert doc.invoice is not None and Decimal(doc.invoice["vat"]) == Decimal("50.00")
+
+
+def test_summary_rows_read_as_lines_are_removed_from_the_printed_summary(
+    session: Session, storage: LocalStorage
+) -> None:
+    """Decision 56: UHM's cash and VAT read as items, the total left empty."""
+    doc = read_doc(session, storage)
+    slip = PageText.from_json(storage.get(ocr_key(doc.client_id, doc.id, 1)))
+    slip.spans = [TextSpan(row, (0, n / 6, 1, (n + 0.5) / 6), None) for n, row in enumerate([
+        "TAX INVOICE  TRN:100228932800003", "PENNE 3 5.99 17.97", "BEEF CUBE 2 21.99 93.31",
+        "CASH 115.00", "hount: 105.98  ISvOd 5.30  Bi ount: 111.28", "can punt 115.00  Bal 3.72",
+    ])]  # fmt: skip
+    storage.put(ocr_key(doc.client_id, doc.id, 1), slip.to_json())
+    answer = json.loads(VALID) | {
+        "document_type": "RECEIPT", "subtotal": 115.00, "vat": 5.30, "total": None,
+        "lines": [{"description": d, "qty": None, "unit_price": None, "amount": a}
+                  for d, a in [("PENNE", 17.97), ("BEEF CUBE", 93.31), ("CASH", 115.00),
+                               ("VAT 5%", 5.30)]],
+    }  # fmt: skip
+
+    extract_document(session, storage, FakeClient(json.dumps(answer)), doc, max_images=3)
+
+    assert doc.invoice is not None
+    assert [line["description"] for line in doc.invoice["lines"]] == ["PENNE", "BEEF CUBE"]
+    assert (doc.invoice["subtotal"], doc.invoice["vat"], doc.invoice["total"]) == (
+        "105.98", "5.30", "111.28"
+    )  # fmt: skip
+    assert doc.invoice["amount_type"] == "INCLUSIVE"
+    [row] = extractions(session, doc)
+    assert "CASH" in row.raw_output  # the model's own answer is kept
