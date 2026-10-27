@@ -17,6 +17,7 @@ import type {
   CodingOptions,
   Correction,
   DocumentDetail,
+  DocumentType,
   Issue,
   ValueKind,
 } from '@/api/client'
@@ -177,7 +178,11 @@ export function ReviewForm({
 
         <section className="grid gap-4 sm:grid-cols-2">
           <SelectField label={FIELD_LABELS.document_type ?? ''} field="document_type" issues={issues.byField.get('document_type')}
-            correction={corrected.get('document_type')}>
+            correction={corrected.get('document_type')}
+            suggest={editable ? {
+              label: (value) => TYPE_LABELS[value as DocumentType] ?? value,
+              apply: (value) => setValue('document_type', value as DocumentType, { shouldDirty: true }),
+            } : undefined}>
             <Controller
               control={control}
               name="document_type"

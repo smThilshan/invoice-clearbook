@@ -10,7 +10,10 @@ be issued for returns" on a bill is not mistaken for a title.
 - Debit notes and sales invoices: not in the MVP scope, error with the reason.
 - Bill vs receipt (paid or owed?) unclear: warning only; UAE shop slips are often titled
   "TAX INVOICE" too.
-The type itself is never changed (rule 8): the accountant decides.
+The type itself is never changed (rule 8): the accountant decides. When the model says
+non-postable but nothing confirms it, the error offers the type the document shows: a
+receipt when it shows a payment (an app's order screen: "Order Details", "Payment method
+Cash", "Amount Paid"; decision 48), else the type its title names.
 """
 
 import re
@@ -43,7 +46,7 @@ _TITLES: tuple[tuple[DocumentType, re.Pattern[str]], ...] = (
 # Signs that the document was paid on the spot (a receipt rather than a bill to pay).
 _PAYMENT_MARKS = re.compile(
     r"\b(?:paid|cash|change\s*due|change|tender(?:ed)?|visa|mastercard|amex|card\s*payment"
-    r"|credit\s*card|debit\s*card|card\s*no)\b",
+    r"|credit\s*card|debit\s*card|card\s*no|card\s*ending|(?:apple|google|samsung)\s*pay)\b",
     re.I,
 )
 _OUT_OF_SCOPE = {
@@ -90,11 +93,23 @@ def check_document_type(
         if DocumentType.NON_POSTABLE in titles:
             return TypeCheck([], park=True)
         reason = f"but its title says {_NAMES[named]}" if named else "but its title does not say so"
+        if _shows_payment(pages):
+            return TypeCheck(
+                [
+                    _conflict(
+                        f"The model read it as {_NAMES[model]}, {reason} and it shows a "
+                        "payment (cash/card/paid): it looks like a receipt.",
+                        suggestion=DocumentType.RECEIPT,
+                    )
+                ],
+                park=False,
+            )
         return TypeCheck(
             [
                 _conflict(
                     f"The model read it as {_NAMES[model]}, {reason}. "
-                    "Check before it is posted or parked."
+                    "Check before it is posted or parked.",
+                    suggestion=named,
                 )
             ],
             park=False,
@@ -131,8 +146,12 @@ def check_document_type(
     return TypeCheck(issues, park=False)
 
 
+def _shows_payment(pages: Sequence[PageText]) -> bool:
+    return any(_PAYMENT_MARKS.search(page.text) for page in pages)
+
+
 def _paid_or_owed(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
-    paid = any(_PAYMENT_MARKS.search(page.text) for page in pages)
+    paid = _shows_payment(pages)
     if invoice.document_type is DocumentType.BILL and paid:
         return [
             Issue(
@@ -161,5 +180,7 @@ def _strongest(titles: set[DocumentType]) -> DocumentType | None:
     return next((kind for kind, _ in _TITLES if kind in titles), None)
 
 
-def _conflict(message: str) -> Issue:
-    return Issue("type_conflict", Severity.ERROR, "document_type", message)
+def _conflict(message: str, suggestion: DocumentType | None = None) -> Issue:
+    """`suggestion`: the type the document shows, offered in review (never applied, rule 8)."""
+    return Issue("type_conflict", Severity.ERROR, "document_type", message,
+                 suggestion.value if suggestion else None)  # fmt: skip

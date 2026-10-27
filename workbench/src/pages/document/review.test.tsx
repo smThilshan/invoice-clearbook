@@ -234,6 +234,23 @@ describe('review screen', () => {
     expect(sent(api).invoice.amount_type).toBe('EXCLUSIVE')
   })
 
+  it('offers the type the document shows and sends it (decision 48)', async () => {
+    const order = detail({
+      invoice: { ...detail().invoice!, document_type: 'NON_POSTABLE' },
+      issues: [{ code: 'type_conflict', severity: 'ERROR', field: 'document_type',
+        message: 'The model read it as a non-postable document, but it shows a payment.',
+        suggestion: 'RECEIPT' }],
+    })  // prettier-ignore
+    const api = await open(backend(order))
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Use: Receipt' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).invoice.document_type).toBe('RECEIPT')
+  })
+
   it('sends amounts exactly as typed and empty fields as null', async () => {
     const api = await open()
     const user = userEvent.setup()

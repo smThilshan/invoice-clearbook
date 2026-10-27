@@ -129,3 +129,56 @@ def test_confirmed_out_of_scope_type_is_still_an_error() -> None:
                                  confirmed=True)  # fmt: skip
 
     assert [issue.code for issue in result.issues] == ["type_out_of_scope"]
+
+
+# --- the type the document shows, offered (decision 48) -----------------------------------
+
+TALABAT = ("Subtotal D 98.87 Delivery fee D 0.00 Service fee D 2.97 Total D 101.84 "
+           "Payment method Cash Delivery time 25 mins")  # fmt: skip
+NOON = ("Payment Card ending in 0011 Confirmed (1 item) Subtotal (1 Item) D 18.33 "
+        "Delivery Fee D 6 Small Order Fee D 3.00 Amount Paid D 27.33")  # fmt: skip
+
+
+def suggested(model: T, title: str, body: str) -> str | None:
+    [issue] = check_document_type(Invoice(document_type=model), [page(title, body)]).issues
+    assert (issue.code, issue.severity) == ("type_conflict", Severity.ERROR)  # still flagged
+    return issue.suggestion
+
+
+@pytest.mark.parametrize(
+    ("title", "body"),
+    [
+        ("Order Details talabat mart Order ID: 3526727111", TALABAT),
+        ("noon MINUTES Receiver Details Proof of delivery", NOON),
+        ("Trip details", "Fare AED 22.73 Payment details Apple Pay AED 22.73"),
+        ("Your order", "Total 45.00 Paid with Google Pay"),
+    ],
+)
+def test_app_order_screen_read_as_non_postable_offers_receipt(title: str, body: str) -> None:
+    assert suggested(T.NON_POSTABLE, title, body) == "RECEIPT"
+
+
+def test_non_postable_without_payment_offers_the_titled_type() -> None:
+    assert suggested(T.NON_POSTABLE, "TAX INVOICE", "Total 90.00 due in 30 days") == "BILL"
+
+
+def test_non_postable_with_nothing_to_go_on_offers_nothing() -> None:
+    assert suggested(T.NON_POSTABLE, "AL WAHA HYPERMARKET", "Rice 5kg 90.00") is None
+
+
+@pytest.mark.parametrize(
+    "title", ["QUOTATION", "PURCHASE ORDER", "Statement of Account", "Delivery Note",
+              "Remittance Advice"],
+)  # fmt: skip
+def test_titled_non_postables_are_still_parked_even_when_they_mention_payment(title: str) -> None:
+    """A statement lists payments and a remittance is about one: the title decides."""
+    assert check(T.NON_POSTABLE, title, "Payment received, paid by card 90.00") == (set(), True)
+
+
+def test_an_order_screen_read_as_a_receipt_has_no_issue() -> None:
+    assert check(T.RECEIPT, "Order Details talabat mart", TALABAT) == (set(), False)
+
+
+@pytest.mark.parametrize("mark", ["Card ending in 0011", "Apple Pay", "GOOGLE PAY", "Samsung Pay"])
+def test_app_payment_marks_count_as_payments(mark: str) -> None:
+    assert check(T.RECEIPT, "AL WAHA HYPERMARKET", f"Total 90.00 {mark}") == (set(), False)
