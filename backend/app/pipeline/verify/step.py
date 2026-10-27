@@ -23,6 +23,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import ValidationError
@@ -33,7 +34,7 @@ from app.adapters.llm import ExtractionClient
 from app.adapters.ocr import OcrEngine
 from app.adapters.storage import Storage
 from app.core.config import Settings
-from app.domain.enums import AccountingProvider, DocumentStatus, QueueCategory
+from app.domain.enums import AccountingProvider, AmountType, DocumentStatus, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
 from app.models import Client, Document, Extraction
@@ -249,7 +250,11 @@ def _explain_total(
 ) -> list[Issue]:
     """Task 4.13: a total that does not add up because of charges printed outside the lines
     (delivery fee, service fee, discount...) gets one error naming them, with the charges to
-    add as lines; when nothing explains it, the totals issues stay as they are."""
+    add as lines; when nothing explains it, the totals issues stay as they are.
+
+    When the lines already hold the charges (the model read them as lines) and only the printed
+    subtotal leaves them out, adding them again would count them twice: the subtotal the lines
+    give is offered instead, as severe as the issues it replaces (decision 49)."""
     if not any(issue.code in TOTAL_GAP_CODES for issue in issues):
         return issues
     charges = find_charges(invoice, [pages, load_charge_text(storage, document)],
@@ -258,7 +263,25 @@ def _explain_total(
         return issues
     named = " + ".join(f"{c.label} {c.amount:.2f}" for c in charges)
     kind = "charge" if len(charges) == 1 else "charges"
-    return [i for i in issues if i.code not in TOTAL_GAP_CODES] + [
+    others = [i for i in issues if i.code not in TOTAL_GAP_CODES]
+    if _lines_hold_the_total(invoice) and invoice.total is not None:
+        replaced = [i.severity for i in issues if i.code in TOTAL_GAP_CODES]
+        severity = Severity.ERROR if Severity.ERROR in replaced else Severity.WARNING
+        subtotal = invoice.total - (invoice.vat or Decimal(0))
+        return [
+            *others,
+            Issue(
+                "subtotal_without_charges",
+                severity,
+                "subtotal",
+                f"The lines already include the {kind} {named}, but the subtotal "
+                f"{invoice.subtotal} leaves {'it' if len(charges) == 1 else 'them'} out. "
+                f"Set the subtotal to {subtotal:.2f}.",
+                suggestion=f"{subtotal:.2f}",
+            ),
+        ]
+    return [
+        *others,
         Issue(
             "total_has_charges",
             Severity.ERROR,
@@ -266,8 +289,18 @@ def _explain_total(
             f"The total includes {kind} printed outside the lines: {named}. They add up exactly "
             "to the difference: add them as lines.",
             charges=[{"label": c.label, "amount": f"{c.amount:.2f}"} for c in charges],
-        )
+        ),
     ]
+
+
+def _lines_hold_the_total(invoice: Invoice) -> bool:
+    """The lines (with the VAT, unless they include it) already add up to the total."""
+    if not invoice.lines or invoice.total is None:
+        return False
+    lines = sum((line.amount for line in invoice.lines), Decimal(0))
+    if invoice.amount_type is not AmountType.INCLUSIVE:
+        lines += invoice.vat or Decimal(0)
+    return abs(lines - invoice.total) <= Decimal("0.01")
 
 
 def working_copy(document: Document) -> Invoice | None:

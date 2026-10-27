@@ -221,6 +221,22 @@ def test_charges_printed_outside_the_lines_explain_the_total(
     assert not codes(doc) & {"totals_mismatch", "lines_sum_mismatch"}
 
 
+def test_a_charge_already_read_as_a_line_offers_the_subtotal_not_a_second_line(
+    session: Session, storage: LocalStorage
+) -> None:
+    """Decision 49: the model put the delivery charge in the lines but kept the printed
+    subtotal; adding the charge again would count it twice."""
+    lines = [*bill().lines, Line(description="Delivery charge", amount=Decimal("15.99"))]
+    doc = extracted(session, storage, bill(total=Decimal("1065.99"), lines=lines), WITH_DELIVERY)
+
+    verify(session, storage, doc)
+
+    [issue] = [i for i in doc.issues or [] if i["code"] == "subtotal_without_charges"]
+    assert (issue["field"], issue["suggestion"]) == ("subtotal", "1015.99")
+    assert "Delivery charge 15.99" in issue["message"]
+    assert not codes(doc) & {"total_has_charges", "totals_mismatch", "lines_sum_mismatch"}
+
+
 def test_our_own_ocr_reads_a_picture_whose_scanner_text_lost_the_charge(
     session: Session, storage: LocalStorage
 ) -> None:

@@ -234,6 +234,22 @@ describe('review screen', () => {
     expect(sent(api).invoice.amount_type).toBe('EXCLUSIVE')
   })
 
+  it('offers the subtotal when the lines already hold the charges (decision 49)', async () => {
+    const charged = detail({
+      issues: [{ code: 'subtotal_without_charges', severity: 'ERROR', field: 'subtotal',
+        message: 'The lines already include the charge Service fee 2.97, but the subtotal leaves it out.',
+        suggestion: '1002.97' }],
+    })  // prettier-ignore
+    const api = await open(backend(charged))
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Use 1002.97' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).invoice.subtotal).toBe('1002.97')
+  })
+
   it('offers the type the document shows and sends it (decision 48)', async () => {
     const order = detail({
       invoice: { ...detail().invoice!, document_type: 'NON_POSTABLE' },
