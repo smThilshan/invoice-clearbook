@@ -78,34 +78,40 @@ interface FieldSpec {
   kind?: 'text' | 'date' | 'amount' | 'code'
 }
 
-const SECTIONS: { title: string; fields: FieldSpec[]; checksOnly?: boolean }[] = [
-  {
-    title: 'Supplier and document',
-    fields: [
-      { name: 'vendor_name' },
-      { name: 'vendor_trn', kind: 'code' },
-      { name: 'invoice_number', kind: 'code' },
-      { name: 'invoice_date', kind: 'date' },
-      { name: 'due_date', kind: 'date' },
-    ],
-  },
-  {
-    title: 'Amounts',
-    fields: [
-      { name: 'currency', kind: 'code' },
-      { name: 'subtotal', kind: 'amount' },
-      { name: 'vat', kind: 'amount' },
-      { name: 'total', kind: 'amount' },
-    ],
-  },
-  {
-    // Never posted (the client is the books' owner): used by the checks only, so folded away
-    // unless one of them is flagged (task 4.15).
-    title: 'Customer and PO number (checks only, not posted)',
-    fields: [{ name: 'recipient_name' }, { name: 'recipient_trn', kind: 'code' }, { name: 'po_number', kind: 'code' }],
-    checksOnly: true,
-  },
-]
+interface Section {
+  title: string
+  fields: FieldSpec[]
+  checksOnly?: boolean
+}
+
+const DOCUMENT: Section = {
+  title: 'Supplier and document',
+  fields: [
+    { name: 'vendor_name' },
+    { name: 'vendor_trn', kind: 'code' },
+    { name: 'invoice_number', kind: 'code' },
+    { name: 'invoice_date', kind: 'date' },
+    { name: 'due_date', kind: 'date' },
+  ],
+}
+
+const AMOUNTS: Section = {
+  title: 'Amounts',
+  fields: [
+    { name: 'currency', kind: 'code' },
+    { name: 'subtotal', kind: 'amount' },
+    { name: 'vat', kind: 'amount' },
+    { name: 'total', kind: 'amount' },
+  ],
+}
+
+const CHECKS_ONLY: Section = {
+  // Never posted (the client is the books' owner): used by the checks only, so folded away
+  // unless one of them is flagged (task 4.15).
+  title: 'Customer and PO number (checks only, not posted)',
+  fields: [{ name: 'recipient_name' }, { name: 'recipient_trn', kind: 'code' }, { name: 'po_number', kind: 'code' }],
+  checksOnly: true,
+}
 
 export interface ReviewSubmit {
   values: FormValues
@@ -161,6 +167,50 @@ export function ReviewForm({
     else next.delete(field)
     setConfirmed(next)
   }
+
+  // Read like the paper and the accounting system: the document, its lines, then the amounts
+  // under them with the check that they add up.
+  const renderSection = (section: Section) => (
+    <FoldableSection
+      key={section.title}
+      title={section.title}
+      folded={section.checksOnly === true}
+      flagged={section.fields.some((spec) => issues.byField.has(spec.name))}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        {section.fields.map((spec) => (
+          <HeaderInput
+            key={spec.name}
+            spec={spec}
+            register={register}
+            setValue={setValue}
+            issues={issues.byField.get(spec.name)}
+            verified={verified.has(spec.name)}
+            correction={corrected.get(spec.name)}
+            cleared={spec.name === 'vat' ? document.cleared_vat : null}
+            confirmed={confirmed.has(spec.name)}
+            onConfirm={(on) => toggleConfirmed(spec.name, on)}
+            onFocus={() => setActive(headerTarget(spec))}
+            editable={editable}
+          />
+        ))}
+        {section.title === 'Supplier and document' && documentType === 'CREDIT_NOTE' && (
+          <HeaderInput
+            spec={{ name: 'original_invoice_ref', kind: 'code' }}
+            register={register}
+            setValue={setValue}
+            issues={issues.byField.get('original_invoice_ref')}
+            verified={verified.has('original_invoice_ref')}
+            correction={corrected.get('original_invoice_ref')}
+            confirmed={confirmed.has('original_invoice_ref')}
+            onConfirm={(on) => toggleConfirmed('original_invoice_ref', on)}
+            onFocus={() => setActive(headerTarget({ name: 'original_invoice_ref' }))}
+            editable={editable}
+          />
+        )}
+      </div>
+    </FoldableSection>
+  )
 
   return (
     <form
@@ -234,49 +284,7 @@ export function ReviewForm({
           </SelectField>
         </section>
 
-        {SECTIONS.map((section) => (
-          <FoldableSection
-            key={section.title}
-            title={section.title}
-            folded={section.checksOnly === true}
-            flagged={section.fields.some((spec) => issues.byField.has(spec.name))}
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              {section.fields.map((spec) => (
-                <HeaderInput
-                  key={spec.name}
-                  spec={spec}
-                  register={register}
-                  setValue={setValue}
-                  issues={issues.byField.get(spec.name)}
-                  verified={verified.has(spec.name)}
-                  correction={corrected.get(spec.name)}
-                  cleared={spec.name === 'vat' ? document.cleared_vat : null}
-                  confirmed={confirmed.has(spec.name)}
-                  onConfirm={(on) => toggleConfirmed(spec.name, on)}
-                  onFocus={() => setActive(headerTarget(spec))}
-                  editable={editable}
-                />
-              ))}
-              {section.title === 'Supplier and document' && documentType === 'CREDIT_NOTE' && (
-                <HeaderInput
-                  spec={{ name: 'original_invoice_ref', kind: 'code' }}
-                  register={register}
-                  setValue={setValue}
-                  issues={issues.byField.get('original_invoice_ref')}
-                  verified={verified.has('original_invoice_ref')}
-                  correction={corrected.get('original_invoice_ref')}
-                  confirmed={confirmed.has('original_invoice_ref')}
-                  onConfirm={(on) => toggleConfirmed('original_invoice_ref', on)}
-                  onFocus={() => setActive(headerTarget({ name: 'original_invoice_ref' }))}
-                  editable={editable}
-                />
-              )}
-            </div>
-          </FoldableSection>
-        ))}
-
-        <Totals control={control} />
+        {renderSection(DOCUMENT)}
 
         <Lines
           control={control}
@@ -299,6 +307,11 @@ export function ReviewForm({
           editable={editable}
           onFocusField={setActive}
         />
+
+        {renderSection(AMOUNTS)}
+        <Totals control={control} />
+
+        {renderSection(CHECKS_ONLY)}
       </fieldset>
 
       {editable && (

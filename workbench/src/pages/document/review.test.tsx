@@ -183,6 +183,17 @@ describe('review screen', () => {
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe&queue=EXCEPTION'))
   })
 
+  it('shows the amounts under the lines, as on the paper and in the accounting system', async () => {
+    await open()
+
+    const after = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING)
+    const [firstLine] = screen.getAllByLabelText('Description')
+    expect(after(screen.getByLabelText('Supplier'), firstLine!)).toBe(false)
+    expect(after(screen.getByLabelText('Subtotal'), firstLine!)).toBe(true)
+    expect(after(screen.getByLabelText('Currency'), firstLine!)).toBe(true)
+  })
+
   it('names the line columns once above the lines', async () => {
     await open()
 
