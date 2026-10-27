@@ -131,10 +131,9 @@ def test_an_approved_bill_is_posted_and_its_supplier_remembered(
 
     assert outcome is not None and outcome.result == "posted"
     (bill,) = xero.bills
-    assert [(line.quantity, line.unit_amount, line.account_code, line.tax_code)
+    assert [(line.description, line.quantity, line.unit_amount, line.account_code, line.tax_code)
             for line in bill.lines] == [
-        (Decimal("2"), Decimal("300.00"), "429", "INPUT"),
-        (Decimal("1"), Decimal("400.00"), "429", "INPUT"),  # 3 x 133.33 is not 400.00
+        ("Rice 5kg; Cooking oil", Decimal("1"), Decimal("1000.00"), "429", "INPUT"),  # grouped (51)
     ]  # fmt: skip
     assert (bill.supplier_name, bill.amount_type, bill.due_date) == (
         "Made-up Foods LLC", AmountType.EXCLUSIVE, None)  # fmt: skip

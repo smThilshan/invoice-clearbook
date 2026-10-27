@@ -202,6 +202,7 @@ Xero adapter sub-steps, each result saved so a failure resumes from the failed s
   4. Allocate credit note to original
   5. Attach the original file (decision 41), then add history note ("created by automation, reviewed by X")
   6. Save Xero ID as `external_id` → `POSTED`
+- Lines are sent grouped: one line per account + tax code, with the exact sum and the item names (decision 51); our item lines stay for the checks.
 - MVP posts everything to Xero as `SUBMITTED` (Awaiting Approval).
 - Errors: temporary (429, timeout, down) → retry with backoff respecting Xero's wait; business (locked period, inactive account) → back to review with Xero's message; token expired → pause posting + alert; unknown → dead-letter.
 - Rate limiter in the posting worker (per-organisation limits).

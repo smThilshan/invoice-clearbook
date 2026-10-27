@@ -19,7 +19,7 @@ provider comes from the registry (decision 43): nothing here names one.
 
 import logging
 import uuid
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, MutableMapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -59,6 +59,7 @@ FIRST_WAIT_SECONDS = 60
 MAX_WAIT_SECONDS = 30 * 60
 NOTE = "Created by Missan invoice automation after review and approval in the Review Workbench."
 TOLERANCE = Decimal("0.01")
+MAX_DESCRIPTION = 4000  # the shortest line-description limit of the systems we post to
 # Sent as bills (decision 50): a receipt is a bill already paid.
 POSTED_AS_BILLS = frozenset({DocumentType.BILL, DocumentType.RECEIPT})
 
@@ -352,11 +353,32 @@ def _bill(
             or (invoice.invoice_date if invoice.document_type is DocumentType.RECEIPT else None),
             currency=invoice.currency,
             amount_type=invoice.amount_type,
-            lines=lines,
+            lines=group_lines(lines),
             note=NOTE,
         ),
         None,
     )
+
+
+def group_lines(lines: Sequence[PostingLine]) -> list[PostingLine]:
+    """One line per account and VAT code (decision 51), in the order they first appear: fees
+    and items bought together go to the same account, as accountants enter them. A group of one
+    line is sent as it is; a larger group is 1 x the exact sum, described by its items. Our own
+    item lines are kept for the checks; only what is sent is grouped."""
+    groups: dict[tuple[str, str], list[PostingLine]] = {}
+    for line in lines:
+        groups.setdefault((line.account_code, line.tax_code), []).append(line)
+    grouped = []
+    for (account_code, tax_code), members in groups.items():
+        if len(members) == 1:
+            grouped.append(members[0])
+            continue
+        amount = sum((m.quantity * m.unit_amount for m in members), Decimal(0))
+        names = "; ".join(m.description for m in members if m.description)
+        if len(names) > MAX_DESCRIPTION:
+            names = names[: MAX_DESCRIPTION - 1] + "…"
+        grouped.append(PostingLine(names or None, Decimal(1), amount, account_code, tax_code))
+    return grouped
 
 
 def _original(storage: Storage, document: Document) -> Attachment | None:
