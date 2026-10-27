@@ -21,7 +21,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -156,6 +156,46 @@ def recheck_document(
     chart = coding.load_chart(session, client_id=document.client_id, provider=provider)
     return assess(session, storage, document, working_copy(document), chart, provider,
                   settings=settings, today=today)  # fmt: skip
+
+
+def code_empty_lines(
+    session: Session,
+    document: Document,
+    invoice: Invoice,
+    client: ExtractionClient,
+    *,
+    settings: Settings,
+) -> Invoice:
+    """Coding for a document the accountant took out of non-postable in review: verify skipped
+    it then. Fills only the account and tax code nobody chose yet; the rest stays theirs."""
+    chart = coding.load_chart(session, client_id=document.client_id,
+                              provider=_provider(session, document, settings))  # fmt: skip
+    coded = coding.code_document(
+        session,
+        invoice,
+        chart,
+        client,
+        client_id=document.client_id,
+        vendor_key=vendor_key(invoice),
+        min_consistent_approvals=settings.coding_min_consistent_approvals,
+    )
+    if not coded.lines:
+        return invoice
+    lines, suggestions = [], []
+    for line, suggested in zip(invoice.lines, coded.lines, strict=True):
+        if line.account_code is not None:  # chosen by the accountant: not a suggestion
+            suggested = replace(suggested, account_code=line.account_code,
+                                account_source=coding.Source.NONE,
+                                account_confidence=coding.Confidence.NONE)  # fmt: skip
+        if line.tax_type is not None:
+            suggested = replace(suggested, tax_type=line.tax_type,
+                                tax_code=chart.tax_codes.get(line.tax_type),
+                                tax_confidence=coding.Confidence.NONE)  # fmt: skip
+        lines.append(line.model_copy(update={"account_code": suggested.account_code,
+                                             "tax_type": suggested.tax_type}))  # fmt: skip
+        suggestions.append(suggested.to_json())
+    document.coding = suggestions
+    return invoice.model_copy(update={"lines": lines})
 
 
 def assess(

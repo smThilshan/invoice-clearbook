@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import ExtractionClient, get_extraction_client
 from app.adapters.storage import Storage, get_storage
 from app.adapters.storage.base import NotFoundError
 from app.adapters.storage.keys import ocr_key, page_image_key
@@ -153,6 +154,12 @@ def get_review_storage(settings: Annotated[Settings, Depends(get_settings)]) -> 
     return get_storage(settings)
 
 
+def get_review_llm(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Callable[[], ExtractionClient]:
+    return lambda: get_extraction_client(settings)
+
+
 SessionDep = Annotated[Session, Depends(get_session)]
 StorageDep = Annotated[Storage, Depends(get_review_storage)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -252,14 +259,16 @@ def update_document(
     session: SessionDep,
     storage: StorageDep,
     settings: SettingsDep,
+    llm: Annotated[Callable[[], ExtractionClient], Depends(get_review_llm)],
 ) -> DocumentDetail:
-    """Save the corrected invoice; every check runs again (no model call)."""
+    """Save the corrected invoice; every check runs again. No model call, except to suggest
+    accounts when the type changes from non-postable to a postable one."""
     document = _found(session, document_id, for_update=True)
     try:
         with session.begin_nested():  # an error undoes only this request's changes
             review.update_document(session, storage, document, body.invoice,
                                    confirmed=body.confirmed, settings=settings,
-                                   today=settings.business_today())  # fmt: skip
+                                   today=settings.business_today(), llm=llm)  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()

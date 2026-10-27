@@ -3277,7 +3277,7 @@
         ]
       },
       "patch": {
-        "description": "Save the corrected invoice; every check runs again (no model call).",
+        "description": "Save the corrected invoice; every check runs again. No model call, except to suggest\naccounts when the type changes from non-postable to a postable one.",
         "operationId": "update_document_documents__document_id__patch",
         "parameters": [
           {

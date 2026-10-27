@@ -217,7 +217,8 @@ export interface paths {
         head?: never;
         /**
          * Update Document
-         * @description Save the corrected invoice; every check runs again (no model call).
+         * @description Save the corrected invoice; every check runs again. No model call, except to suggest
+         *     accounts when the type changes from non-postable to a postable one.
          */
         patch: operations["update_document_documents__document_id__patch"];
         trace?: never;

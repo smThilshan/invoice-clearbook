@@ -4,7 +4,9 @@
 - Edit: the accountant sends the whole corrected invoice. Fields that differ from the working
   copy, plus fields they confirmed unchanged, become human-verified (decision 24); then every
   deterministic check runs again, without the model. Setting the type to non-postable parks
-  the document; giving a parked document a postable type brings it back to review.
+  the document; giving a parked document a postable type brings it back to review. Changing
+  the type from non-postable to a postable one also codes the lines nobody coded yet (verify
+  skipped them): the one edit that may ask the model.
 - Reject: a reason from a fixed list, so rejections can be counted and learned from.
 
 Every save also brings the document's corrections up to date (task 4.7). Approve comes with
@@ -14,7 +16,8 @@ the outbox in task 4.8. No login yet
 
 import json
 import uuid
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -23,6 +26,7 @@ from typing import Any, Final
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import ExtractionClient
 from app.adapters.storage import Storage
 from app.core.config import Settings
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
@@ -30,7 +34,12 @@ from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
 from app.models import Document
 from app.pipeline.verify.issues import Severity
-from app.pipeline.verify.step import Assessment, recheck_document, working_copy
+from app.pipeline.verify.step import (
+    Assessment,
+    code_empty_lines,
+    recheck_document,
+    working_copy,
+)
 from app.services.corrections import sync_corrections
 
 ACTOR: Final = "workbench"  # until login (decision 26)
@@ -145,9 +154,10 @@ def update_document(
     confirmed: Collection[str] = (),
     settings: Settings,
     today: date,
+    llm: Callable[[], ExtractionClient] | None = None,
 ) -> Assessment:
     """Save the accountant's version of the invoice and check it again. Runs in the caller's
-    transaction; the caller commits."""
+    transaction; the caller commits. `llm` makes the model client, only if coding needs it."""
     if document.status not in EDITABLE:
         raise NotEditableError(document.status)
     unknown = sorted(set(confirmed) - CONFIRMABLE)
@@ -159,6 +169,9 @@ def update_document(
     invoice = invoice.model_copy(update={"evidence": before.evidence if before else {}})
     verified = set(document.verified_fields or ()) | changed_fields(before, invoice)
     document.verified_fields = sorted(verified | set(confirmed))
+    if llm is not None and _made_postable(before, invoice):
+        with closing(llm()) as client:
+            invoice = code_empty_lines(session, document, invoice, client, settings=settings)
     document.invoice = json.loads(invoice.model_dump_json())
 
     parked = invoice.document_type is DocumentType.NON_POSTABLE
@@ -171,6 +184,14 @@ def update_document(
     assessment = recheck_document(session, storage, document, settings=settings, today=today)
     sync_corrections(session, document, corrected_by=ACTOR)  # after the re-check: current supplier
     return assessment
+
+
+def _made_postable(before: Invoice | None, after: Invoice) -> bool:
+    return (
+        before is not None
+        and before.document_type is DocumentType.NON_POSTABLE
+        and after.document_type is not DocumentType.NON_POSTABLE
+    )
 
 
 def reject_document(

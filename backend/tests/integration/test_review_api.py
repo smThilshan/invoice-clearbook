@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage.keys import page_image_key
 from app.adapters.storage.local import LocalStorage
-from app.api.documents import get_enqueue_posting, get_review_storage
+from app.api.documents import get_enqueue_posting, get_review_llm, get_review_storage
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountingProvider, DocumentType, QueueCategory
@@ -22,6 +22,7 @@ from app.domain.enums import DocumentStatus as S
 from app.main import create_app
 from app.models import AuditLog, Client, Contact, Document
 from tests.integration.factories import CLIENT, make_client, make_run
+from tests.integration.test_coding import FakeCoder
 from tests.integration.test_verify import (  # noqa: F401  (fixtures)
     PRINTED,
     TODAY,
@@ -52,6 +53,8 @@ def api(session: Session, storage: LocalStorage, tmp_path: Path) -> Iterator[Tes
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.posting_asked = []  # outbox ids the worker was asked to post (task 5.1)
     app.dependency_overrides[get_enqueue_posting] = lambda: app.state.posting_asked.append
+    app.state.coder = FakeCoder({"accounts": []})  # the model's account suggestions
+    app.dependency_overrides[get_review_llm] = lambda: lambda: app.state.coder
     with TestClient(app) as test_client:
         yield test_client
 
@@ -321,6 +324,62 @@ def test_marking_non_postable_parks_and_a_postable_type_brings_it_back(
         (S.NON_POSTABLE, S.IN_REVIEW, "type changed to BILL in review"),
     ]
     assert doc.document_type is DocumentType.BILL
+
+
+def test_a_type_changed_from_non_postable_gets_its_lines_coded(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    """Verify does not code a document the model called non-postable; choosing a postable
+    type in review does it then (supplier history here: no model call)."""
+    doc = in_review(session, storage, document_type=DocumentType.NON_POSTABLE)
+    assert {line["account_code"] for line in doc.invoice["lines"]} == {None}  # type: ignore[index]
+
+    body = ok(patch(api, doc, document_type="BILL"))
+
+    assert [(line["account_code"], line["tax_type"]) for line in body["invoice"]["lines"]] == [
+        ("5000", "STANDARD_5"), ("5000", "STANDARD_5"),
+    ]  # fmt: skip
+    assert body["coding"][0]["account_source"] == "supplier_history"
+    assert "account_missing" not in issue_codes(body)
+    assert api.app.state.coder.requests == []  # type: ignore[attr-defined]
+
+
+def test_coding_after_a_type_change_keeps_what_the_accountant_chose(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage, document_type=DocumentType.NON_POSTABLE,
+                    vendor_trn=None)  # no supplier history: the model suggests  # fmt: skip
+    api.app.state.coder = FakeCoder({"accounts": ["5040", "5040"]})  # type: ignore[attr-defined]
+    lines = ok(api.get(f"/documents/{doc.id}"))["invoice"]["lines"]
+    lines[0] |= {"account_code": "5000", "tax_type": "ZERO"}
+
+    body = ok(patch(api, doc, document_type="RECEIPT", lines=lines))
+
+    assert [(line["account_code"], line["tax_type"]) for line in body["invoice"]["lines"]] == [
+        ("5000", "ZERO"), ("5040", "STANDARD_5"),
+    ]  # fmt: skip
+    assert [c["account_source"] for c in body["coding"]] == ["none", "model"]
+
+
+def test_other_edits_never_ask_the_model(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage, vendor_trn=None)
+    api.app.state.coder = FakeCoder(fail=True)  # type: ignore[attr-defined]
+    lines = ok(api.get(f"/documents/{doc.id}"))["invoice"]["lines"]
+    lines[0]["account_code"] = None
+
+    body = ok(patch(api, doc, document_type="RECEIPT", lines=lines))
+
+    assert body["invoice"]["lines"][0]["account_code"] is None
+    assert "account_missing" in issue_codes(body)
+    assert api.app.state.coder.requests == []  # type: ignore[attr-defined]
 
 
 def test_unknown_confirmed_field_or_invalid_invoice_is_rejected(
