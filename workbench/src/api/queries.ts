@@ -12,6 +12,7 @@ import {
   type RunCreate,
   type RunProgress,
 } from './client'
+import { WORKING } from '@/lib/labels'
 
 export const queryKeys = {
   readiness: ['readiness'] as const,
@@ -159,8 +160,13 @@ export function useQueue(query: QueueQuery | undefined) {
   })
 }
 
+/** Refreshed every few seconds while the document is still being read (after "Read again"). */
 export function useDocument(documentId: string) {
-  return useQuery({ queryKey: queryKeys.document(documentId), queryFn: () => api.document(documentId) })
+  return useQuery({
+    queryKey: queryKeys.document(documentId),
+    queryFn: () => api.document(documentId),
+    refetchInterval: (query) => (WORKING.has(query.state.data?.status ?? '') ? RUN_REFRESH_MS : false),
+  })
 }
 
 /** Idle until the document (and so its client) is known. */
@@ -191,6 +197,10 @@ export function useUpdateDocument() {
 
 export function useApproveDocument() {
   return useDocumentChange<null>((id) => api.approveDocument(id))
+}
+
+export function useReextractDocument() {
+  return useDocumentChange<null>((id) => api.reextractDocument(id))
 }
 
 export function useRestoreDocument() {

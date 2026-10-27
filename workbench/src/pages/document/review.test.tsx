@@ -510,6 +510,39 @@ describe('reject', () => {
   })
 })
 
+describe('read again with AI (decision 55)', () => {
+  it('reads the document again only after asking, then shows it is being read', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}`]: detail(),
+      [`POST /documents/${ID}/reextract`]: detail({ status: 'READ', queue: null,
+        updated_at: '2026-10-21T08:04:00Z' }),
+    })  // prettier-ignore
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const user = userEvent.setup()
+    renderApp(`/documents/${ID}`)
+
+    await user.click(await screen.findByRole('button', { name: 'Read again with AI' }))
+    expect(api.calls).not.toContain(`POST /documents/${ID}/reextract`)  // said no
+    await user.click(screen.getByRole('button', { name: 'Read again with AI' }))
+
+    await waitFor(() => expect(api.calls).toContain(`POST /documents/${ID}/reextract`))
+    expect(confirm.mock.calls[0]?.[0]).toMatch(/Your changes on this document will be replaced/)
+    expect(await screen.findByRole('status', { name: 'Reading again' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save & re-check' })).not.toBeInTheDocument()
+  })
+
+  it('is offered for a parked document', async () => {
+    await open(backend(detail({ status: 'NON_POSTABLE', document_type: 'NON_POSTABLE' })))
+    expect(screen.getByRole('button', { name: 'Read again with AI' })).toBeInTheDocument()
+  })
+
+  it('is not offered once approved', async () => {
+    await open(backend(detail({ status: 'APPROVED' })))
+    expect(screen.queryByRole('button', { name: 'Read again with AI' })).not.toBeInTheDocument()
+  })
+})
+
 describe('unsaved changes', () => {
   it('asks before leaving with unsaved edits, and stays when told to', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)

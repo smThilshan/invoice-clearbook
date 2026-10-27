@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, RotateCcw, Trash2, Undo2 } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, LoaderCircle, RefreshCw, RotateCcw, Trash2, Undo2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router'
 
@@ -9,6 +9,7 @@ import {
   useDeleteDocument,
   useDocument,
   useLocate,
+  useReextractDocument,
   useRestoreDocument,
   useUpdateDocument,
 } from '@/api/queries'
@@ -18,7 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { QUEUE_LABELS, statusLabel, TYPE_LABELS } from '@/lib/labels'
+import { QUEUE_LABELS, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
 import { neighbours, type ReviewContext, reviewContext } from '@/lib/reviewList'
 import { formatDuration, workMs } from '@/lib/timings'
 import { usePageTitle } from '@/lib/usePageTitle'
@@ -38,6 +39,7 @@ export function DocumentPage() {
   const options = useCodingOptions(document.data?.client_id)
   const save = useUpdateDocument()
   const approve = useApproveDocument()
+  const reextract = useReextractDocument()
   const navigate = useNavigate()
   const [dirty, setDirty] = useState(false)
   const onDirtyChange = useCallback((next: boolean) => setDirty(next), [])
@@ -74,6 +76,7 @@ export function DocumentPage() {
 
   const doc = document.data
   const editable = EDITABLE.has(doc.status)
+  const reading = WORKING.has(doc.status)
 
   function approveAndContinue() {
     approve.mutate(
@@ -116,6 +119,12 @@ export function DocumentPage() {
             })
           }
         />
+      ) : reading ? (
+        <p role="status" aria-label="Reading again" className="flex items-center gap-2 text-sm font-medium">
+          <LoaderCircle className="size-4 animate-spin" aria-hidden />
+          The AI is reading this document again. The new results show here by themselves (about
+          half a minute).
+        </p>
       ) : (
         !editable && (
           <p className="text-sm text-muted-foreground">
@@ -126,6 +135,7 @@ export function DocumentPage() {
       )}
       {save.isError && <ErrorAlert title="Not saved" error={save.error} />}
       {approve.isError && <ErrorAlert title="Not approved" error={approve.error} />}
+      {reextract.isError && <ErrorAlert title="Not read again" error={reextract.error} />}
       {doc.status === 'IN_REVIEW' && doc.failure_reason && (
         // Sent back by posting (task 5.1): the reason says what to change before approving again.
         <Alert variant="destructive">
@@ -175,17 +185,38 @@ export function DocumentPage() {
           onDirtyChange={onDirtyChange}
           onTarget={onTarget}
           actions={
-            doc.status === 'IN_REVIEW' && (
+            editable && (
               <>
-                <ApproveButton
-                  blockedBy={
-                    dirty ? 'Save your changes first' : doc.errors > 0 ? 'Fix the errors first' : null
-                  }
-                  pending={approve.isPending}
-                  label={next ? 'Approve & next' : 'Approve'}
-                  onApprove={approveAndContinue}
-                />
-                <RejectDialog documentId={doc.document_id} />
+                {doc.status === 'IN_REVIEW' && (
+                  <>
+                    <ApproveButton
+                      blockedBy={
+                        dirty ? 'Save your changes first' : doc.errors > 0 ? 'Fix the errors first' : null
+                      }
+                      pending={approve.isPending}
+                      label={next ? 'Approve & next' : 'Approve'}
+                      onApprove={approveAndContinue}
+                    />
+                    <RejectDialog documentId={doc.document_id} />
+                  </>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={reextract.isPending || approve.isPending}
+                  onClick={() => {
+                    const sure = window.confirm(
+                      `Read "${doc.file}" again with the AI?\n\nThe AI reads it again from the start. Your changes on this document will be replaced.`,
+                    )
+                    if (sure) {
+                      setDirty(false) // the edits are being replaced on purpose
+                      reextract.mutate({ id: doc.document_id, body: null })
+                    }
+                  }}
+                >
+                  <RefreshCw aria-hidden />
+                  {reextract.isPending ? 'Sending…' : 'Read again with AI'}
+                </Button>
               </>
             )
           }

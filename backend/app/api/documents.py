@@ -26,7 +26,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
 from app.domain.invoice import Invoice
-from app.domain.state_machine import StaleStatusError
+from app.domain.state_machine import InvalidTransitionError, StaleStatusError
 from app.models import Document, Extraction
 from app.pipeline.descriptions import cleaned_count
 from app.pipeline.line_totals import repaired_count
@@ -37,7 +37,7 @@ from app.pipeline.verify.step import working_copy
 from app.services import approval, deletion, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
-from app.services.pipeline import retry_document
+from app.services.pipeline import reextract_document, retry_document
 from app.services.review import RejectReason, ReviewError
 from app.services.timings import load_timings
 
@@ -462,3 +462,23 @@ def _latest_extraction(session: Session, document: Document) -> Extraction | Non
 def _folder(source_path: str) -> str:
     parent = PurePosixPath(source_path).parent.as_posix()
     return "" if parent == "." else parent
+
+
+@router.post("/{document_id}/reextract")
+def reextract(
+    document_id: uuid.UUID,
+    session: SessionDep,
+    enqueue: Annotated[Callable[[str, DocumentStatus], object], Depends(get_enqueue_step)],
+) -> DocumentDetail:
+    """The model reads a document in review or parked again (decision 55); the review work on
+    it is replaced. 409 for any other status."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        reextract_document(session, document, actor="workbench")
+    except InvalidTransitionError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "only a document in review or parked can be read again"
+        ) from exc
+    session.commit()
+    enqueue(str(document.id), document.status)  # after commit: the worker finds it READ
+    return _detail(session, document)

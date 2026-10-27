@@ -542,6 +542,29 @@ def test_a_failed_document_is_retried_from_the_start(
     assert api.post(f"/documents/{ready.id}/retry").status_code == 409
 
 
+def test_a_document_in_review_is_read_again_by_the_model(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    from app.api.documents import get_enqueue_step
+
+    queued: list[tuple[str, S]] = []
+    api.app.dependency_overrides[get_enqueue_step] = lambda: lambda i, s: queued.append((i, s))  # type: ignore[attr-defined]
+    doc = in_review(session, storage, total=Decimal("1060.00"))
+    ok(patch(api, doc, total="1050.00"))  # review work that is replaced
+    approved = in_review(session, storage, "INV-00300")
+    ok(api.post(f"/documents/{approved.id}/approve"))
+
+    body = ok(api.post(f"/documents/{doc.id}/reextract"))
+
+    assert (body["status"], body["queue"], body["verified_fields"]) == ("READ", None, [])
+    assert body["corrections"] == []
+    assert queued == [(str(doc.id), S.READ)]
+    assert moves(session, doc)[-1] == (S.IN_REVIEW, S.READ, "extract again")
+    assert api.post(f"/documents/{approved.id}/reextract").status_code == 409
+
+
 def test_queue_counts_every_category_searches_and_says_what_is_still_processing(
     api: TestClient,
     session: Session,

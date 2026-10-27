@@ -3536,6 +3536,50 @@
         ]
       }
     },
+    "/documents/{document_id}/reextract": {
+      "post": {
+        "description": "The model reads a document in review or parked again (decision 55); the review work on\nit is replaced. 409 for any other status.",
+        "operationId": "reextract_documents__document_id__reextract_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reextract",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/documents/{document_id}/reject": {
       "post": {
         "operationId": "reject_document_documents__document_id__reject_post",

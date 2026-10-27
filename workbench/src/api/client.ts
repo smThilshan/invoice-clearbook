@@ -161,6 +161,8 @@ export const api = {
   approveDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/approve`, {}),
   /** A failed document starts over from reading (task 4.14). */
   retryDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/retry`, {}),
+  /** The AI reads a document in review or parked again; review work on it is replaced (decision 55). */
+  reextractDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/reextract`, {}),
   rejectDocument: (id: string, body: RejectBody) =>
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
   /** A rejected document back to review, checked again (decision 45). */
