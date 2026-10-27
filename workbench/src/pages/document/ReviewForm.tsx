@@ -280,6 +280,7 @@ export function ReviewForm({
         <Lines
           control={control}
           register={register}
+          setValue={setValue}
           issues={issues}
           charges={issues.byField.get('total')?.find((i) => i.code === 'total_has_charges')?.charges ?? []}
           onChargesAdded={(added) => {
@@ -623,6 +624,7 @@ const SOURCE_HINTS: Record<string, string> = {
 function Lines({
   control,
   register,
+  setValue,
   issues,
   options,
   coding,
@@ -636,6 +638,7 @@ function Lines({
 }: {
   control: Control<FormValues>
   register: UseFormRegister<FormValues>
+  setValue: UseFormSetValue<FormValues>
   issues: IssueMap
   charges: Charge[]
   onChargesAdded: (total: bigint) => void
@@ -661,6 +664,12 @@ function Lines({
   const lineValues = useWatch({ control, name: 'lines' })
   const accounts = options?.accounts ?? []
   const taxTypes = options?.tax_types ?? []
+
+  /** One account or VAT for every line (decision 49): fees go with the goods they came with.
+   * Each line can still be changed after. */
+  function setAll(name: 'account_code' | 'tax_type', value: string) {
+    fields.forEach((_, index) => setValue(`lines.${index}.${name}`, value, { shouldDirty: true }))
+  }
 
   return (
     <section className="space-y-3" aria-label="Lines" data-field="lines">
@@ -712,6 +721,34 @@ function Lines({
               <Trash2 />
             </Button>
           )}
+        </div>
+      )}
+      {editable && fields.length > 1 && (
+        <div role="group" aria-label="All lines" className="grid gap-2 rounded-lg border border-dashed p-3 sm:grid-cols-2">
+          <Select value="" onValueChange={(v) => setAll('account_code', v)}>
+            <SelectTrigger aria-label="Account for all lines" className="w-full">
+              <SelectValue placeholder="Account for all lines" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.map((a) => (
+                <SelectItem key={a.code} value={a.code}>
+                  {a.code} {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value="" onValueChange={(v) => setAll('tax_type', v)}>
+            <SelectTrigger aria-label="VAT for all lines" className="w-full">
+              <SelectValue placeholder="VAT for all lines" />
+            </SelectTrigger>
+            <SelectContent>
+              {taxTypes.map((t) => (
+                <SelectItem key={t.tax_type} value={t.tax_type}>
+                  {TAX_TYPE_LABELS[t.tax_type]} ({t.code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
       <ol className="space-y-3">

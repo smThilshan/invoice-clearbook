@@ -330,6 +330,21 @@ describe('review screen', () => {
     expect((sent(api).invoice.lines as { account_code: string }[])[1]?.account_code).toBe('5010')
   })
 
+  it('sets one account and VAT on every line at once (decision 49)', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('combobox', { name: 'Account for all lines' }))
+    await user.click(await screen.findByRole('option', { name: '5010 Beverage Cost' }))
+    await user.click(screen.getByRole('combobox', { name: 'VAT for all lines' }))
+    await user.click(await screen.findByRole('option', { name: /\(ZERO\)/ }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    const lines = sent(api).invoice.lines as { account_code: string, tax_type: string }[]
+    expect(lines.map((l) => [l.account_code, l.tax_type])).toEqual([['5010', 'ZERO'], ['5010', 'ZERO']])
+  })
+
   it('shows the original invoice field for credit notes only', async () => {
     const user = userEvent.setup()
     await open()
