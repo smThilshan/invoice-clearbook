@@ -135,7 +135,9 @@ _MONTHS = {
     for name in names
 }
 _MONTH = r"(?P<month_name>[A-Za-z]{3,9})\.?"
-_YEAR = r"(?P<year>\d{4}|\d{2})"
+# The year, ending the date: a 4-digit year may run straight into a time when OCR loses the
+# space ("25/03/202612:17", app screenshots); a 2-digit year never, it would be misread.
+_YEAR = r"(?P<year>\d{4}(?=\d{1,2}:\d{2})|\d{4}(?!\d)|\d{2}(?!\d))"
 _SEP = r"[\s\-/.,]*"
 # (pattern, could day and month be the other way round?)
 _DATE_PATTERNS: tuple[tuple[re.Pattern[str], bool], ...] = (
@@ -146,13 +148,13 @@ _DATE_PATTERNS: tuple[tuple[re.Pattern[str], bool], ...] = (
     ),
     # 12/09/2025, 12-09-25, 12.09.2025: read day first, but month first is also possible
     (
-        re.compile(r"(?<!\d)(?P<day>\d{1,2})[-/.](?P<month>\d{1,2})[-/.]" + _YEAR + r"(?!\d)"),
+        re.compile(r"(?<!\d)(?P<day>\d{1,2})[-/.](?P<month>\d{1,2})[-/.]" + _YEAR),
         True,
     ),
     # 12 Sep 2025, 12-Sep-25, 12th September, 2025
     (
         re.compile(
-            r"(?<!\d)(?P<day>\d{1,2})(?:st|nd|rd|th)?" + _SEP + _MONTH + _SEP + _YEAR + r"(?!\d)",
+            r"(?<!\d)(?P<day>\d{1,2})(?:st|nd|rd|th)?" + _SEP + _MONTH + _SEP + _YEAR,
             re.IGNORECASE,
         ),
         False,

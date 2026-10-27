@@ -245,3 +245,22 @@ def test_certain_marker_wins_over_hint() -> None:
     markers = find_currencies("AED D 1,050.10")
 
     assert (markers.certain, markers.likely) == ({"AED"}, set())
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("25/03/202612:17", date(2026, 3, 25)),  # Talabat screenshot: OCR lost the space
+        ("25/03/20269:05", date(2026, 3, 25)),
+        ("12-Sep-202609:30", date(2026, 9, 12)),
+        ("25/03/2026 12:17", date(2026, 3, 25)),
+    ],
+)
+def test_a_time_run_into_a_four_digit_year_still_gives_the_date(text: str, expected: date) -> None:
+    assert expected in find_dates(text)
+
+
+@pytest.mark.parametrize("text", ["Ref 25/03/2026123", "25/03/20261", "25/03/2612:17"])
+def test_other_digits_after_the_year_are_not_a_date(text: str) -> None:
+    """Only a time (H:MM or HH:MM) may follow a 4-digit year; a 2-digit year never runs on."""
+    assert date(2026, 3, 25) not in find_dates(text)
