@@ -264,3 +264,33 @@ def test_a_time_run_into_a_four_digit_year_still_gives_the_date(text: str, expec
 def test_other_digits_after_the_year_are_not_a_date(text: str) -> None:
     """Only a time (H:MM or HH:MM) may follow a 4-digit year; a 2-digit year never runs on."""
     assert date(2026, 3, 25) not in find_dates(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("05-Ju1-2026", date(2026, 7, 5)),  # Al Shahama: OCR read l as 1, the AI copied it
+        ("05-JuI-2026", date(2026, 7, 5)),
+        ("12-0ct-2025", date(2025, 10, 12)),
+        ("12 5ep 2025", date(2025, 9, 12)),
+        ("12 Fe8 2025", date(2025, 2, 12)),
+        ("3 Apri1 2026", date(2026, 4, 3)),
+        ("Ju1 3, 2026", date(2026, 7, 3)),
+    ],
+)
+def test_a_month_name_with_ocr_look_alikes_is_read(text: str, expected: date) -> None:
+    reading = parse_date(text)
+
+    assert reading is not None and reading.value == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "05-Ju2-2026",  # 2 stands for no letter
+        "05-1015-2026",  # no letter: digits, not a month
+        "05-Xu1-2026",  # fits no month
+    ],
+)
+def test_look_alikes_never_make_a_month_up(text: str) -> None:
+    assert parse_date(text) is None

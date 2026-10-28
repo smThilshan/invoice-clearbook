@@ -144,7 +144,10 @@ _MONTHS = {
     )
     for name in names
 }
-_MONTH = r"(?P<month_name>[A-Za-z]{3,9})\.?"
+# OCR reads a letter of a month name as a look-alike digit ("05-Ju1-2026"); the AI copies it.
+_MONTH = r"(?P<month_name>[A-Za-z0158]{3,9})\.?"
+# What each look-alike may stand for in a month name (1, l and I are confused both ways).
+_LOOK_ALIKES = {"0": "O", "1": "LI", "L": "LI", "I": "LI", "5": "S", "8": "B"}
 # The year, ending the date: a 4-digit year may run straight into a time when OCR loses the
 # space ("25/03/202612:17", app screenshots); a 2-digit year never, it would be misread.
 _YEAR = r"(?P<year>\d{4}(?=\d{1,2}:\d{2})|\d{4}(?!\d)|\d{2}(?!\d))"
@@ -218,7 +221,7 @@ def _reading(parts: dict[str, str | None], *, may_swap: bool) -> DateReading | N
     year = _full_year(parts["year"] or "")
     day = int(parts["day"] or 0)
     if parts.get("month_name"):
-        month = _MONTHS.get((parts["month_name"] or "").upper())
+        month = _month_number(parts["month_name"] or "")
         if month is None:
             return None
         value = _safe_date(year, month, day)
@@ -230,6 +233,23 @@ def _reading(parts: dict[str, str | None], *, may_swap: bool) -> DateReading | N
         return None
     swapped = _safe_date(year, day, month) if may_swap and day != month else None
     return DateReading(value, ambiguous=swapped is not None, alternative=swapped)
+
+
+def _month_number(name: str) -> int | None:
+    """'Jul' -> 7; 'Ju1' -> 7 too, when the look-alikes fit exactly one month name. A name with
+    no letter at all is never a month."""
+    name = name.upper()
+    if name in _MONTHS:
+        return _MONTHS[name]
+    if not re.search("[A-Z]", name):
+        return None
+    fits = {
+        number
+        for month, number in _MONTHS.items()
+        if len(month) == len(name)
+        and all(c == m or m in _LOOK_ALIKES.get(c, "") for c, m in zip(name, month, strict=True))
+    }
+    return fits.pop() if len(fits) == 1 else None
 
 
 def _full_year(year: str) -> int:
