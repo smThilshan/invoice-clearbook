@@ -294,6 +294,27 @@ def test_new_number_takes_a_new_business_key_and_duplicates_are_caught(
     assert second.business_key == "N:399"
 
 
+@pytest.mark.parametrize("holder", ["first", "second"])
+def test_a_type_changed_in_review_takes_the_key_of_its_new_type(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+    holder: str,
+) -> None:
+    """Swades: two bills with one number, the first holds the key; either is then made a
+    receipt. The save crashed on the unique index (the new key was saved with the old type,
+    or the new type with the old key)."""
+    first = in_review(session, storage, "INV-00301")
+    second = in_review(session, storage, "INV-00302")
+    ok(patch(api, second, invoice_number="INV-00301"))  # a duplicate: no key
+    changed = first if holder == "first" else second
+
+    body = ok(patch(api, changed, document_type="RECEIPT"))
+
+    assert (changed.document_type, changed.business_key) == (DocumentType.RECEIPT, "N:301")
+    assert "duplicate" not in issue_codes(body)  # a bill and a receipt: not the same document
+
+
 def test_evidence_from_the_model_is_kept(
     api: TestClient,
     session: Session,

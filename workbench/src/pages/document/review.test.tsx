@@ -562,6 +562,56 @@ describe('read again with AI (decision 55)', () => {
   })
 })
 
+describe('answer key (decision 63)', () => {
+  function withAnswerKey(savedAt: string | null): FakeApi {
+    return mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}`]: detail(),
+      [`/documents/${ID}/answer-key`]: { saved_at: savedAt },
+      [`POST /documents/${ID}/answer-key`]: { saved_at: '2026-10-21T08:05:00Z' },
+      [`DELETE /documents/${ID}/answer-key`]: { saved_at: null },
+    })  // prettier-ignore
+  }
+
+  it('keeps the document as saved as a correct answer, approving nothing', async () => {
+    const api = await open(withAnswerKey(null))
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Correct: add to answer key' }))
+
+    expect(await screen.findByText('In answer key')).toBeInTheDocument()
+    expect(api.calls).toContain(`POST /documents/${ID}/answer-key`)
+    expect(api.calls.some((call) => call.includes('/approve'))).toBe(false)
+  })
+
+  it('asks to save first while there are unsaved changes', async () => {
+    await open(withAnswerKey(null))
+    const user = userEvent.setup()
+    const button = await screen.findByRole('button', { name: 'Correct: add to answer key' })
+
+    await user.type(screen.getByRole('textbox', { name: 'Number' }), '9')
+
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', 'Save your changes first')
+  })
+
+  it('offers to update an answer kept before the document was saved again', async () => {
+    await open(withAnswerKey('2026-10-21T08:00:30Z'))  // the document was saved at 08:01
+
+    expect(await screen.findByRole('button', { name: 'Update answer key' })).toBeInTheDocument()
+  })
+
+  it('takes a document out of the answer key', async () => {
+    const api = await open(withAnswerKey('2026-10-21T08:05:00Z'))
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Remove' }))
+
+    expect(await screen.findByRole('button', { name: 'Correct: add to answer key' })).toBeInTheDocument()
+    expect(api.calls).toContain(`DELETE /documents/${ID}/answer-key`)
+  })
+})
+
 describe('unsaved changes', () => {
   it('asks before leaving with unsaved edits, and stays when told to', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)

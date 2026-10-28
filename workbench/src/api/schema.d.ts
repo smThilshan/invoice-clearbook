@@ -223,6 +223,29 @@ export interface paths {
         patch: operations["update_document_documents__document_id__patch"];
         trace?: never;
     };
+    "/documents/{document_id}/answer-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Answer Key */
+        get: operations["get_answer_key_documents__document_id__answer_key_get"];
+        put?: never;
+        /**
+         * Mark Correct
+         * @description The document as last saved becomes its correct answer in the answer key (decision 63).
+         *     Nothing is approved or sent. 422 if the document has no data.
+         */
+        post: operations["mark_correct_documents__document_id__answer_key_post"];
+        /** Unmark Correct */
+        delete: operations["unmark_correct_documents__document_id__answer_key_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents/{document_id}/approve": {
         parameters: {
             query?: never;
@@ -672,6 +695,14 @@ export interface components {
          * @enum {string}
          */
         AmountType: "INCLUSIVE" | "EXCLUSIVE" | "NO_TAX";
+        /**
+         * AnswerKeyOut
+         * @description Whether the accountant marked this document correct for the answer key (decision 63).
+         */
+        AnswerKeyOut: {
+            /** Saved At */
+            saved_at: string | null;
+        };
         /** Body_upload_master_data_clients__client_id__master_data_post */
         Body_upload_master_data_clients__client_id__master_data_post: {
             /** Contacts */
@@ -1876,6 +1907,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_answer_key_documents__document_id__answer_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnswerKeyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_correct_documents__document_id__answer_key_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnswerKeyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unmark_correct_documents__document_id__answer_key_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnswerKeyOut"];
                 };
             };
             /** @description Validation Error */

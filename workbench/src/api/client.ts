@@ -28,6 +28,7 @@ export type DocumentType = Schemas['DocumentType']
 export type QueueCategory = Schemas['QueueCategory']
 export type DocumentSummary = Schemas['DocumentSummary']
 export type QueuePage = Schemas['QueuePageOut']
+export type AnswerKey = Schemas['AnswerKeyOut']
 export type DocumentDetail = Schemas['DocumentDetail']
 export type Invoice = Schemas['Invoice-Output']
 export type InvoiceInput = Schemas['Invoice-Input']
@@ -169,6 +170,11 @@ export const api = {
   restoreDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/restore`, {}),
   /** Delete a rejected document permanently, files included (decision 45). */
   deleteDocument: (id: string) => sendNoContent('DELETE', documentPath(id)),
+  /** Is the document in the answer key, marked correct by the accountant (decision 63)? */
+  answerKey: (id: string) => request<AnswerKey>(`${documentPath(id)}/answer-key`),
+  /** Keep the document as last saved as its correct answer; nothing is approved or sent. */
+  markCorrect: (id: string) => sendJson<AnswerKey>('POST', `${documentPath(id)}/answer-key`, {}),
+  unmarkCorrect: (id: string) => request<AnswerKey>(`${documentPath(id)}/answer-key`, { method: 'DELETE' }),
   /** Accounts and tax codes the review form may use (the client's active master data). */
   codingOptions: (clientId: string) =>
     request<CodingOptions>(`/clients/${encodeURIComponent(clientId)}/coding-options`),

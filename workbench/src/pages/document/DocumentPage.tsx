@@ -1,14 +1,28 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, CircleCheck, LoaderCircle, RefreshCw, RotateCcw, Trash2, Undo2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  BookmarkCheck,
+  BookmarkPlus,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  LoaderCircle,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  Undo2,
+} from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router'
 
 import { type DocumentDetail, type DocumentStatus } from '@/api/client'
 import {
+  useAnswerKey,
   useApproveDocument,
   useCodingOptions,
   useDeleteDocument,
   useDocument,
   useLocate,
+  useMarkCorrect,
   useReextractDocument,
   useRestoreDocument,
   useUpdateDocument,
@@ -217,12 +231,65 @@ export function DocumentPage() {
                   <RefreshCw aria-hidden />
                   {reextract.isPending ? 'Sending…' : 'Read again with AI'}
                 </Button>
+                <AnswerKeyButton
+                  documentId={doc.document_id}
+                  updatedAt={doc.updated_at}
+                  blockedBy={dirty ? 'Save your changes first' : null}
+                />
               </>
             )
           }
         />
       </div>
     </PageContainer>
+  )
+}
+
+/**
+ * Answer key (decision 63): the accountant keeps this document, as last saved, as a correct
+ * answer, to measure every change of the reading. Nothing is approved or sent. Saved again
+ * after it was marked: the answer is out of date until it is updated.
+ */
+function AnswerKeyButton({
+  documentId,
+  updatedAt,
+  blockedBy,
+}: {
+  documentId: string
+  updatedAt: string
+  blockedBy: string | null
+}) {
+  const answer = useAnswerKey(documentId)
+  const mark = useMarkCorrect(documentId)
+  const savedAt = answer.data?.saved_at ?? null
+  const outdated = savedAt !== null && new Date(updatedAt) > new Date(savedAt)
+  const error = mark.error && <span className="text-sm text-destructive">{mark.error.message}</span>
+  if (savedAt !== null && !outdated) {
+    return (
+      <span role="status" className="flex items-center gap-1 text-sm font-medium text-success">
+        <BookmarkCheck className="size-4" aria-hidden />
+        In answer key
+        <Button type="button" variant="ghost" size="xs" disabled={mark.isPending} onClick={() => mark.mutate(false)}>
+          Remove
+        </Button>
+        {error}
+      </span>
+    )
+  }
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={blockedBy !== null || mark.isPending || answer.isLoading}
+        title={blockedBy ?? 'Keep this document, as saved, as a correct answer for testing. Nothing is approved or sent.'}
+        onClick={() => mark.mutate(true)}
+      >
+        <BookmarkPlus aria-hidden />
+        {outdated ? 'Update answer key' : 'Correct: add to answer key'}
+      </Button>
+      {error}
+    </>
   )
 }
 

@@ -13,7 +13,7 @@ compares the folder with what the content says, so the model must not be told th
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -160,6 +160,19 @@ def clear_null_text(value: Any) -> Any:
     return value
 
 
+def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
+    """What the page proves about a valid answer, in order. Also run by the answer key
+    (decision 63), so it measures exactly what extraction does."""
+    # Decision 56: summary rows copied as items, and the totals, from the printed summary.
+    invoice = apply_printed_summary(invoice, pages)
+    # Decision 52: no VAT on what is not a tax invoice.
+    invoice = clear_unprinted_vat(invoice, pages)
+    # Decision 60: the VAT copied as a line, proven by the model's own amounts.
+    invoice = remove_vat_line(invoice)
+    # Decision 61: a slip paid at the till (cash given - total = change printed) is a receipt.
+    return receipt_when_paid(invoice, pages)
+
+
 def parse_answer_dates(answer: dict[str, Any]) -> dict[str, Any]:
     """Printed dates -> ISO dates, read day-first as in the UAE ("4/5/2026" = 4 May 2026).
     Text that holds no date becomes null: missing, flagged by the checks, never guessed."""
@@ -197,14 +210,7 @@ def extract_document(
     llm = client.extract(request, should_stop=should_stop)
     invoice, error = validate_answer(llm)
     if invoice is not None:
-        # Decision 56: summary rows copied as items, and the totals, from the printed summary.
-        invoice = apply_printed_summary(invoice, pages)
-        # Decision 52: no VAT on what is not a tax invoice.
-        invoice = clear_unprinted_vat(invoice, pages)
-        # Decision 60: the VAT copied as a line, proven by the model's own amounts.
-        invoice = remove_vat_line(invoice)
-        # Decision 61: a slip paid at the till (cash given - total = change printed) is a receipt.
-        invoice = receipt_when_paid(invoice, pages)
+        invoice = repair_answer(invoice, pages)
 
     attempt = (
         1 + session.scalars(select(func.count()).where(Extraction.document_id == document.id)).one()

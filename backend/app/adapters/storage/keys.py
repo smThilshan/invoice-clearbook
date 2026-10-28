@@ -3,6 +3,8 @@
 <client>/originals/<sha256><ext>              the captured file, stored once per content
 <client>/pages/<document_id>/page-001.png     rendered page images
 <client>/ocr/<document_id>/page-001.json      text + word boxes per page
+<client>/answer-key/<document_id>.json        the accountant's correct answer (decision 63)
+<client>/answer-key-runs/last.json            the answer key's last measurement
 """
 
 import re
@@ -35,6 +37,16 @@ def ocr_key(client_id: str, document_id: uuid.UUID, page: int) -> str:
 def charge_ocr_key(client_id: str, document_id: uuid.UUID, page: int) -> str:
     """Our own OCR of a page picture, made only to find charges outside the lines (task 4.13)."""
     return validate_key(f"{client_id}/ocr-charges/{document_id}/{_page(page)}.json")
+
+
+def answer_key(client_id: str, document_id: uuid.UUID) -> str:
+    """A document's correct answer, marked by the accountant (decision 63)."""
+    return validate_key(f"{client_id}/answer-key/{document_id}.json")
+
+
+def answer_key_run(client_id: str) -> str:
+    """The last answer key measurement, compared with the next one."""
+    return validate_key(f"{client_id}/answer-key-runs/last.json")
 
 
 def _page(page: int) -> str:

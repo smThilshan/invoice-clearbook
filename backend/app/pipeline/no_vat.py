@@ -10,6 +10,7 @@ so a receipt that does show VAT is left alone. Never hidden: the model's own ans
 """
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from app.domain.invoice import Invoice
@@ -18,7 +19,7 @@ from app.pipeline.verify.grounding import not_a_tax_invoice
 from app.pipeline.verify.vat_type import vat_type_from_amounts
 
 
-def clear_unprinted_vat(invoice: Invoice, pages: list[PageText]) -> Invoice:
+def clear_unprinted_vat(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     if not invoice.vat or not not_a_tax_invoice(invoice, pages):
         return invoice
     cleared = invoice.model_copy(update={"vat": None})

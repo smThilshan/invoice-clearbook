@@ -25,6 +25,7 @@ export const queryKeys = {
   queue: (query: QueueQuery) => ['queue', query] as const,
   queues: ['queue'] as const,
   document: (id: string) => ['document', id] as const,
+  answerKey: (id: string) => ['answer-key', id] as const,
   codingOptions: (clientId: string) => ['coding-options', clientId] as const,
   locate: (id: string, kind: ValueKind, value: string) => ['locate', id, kind, value] as const,
 }
@@ -245,6 +246,19 @@ export function useRetryDocument() {
   return useMutation({
     mutationFn: (id: string) => api.retryDocument(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['run'] }),
+  })
+}
+
+/** The answer key mark of one document (decision 63). */
+export function useAnswerKey(documentId: string) {
+  return useQuery({ queryKey: queryKeys.answerKey(documentId), queryFn: () => api.answerKey(documentId) })
+}
+
+export function useMarkCorrect(documentId: string) {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (correct: boolean) => (correct ? api.markCorrect(documentId) : api.unmarkCorrect(documentId)),
+    onSuccess: (answer) => client.setQueryData(queryKeys.answerKey(documentId), answer),
   })
 }
 

@@ -3,8 +3,9 @@
 Reject is the everyday way out of the queue and keeps the record. Deleting is the second step,
 from the Rejected list, for files that must not stay (another business's invoice, a wrong or
 test file): the document, its AI answers, corrections, history, send attempts and stored files
-are removed, and one `deletions` row is kept as proof (no invoice content). A document that
-reached the accounting system (it has an external ID) is never deleted here: void it there.
+(its answer key entry too) are removed, and one `deletions` row is kept as proof (no invoice
+content). A document that reached the accounting system (it has an external ID) is never deleted
+here: void it there.
 
 The caller commits, then removes the files: a failed file removal leaves a stray file behind,
 never a record pointing to a file that is gone.
@@ -17,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
-from app.adapters.storage.keys import charge_ocr_key, ocr_key, page_image_key
+from app.adapters.storage.keys import answer_key, charge_ocr_key, ocr_key, page_image_key
 from app.core.config import Settings
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
@@ -89,6 +90,7 @@ def _files(session: Session, document: Document) -> list[str]:
         for page in pages
         for key in (page_image_key, ocr_key, charge_ocr_key)
     ]
+    keys.append(answer_key(document.client_id, document.id))  # if marked correct (decision 63)
     shared = session.scalars(
         select(func.count()).where(
             Document.storage_key == document.storage_key, Document.id != document.id

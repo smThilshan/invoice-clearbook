@@ -34,7 +34,7 @@ from app.pipeline.no_vat import cleared_vat
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
-from app.services import approval, deletion, review
+from app.services import answer_key, approval, deletion, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
 from app.services.pipeline import reextract_document, retry_document
@@ -148,6 +148,12 @@ class Place(BaseModel):
 
 class Located(BaseModel):
     places: list[Place]  # empty: not printed on the document (or not a valid value)
+
+
+class AnswerKeyOut(BaseModel):
+    """Whether the accountant marked this document correct for the answer key (decision 63)."""
+
+    saved_at: datetime | None  # None: not in the answer key
 
 
 def get_review_storage(settings: Annotated[Settings, Depends(get_settings)]) -> Storage:
@@ -323,6 +329,33 @@ def delete_document(document_id: uuid.UUID, session: SessionDep, storage: Storag
         except OSError:
             logger.warning("document %s: a stored file could not be removed", document_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{document_id}/answer-key")
+def get_answer_key(
+    document_id: uuid.UUID, session: SessionDep, storage: StorageDep
+) -> AnswerKeyOut:
+    entry = answer_key.saved(storage, _found(session, document_id))
+    return AnswerKeyOut(saved_at=entry.saved_at if entry else None)
+
+
+@router.post("/{document_id}/answer-key")
+def mark_correct(document_id: uuid.UUID, session: SessionDep, storage: StorageDep) -> AnswerKeyOut:
+    """The document as last saved becomes its correct answer in the answer key (decision 63).
+    Nothing is approved or sent. 422 if the document has no data."""
+    try:
+        entry = answer_key.save_answer(storage, _found(session, document_id))
+    except answer_key.AnswerKeyError as exc:
+        raise _http_error(exc) from exc
+    return AnswerKeyOut(saved_at=entry.saved_at)
+
+
+@router.delete("/{document_id}/answer-key")
+def unmark_correct(
+    document_id: uuid.UUID, session: SessionDep, storage: StorageDep
+) -> AnswerKeyOut:
+    answer_key.remove_answer(storage, _found(session, document_id))
+    return AnswerKeyOut(saved_at=None)
 
 
 def get_enqueue_posting() -> Callable[[str], object]:

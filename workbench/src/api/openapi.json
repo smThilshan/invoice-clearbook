@@ -154,6 +154,28 @@
         "title": "AmountType",
         "type": "string"
       },
+      "AnswerKeyOut": {
+        "description": "Whether the accountant marked this document correct for the answer key (decision 63).",
+        "properties": {
+          "saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved At"
+          }
+        },
+        "required": [
+          "saved_at"
+        ],
+        "title": "AnswerKeyOut",
+        "type": "object"
+      },
       "Body_upload_master_data_clients__client_id__master_data_post": {
         "properties": {
           "contacts": {
@@ -3324,6 +3346,132 @@
           }
         },
         "summary": "Update Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/answer-key": {
+      "delete": {
+        "operationId": "unmark_correct_documents__document_id__answer_key_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unmark Correct",
+        "tags": [
+          "documents"
+        ]
+      },
+      "get": {
+        "operationId": "get_answer_key_documents__document_id__answer_key_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Answer Key",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "description": "The document as last saved becomes its correct answer in the answer key (decision 63).\nNothing is approved or sent. 422 if the document has no data.",
+        "operationId": "mark_correct_documents__document_id__answer_key_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark Correct",
         "tags": [
           "documents"
         ]

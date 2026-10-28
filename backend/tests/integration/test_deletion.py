@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.adapters.storage.keys import ocr_key
+from app.adapters.storage.keys import answer_key, ocr_key
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus as S
 from app.models import AuditLog, Correction, Deletion, Document, Extraction
@@ -37,6 +37,7 @@ def test_a_rejected_document_is_deleted_with_everything_about_it(
 ) -> None:
     doc = in_review(session, storage)
     doc_id, sha, page_text = doc.id, doc.sha256, ocr_key(CLIENT, doc.id, 1)
+    ok(api.post(f"/documents/{doc_id}/answer-key"))  # marked correct (decision 63)
     reject(api, doc)
     assert storage.exists(page_text)
 
@@ -48,6 +49,7 @@ def test_a_rejected_document_is_deleted_with_everything_about_it(
     assert (count(session, Extraction, doc), count(session, Correction, doc),
             count(session, AuditLog, doc)) == (0, 0, 0)  # fmt: skip
     assert not storage.exists(page_text)
+    assert not storage.exists(answer_key(CLIENT, doc_id))
     proof = session.scalars(select(Deletion).where(Deletion.document_id == doc_id)).one()
     assert (proof.sha256, proof.rejected_reason, proof.client_id) == (
         sha,

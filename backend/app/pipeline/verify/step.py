@@ -228,6 +228,12 @@ def assess(
     if invoice is not None:
         issues += check_grounding(invoice, pages, verified=verified)
 
+        # Keys are per type (decision 18): a type changed in review (a bill now a receipt)
+        # releases the old key before the new type is saved, then claims one for it. Else the
+        # unique index saw the new type with the old key, or the old type with the new one.
+        if document.document_type is not invoice.document_type:
+            document.business_key = None
+        document.document_type = invoice.document_type
         duplicates = check_duplicates(session, document, invoice)
         issues += duplicates.issues
         if not claim_keys(session, document, duplicates):
@@ -254,7 +260,6 @@ def assess(
 
         issues += [*extra_issues, *coding.check_codes(invoice, chart)]
         document.invoice = json.loads(invoice.model_dump_json())  # money as exact text
-        document.document_type = invoice.document_type
 
         types = check_document_type(invoice, pages, confirmed="document_type" in verified)
         issues += types.issues

@@ -91,6 +91,9 @@ llm-load: ## LM Studio: start its server, load LLM_MODEL with LLM_CONTEXT_TOKENS
 	$(LMS) server start && { $(LMS) unload "$$1" >/dev/null 2>&1 || true; } && \
 	$(LMS) load "$$1" --context-length "$$2" --yes
 
+answer-key: ## Measure today's code on the documents marked correct, no model call (ARGS=--save / --show-values)
+	@$(UV) python scripts/answer_key.py $(ARGS)
+
 smoke-read: ## Read step (text layer / OCR) on data/samples/, metrics only
 	@$(UV) python scripts/smoke_read.py
 
