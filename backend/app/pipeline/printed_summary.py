@@ -10,8 +10,9 @@ Proven means, all of these (otherwise nothing changes and the checks flag it as 
   amount before VAT (within rounding). Found by their numbers only: OCR garbles the labels
   ("Bi ount: 111.28"), not the numbers.
 - They agree with the model exactly: on the total it read, or on its VAT when it read no total.
-- Only lines at the end are removed (the summary is printed after the items), and each one is
-  the subtotal, the VAT or the total, or a payment above the total whose change is printed.
+- Only lines at the end are removed (the summary is printed after the items), as many as there
+  are, never every line. Each one is the subtotal, the VAT, the total, the VAT rate (5.00), the
+  cash given above the total, or the change (cash given less the total).
 - The lines left add up exactly to the total (VAT included in the prices) or to the amount
   before VAT, and there is exactly one such answer.
 
@@ -37,7 +38,7 @@ from app.pipeline.verify.vat_type import vat_type_from_amounts
 CENT = Decimal("0.01")
 UAE_VAT = Decimal("0.05")
 RATE_SLACK = Decimal("0.02")  # VAT worked out per line rounds a little differently
-MAX_REMOVED = 4  # summary rows a receipt prints: amount before VAT, VAT, total, paid
+VAT_RATE = Decimal(5)  # "Vat % 5.00" in a receipt's VAT table
 MAX_ROUNDING = Decimal("0.24")  # cash is rounded to the nearest 0.25 at most
 ROUNDING = "Rounding"
 
@@ -110,13 +111,18 @@ def _lines_to_remove(
     before_vat, vat, total, rounding = summary
     items = before_vat + vat
     rows = {before_vat, vat, items, total, abs(rounding)}
+    if VAT_RATE in printed:
+        rows.add(VAT_RATE)
     slack = Decimal(0) if rounding else CENT  # the rounding itself is about a cent
     amounts = [line.amount for line in invoice.lines]
+    known = printed | set(amounts)  # OCR may miss a number the model read ("10,00")
 
     def summary_row(amount: Decimal) -> bool:
-        return abs(amount) in rows or (amount > total and amount - total in printed)
+        paid = amount > total and amount - total in known  # cash given, the change printed
+        change = amount >= 0 and amount + total in known  # the change (0.00: exact cash)
+        return abs(amount) in rows or paid or change
 
-    for removed in range(min(MAX_REMOVED, len(amounts) - 1) + 1):  # never every line
+    for removed in range(len(amounts)):  # never every line
         if removed and not summary_row(amounts[-removed]):
             return None  # a real item: nothing before it is a summary row either
         rest = sum(amounts[: len(amounts) - removed], Decimal(0))

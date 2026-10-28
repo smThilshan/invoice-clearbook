@@ -77,6 +77,56 @@ def test_summary_rows_after_the_item_go_and_the_item_stays() -> None:
     assert summary(fixed) == ("10.48", "0.52", "11.00", AmountType.INCLUSIVE)
 
 
+# Al Shahama: the model copied the whole bottom of the receipt; OCR read "10,00" with a comma.
+ICE = (
+    "PURE ICE EDIBLE KG 1.00 3.50\nTotal Amount 3.33\nTotal Tax 0.17\nNet Amount 3.50\n"
+    "Tendered Amount 10,00\nBalance Amount 6.50\nVat % 5.00 Taxable Amount 3.33 Vat 0.17"
+)
+
+
+def test_every_summary_row_copied_at_the_end_goes_however_many() -> None:
+    read = receipt("3.50", "3.50", "0.17", "3.50", "10.00", "6.50", "5.00", "3.33", "0.17",
+                   subtotal=Decimal("3.50"), vat=Decimal("0.17"),
+                   total=Decimal("3.50"))  # fmt: skip
+
+    fixed = apply_printed_summary(read, page(ICE))
+
+    assert amounts(fixed) == ["3.50"]
+    assert summary(fixed) == ("3.33", "0.17", "3.50", AmountType.INCLUSIVE)
+
+
+def test_a_whole_summary_with_a_rounding_goes_and_the_rounding_stays() -> None:
+    """Al Shahama: ten lines, from "Total 5.70" to the VAT table, for one loaf of bread."""
+    text = ("YAUMI WHITE SLICED BREAD 600G 5.99\nTotal Amount 5.70\nTotal Tax 0.29\n"
+            "Rounding 0.01\nNet Amount 6.00\nTendered Amount 6.00\nBalance Amount 0.00\n"
+            "Vat % 5.00 Taxable Amount 5.70 Vat 0.29")  # fmt: skip
+    read = receipt("5.99", "5.70", "0.29", "0.01", "6.00", "6.00", "0.00", "5.00", "5.70",
+                   "0.29", subtotal=Decimal("5.70"), vat=Decimal("0.29"),
+                   total=Decimal("6.00"))  # fmt: skip
+
+    fixed = apply_printed_summary(read, page(text))
+
+    assert amounts(fixed) == ["5.99", "0.01"]
+    assert summary(fixed) == ("5.71", "0.29", "6.00", AmountType.INCLUSIVE)
+
+
+def test_a_last_item_costing_the_vat_rate_is_kept() -> None:
+    text = "MILK 3.50\nBREAD 5.00\nTotal Amount 8.10\nTotal Tax 0.40\nVat % 5.00\nNet 8.50"
+    read = receipt("3.50", "5.00", "0.40", subtotal=Decimal("8.10"), vat=Decimal("0.40"),
+                   total=Decimal("8.50"))  # fmt: skip
+
+    assert amounts(apply_printed_summary(read, page(text))) == ["3.50", "5.00"]
+
+
+def test_a_last_item_costing_the_change_is_kept() -> None:
+    text = ("MILK 3.50\nBREAD 6.50\nTotal Amount 9.52\nTotal Tax 0.48\nNet Amount 10.00\n"
+            "Tendered 16.50\nBalance 6.50")  # fmt: skip
+    read = receipt("3.50", "6.50", "16.50", subtotal=Decimal("9.52"), vat=Decimal("0.48"),
+                   total=Decimal("10.00"))  # fmt: skip
+
+    assert amounts(apply_printed_summary(read, page(text))) == ["3.50", "6.50"]
+
+
 def test_an_item_the_receipt_prints_twice_is_kept_once() -> None:
     text = "PURE ICE 1KG 2.00 7.00\n02 3.50\nTotal Amount 6.66\nTotal Tax 0.34\nNet Amount 7.00"
     read = receipt("7.00", "7.00", subtotal=Decimal("6.66"), vat=Decimal("0.34"),

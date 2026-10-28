@@ -38,6 +38,7 @@ from app.pipeline.model_schema import build_model_schema
 from app.pipeline.no_vat import clear_unprinted_vat
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
+from app.pipeline.vat_line import remove_vat_line
 from app.pipeline.verify.normalize import parse_date
 from app.pipeline.verify.vat_type import vat_type_from_amounts
 
@@ -199,6 +200,8 @@ def extract_document(
         invoice = apply_printed_summary(invoice, pages)
         # Decision 52: no VAT on what is not a tax invoice.
         invoice = clear_unprinted_vat(invoice, pages)
+        # Decision 60: the VAT copied as a line, proven by the model's own amounts.
+        invoice = remove_vat_line(invoice)
 
     attempt = (
         1 + session.scalars(select(func.count()).where(Extraction.document_id == document.id)).one()

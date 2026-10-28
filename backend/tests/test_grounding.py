@@ -158,6 +158,47 @@ def test_a_day_misread_before_a_month_name_is_read_on_ocr_pages(printed: str) ->
     assert "invoice_date" in fields(invoice(invoice_date=day), page(text, source="text_layer"))
 
 
+# Sunrise Bakery: a printed form filled in by hand. OCR reads the printed words, none of the
+# handwritten date or amounts.
+HANDWRITTEN = """SUNRISE BAKERY   Mob: 0551218352   No: 922493
+TRN:100256461300003
+Date
+Description Qty Rate Total
+Vat @
+Grand Total   Dhs Fils"""
+
+
+def test_values_ocr_could_not_read_at_all_are_warnings_to_check_on_the_image() -> None:
+    inv = invoice(invoice_number=None, vendor_trn="100256461300003", due_date=None,
+                  invoice_date=date(2025, 8, 12), subtotal=Decimal("75.00"),
+                  vat=Decimal("3.75"), total=Decimal("78.75"))  # fmt: skip
+    found = issues_for(inv, page(HANDWRITTEN, source="ocr"))
+
+    assert {(i.field, i.severity) for i in found} == {
+        (field, Severity.WARNING) for field in ("invoice_date", "subtotal", "vat", "total")
+    }
+    assert all("could not be checked" in i.message for i in found)
+
+
+def test_a_value_differing_from_what_ocr_read_stays_an_error() -> None:
+    """OCR read amounts and a date: a value not among them is not excused."""
+    found = issues_for(invoice(total=Decimal("1060.00"), invoice_date=date(2026, 10, 16)),
+                       page(source="ocr"))  # fmt: skip
+
+    assert {(i.field, i.severity) for i in found} == {
+        ("total", Severity.ERROR),
+        ("invoice_date", Severity.ERROR),
+    }
+
+
+def test_a_text_layer_reading_nothing_stays_an_error() -> None:
+    """Only a scan can hide handwriting: a digital PDF's text is exact."""
+    found = issues_for(invoice(invoice_number=None, vendor_trn=None, due_date=None),
+                       page(HANDWRITTEN))  # fmt: skip
+
+    assert {i.severity for i in found} == {Severity.ERROR}
+
+
 def test_ocr_tolerance_does_not_invent_unrelated_values() -> None:
     assert "total" in fields(invoice(total=Decimal("9999.00")), page(OCR_MISREAD, source="ocr"))
 

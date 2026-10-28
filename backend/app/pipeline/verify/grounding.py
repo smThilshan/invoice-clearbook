@@ -9,8 +9,12 @@ l/I 1, S 5, B 8) next to digits are also read as digits. The exact text layer of
 gets no such tolerance.
 
 A value not found is an error (architecture §8), except the due date (often printed as terms
-like "Net 30"): a warning. In review, a value the accountant confirms or types counts as
-human-verified (decision 24) and is no longer grounded: pass it in `verified`.
+like "Net 30"): a warning. Also a warning when OCR read no money amount at all (for an amount)
+or no date at all (for a date) on a scan (decision 60): handwritten values, which OCR does not
+read, or an unclear photo. Then there is nothing to compare with, and the accountant checks it
+on the image. When OCR did read amounts or dates, a value not among them stays an error. In
+review, a value the accountant confirms or types counts as human-verified (decision 24) and is
+no longer grounded: pass it in `verified`.
 
 A VAT amount must also be printed as VAT: a document with no supplier TRN that names no VAT or
 tax at all (an app's order screen) has none, and its "VAT" was read from a fee (decision 47).
@@ -45,6 +49,8 @@ _DATE_FIELDS = {
     "due_date": ("due date", Severity.WARNING),
 }
 
+# Money as printed with decimals ("75.00", "1,050.10", "3,75"): not phone or document numbers.
+_MONEY = re.compile(r"(?<![\d.,])\d+(?:,\d{3})*[.,]\d{2}(?![\d.,])")
 _DIGIT_RUN = re.compile(r"\d(?:[\d \-]*\d)?")
 
 # Decision 17: a number label on the page while no number was extracted -> likely missed.
@@ -70,6 +76,8 @@ class _Witness:
     compact_ocr: str  # same, with OCR digit confusions folded (OCR pages only)
     digit_runs: set[str]  # digit sequences with spaces/dashes removed, for TRNs
     raw: str
+    unread_money: bool  # a scan on which OCR read no money amount ("75.00")
+    unread_dates: bool  # a scan on which OCR read no date
 
 
 def check_grounding(
@@ -92,13 +100,17 @@ def _witness(pages: Sequence[PageText]) -> _Witness:
     exact = "\n".join(page.text for page in pages)
     ocr = "\n".join(fold_ocr_digits(page.text) for page in pages if page.source == "ocr")
     both = to_ascii_digits(f"{exact}\n{ocr}")
+    dates = find_dates(both)
+    scan = bool(pages) and all(page.source == "ocr" for page in pages)
     return _Witness(
         amounts=find_amounts(both),
-        dates=find_dates(both),
+        dates=dates,
         compact=_compact(exact),
         compact_ocr=_compact(ocr).translate(OCR_DIGITS),
         digit_runs={re.sub(r"\D", "", run) for run in _DIGIT_RUN.findall(both)},
         raw=exact,
+        unread_money=scan and not _MONEY.search(both),
+        unread_dates=scan and not dates,
     )
 
 
@@ -109,7 +121,10 @@ def _amounts(invoice: Invoice, witness: _Witness) -> list[Issue]:
         if value is None or value == 0:  # zero VAT is often left blank
             continue
         if abs(value) not in witness.amounts and not _worked_out(invoice, field, witness):
-            issues.append(_not_found(field, label, value, Severity.ERROR))
+            if witness.unread_money:
+                issues.append(_unread(field, label, value, "money amount"))
+            else:
+                issues.append(_not_found(field, label, value, Severity.ERROR))
     return issues
 
 
@@ -157,7 +172,10 @@ def _dates(invoice: Invoice, witness: _Witness) -> list[Issue]:
     for field, (label, severity) in _DATE_FIELDS.items():
         value = getattr(invoice, field)
         if value is not None and value not in witness.dates:
-            issues.append(_not_found(field, label, value, severity))
+            if witness.unread_dates:
+                issues.append(_unread(field, label, value, "date"))
+            else:
+                issues.append(_not_found(field, label, value, severity))
     return issues
 
 
@@ -229,4 +247,14 @@ def _not_found(field: str, label: str, value: object, severity: Severity) -> Iss
         severity,
         field,
         f"The {label} {value} was not found on the document: check it against the original.",
+    )
+
+
+def _unread(field: str, label: str, value: object, kind: str) -> Issue:
+    return Issue(
+        "not_on_document",
+        Severity.WARNING,
+        field,
+        f"The {label} {value} could not be checked: OCR read no {kind} on this document "
+        "(handwritten or unclear). Check it on the image.",
     )
