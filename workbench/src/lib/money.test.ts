@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatScaled, parseAmount, sumAmounts, withinTolerance } from './money'
+import { formatScaled, parseAmount, sumAmounts, withCents, withinTolerance } from './money'
 
 describe('money', () => {
   it('reads typed amounts exactly', () => {
@@ -22,5 +22,15 @@ describe('money', () => {
   it('compares with the server tolerance of 0.01', () => {
     expect(withinTolerance(parseAmount('1050.00')!, parseAmount('1050.01')!)).toBe(true)
     expect(withinTolerance(parseAmount('1050.00')!, parseAmount('1050.02')!)).toBe(false)
+  })
+
+  it('shows money with two decimals, adding zeros only', () => {
+    expect(withCents('4.5')).toBe('4.50')
+    expect(withCents('4')).toBe('4.00')
+    expect(withCents('-3.1')).toBe('-3.10')
+    expect(withCents('1050.10')).toBe('1050.10')
+    expect(withCents('28.234')).toBe('28.234') // never rounded: a misread third decimal shows
+    expect(withCents('')).toBe('')
+    expect(withCents('1E+1')).toBe('1E+1')
   })
 })

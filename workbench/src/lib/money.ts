@@ -28,6 +28,18 @@ export function formatScaled(value: bigint): string {
   return `${negative ? '-' : ''}${whole}.${fraction}`
 }
 
+/**
+ * "4.5" -> "4.50", "4" -> "4.00": money as accountants read it. Only zeros are added, never
+ * rounded or cut ("28.234" stays, so a misread third decimal still shows); "" and text that is
+ * not a plain number are left as they are.
+ */
+export function withCents(text: string): string {
+  const match = /^(-?\d+)(?:\.(\d*))?$/.exec(text)
+  if (!match) return text
+  const [, whole = '', fraction = ''] = match
+  return `${whole}.${fraction.padEnd(2, '0')}`
+}
+
 /** Sum of amounts; null if any of them is not a number. Empty strings count as missing. */
 export function sumAmounts(texts: string[]): bigint | null {
   let total = 0n

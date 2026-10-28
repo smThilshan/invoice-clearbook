@@ -10,6 +10,7 @@ import type {
   Issue,
   TaxType,
 } from '@/api/client'
+import { withCents } from '@/lib/money'
 
 export interface LineValues {
   description: string
@@ -79,6 +80,8 @@ export function emptyLine(): LineValues {
 }
 
 const text = (value: string | null | undefined) => value ?? ''
+// Shown with two decimals at least ("4.5" -> "4.50"); the value is the same (rule 1).
+const money = (value: string | null | undefined) => withCents(text(value))
 
 export function toFormValues(invoice: Invoice | null | undefined): FormValues {
   return {
@@ -90,9 +93,9 @@ export function toFormValues(invoice: Invoice | null | undefined): FormValues {
     due_date: text(invoice?.due_date),
     currency: text(invoice?.currency),
     amount_type: invoice?.amount_type ?? '',
-    subtotal: text(invoice?.subtotal),
-    vat: text(invoice?.vat),
-    total: text(invoice?.total),
+    subtotal: money(invoice?.subtotal),
+    vat: money(invoice?.vat),
+    total: money(invoice?.total),
     recipient_name: text(invoice?.recipient_name),
     recipient_trn: text(invoice?.recipient_trn),
     po_number: text(invoice?.po_number),
@@ -100,8 +103,8 @@ export function toFormValues(invoice: Invoice | null | undefined): FormValues {
     lines: (invoice?.lines ?? []).map((line) => ({
       description: text(line.description),
       qty: text(line.qty),
-      unit_price: text(line.unit_price),
-      amount: line.amount,
+      unit_price: money(line.unit_price),
+      amount: money(line.amount),
       account_code: text(line.account_code),
       tax_type: line.tax_type ?? '',
     })),
