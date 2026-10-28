@@ -23,7 +23,8 @@ Vat % Taxable Amount Vat
 
 
 def pages(text: str) -> list[PageText]:
-    spans = [TextSpan(row, (0.0, 0.0, 1.0, 1.0), None) for row in text.splitlines()]
+    rows = text.splitlines()
+    spans = [TextSpan(row, (0.0, n / 40, 1.0, n / 40 + 0.02), None) for n, row in enumerate(rows)]
     return [PageText(1, 1000, 1400, "ocr", spans)]
 
 
@@ -48,8 +49,10 @@ def test_ocr_digit_misreads_are_read_as_digits() -> None:
     ("text", "why"),
     [
         (
-            SHAHAMA.replace("5.00\nBalance Amount 0.50", "4.50\nBalance Amount 0.00"),
-            "exact cash: 0.00 change proves nothing by the numbers",
+            SHAHAMA.replace(
+                "Tendered Amount 5.00\nBalance Amount 0.50", "Paid in cash\nTndrd 4.50\nBlnc 0.00"
+            ),
+            "exact cash with its labels misread: 0.00 proves nothing by the numbers",
         ),
         (
             SHAHAMA.replace("Balance Amount 0.50", "Balance Amount 0.60"),
@@ -83,3 +86,10 @@ def test_nothing_changes_without_proof(text: str, why: str) -> None:
 )
 def test_only_a_bill_with_a_total_is_changed(invoice: Invoice) -> None:
     assert receipt_when_paid(invoice, pages(SHAHAMA)) == invoice
+
+
+def test_exact_cash_with_its_labels_is_a_receipt() -> None:
+    """Decision 64: "Tendered 4.50 / Balance 0.00", labelled, under a proven totals block."""
+    text = SHAHAMA.replace("5.00\nBalance Amount 0.50", "4.50\nBalance Amount 0.00")
+
+    assert receipt_when_paid(bill(), pages(text)).document_type is DocumentType.RECEIPT

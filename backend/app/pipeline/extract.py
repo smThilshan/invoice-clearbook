@@ -39,6 +39,7 @@ from app.pipeline.no_vat import clear_unprinted_vat
 from app.pipeline.paid import receipt_when_paid
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
+from app.pipeline.totals_block import apply_totals_block
 from app.pipeline.vat_line import remove_vat_line
 from app.pipeline.verify.normalize import parse_date
 from app.pipeline.verify.vat_type import vat_type_from_amounts
@@ -163,6 +164,8 @@ def clear_null_text(value: Any) -> Any:
 def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     """What the page proves about a valid answer, in order. Also run by the answer key
     (decision 63), so it measures exactly what extraction does."""
+    # Decision 64: the totals and the items from the labelled totals block, when it proves them.
+    invoice = apply_totals_block(invoice, pages)
     # Decision 56: summary rows copied as items, and the totals, from the printed summary.
     invoice = apply_printed_summary(invoice, pages)
     # Decision 52: no VAT on what is not a tax invoice.

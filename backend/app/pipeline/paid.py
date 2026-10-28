@@ -10,7 +10,10 @@ Proven means all of these (otherwise nothing changes and the type check asks, wi
   change exactly ("Net Amount 4.50 / Tendered 5.00 / Balance 0.50"). Change is only given on
   money paid. Found by their numbers only: OCR garbles the labels, not the numbers.
 
-Exact cash (change 0.00) and card payments are not proven by the numbers: the type check asks.
+Or, from the labelled totals block (decision 64), whose total is the one read: an amount
+labelled as money given (Tendered, Cash, Card, Paid) equal to the total ("Tendered 7.00"), or
+above it with one labelled as change (Balance, Change) equal to the difference, 0.00 included
+("Tendered 3.50 / Balance 0.00": exact cash). Otherwise (a payment word alone) the type check asks.
 The model's own answer stays in `extractions.raw_output`.
 """
 
@@ -21,6 +24,7 @@ from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
 from app.pipeline.printed_summary import MONEY
 from app.pipeline.read import PageText
+from app.pipeline.totals_block import read_totals_block
 from app.pipeline.verify.normalize import fold_ocr_digits, to_ascii_digits
 from app.pipeline.verify.type_check import shows_payment
 
@@ -29,9 +33,20 @@ def receipt_when_paid(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     total = invoice.total
     if invoice.document_type is not DocumentType.BILL or not total or total < 0:
         return invoice
-    if not shows_payment(pages) or not _change_given(total, _money_in_order(pages)):
+    if not shows_payment(pages):
+        return invoice
+    if not (_change_given(total, _money_in_order(pages)) or _paid_by_label(total, pages)):
         return invoice
     return invoice.model_copy(update={"document_type": DocumentType.RECEIPT})
+
+
+def _paid_by_label(total: Decimal, pages: Sequence[PageText]) -> bool:
+    block = read_totals_block(pages)
+    return (
+        block is not None
+        and block.total == total
+        and any(given == total or given - total in block.change for given in block.paid)
+    )
 
 
 def _money_in_order(pages: Sequence[PageText]) -> list[Decimal]:
