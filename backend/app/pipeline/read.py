@@ -8,13 +8,24 @@
   orientation first (phone photos of receipts are often sideways).
 Per page, Storage gets a PNG (for the model and the Workbench viewer) and a JSON with text spans
 and boxes as fractions of the page (0-1), so the Workbench can highlight at any zoom.
+
+Amounts OCR split in two (decision 62): on thermal slips OCR often cuts an amount at the dot and
+reads its 0 as a letter: "0.12" comes out as "o." and "12", "-0.09" as "-o" and ".09". Every check
+then misses the amount (the printed summary; grounding: "VAT 0.12 not found"). When saved OCR
+text is loaded, two pieces are joined into one when all of these hold (otherwise nothing changes):
+- They are on the same row and almost touch (a gap under one character height).
+- Neither is an amount on its own, and together, with O/o read as 0, they are exactly an amount
+  with two decimals ("0.12", "-0.09").
+The joined piece covers both boxes, so the Workbench highlights it. The saved file keeps what OCR
+read; the text layer of a digital PDF is exact and never changed.
 """
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from typing import Literal
 
@@ -66,7 +77,65 @@ class PageText:
         raw = json.loads(data)
         spans = [TextSpan(s["text"], tuple(s["box"]), s["confidence"]) for s in raw.pop("spans")]
         quality = raw.pop("quality", None)  # pages read before decision 30 have none
-        return cls(**raw, spans=spans, quality=PageQuality(**quality) if quality else None)
+        page = cls(**raw, spans=spans, quality=PageQuality(**quality) if quality else None)
+        return join_split_numbers(page)
+
+
+# --- amounts OCR split in two (decision 62) ---------------------------------------------
+
+_AMOUNT = re.compile(r"-?\d+[.,]\d{2}")
+_LEFT = re.compile(r"-?[\doO]*[.,]?")  # "o.", "-o", "2", "12."
+_RIGHT = re.compile(r"[.,]?[\doO]+")  # "12", ".09"
+_ZERO = str.maketrans("oO", "00")
+MAX_GAP = 1.0  # in character heights
+
+
+def join_split_numbers(page: PageText) -> PageText:
+    if page.source != "ocr":
+        return page
+    spans = list(page.spans)
+    joined = True
+    while joined:  # one pair at a time; pieces are rare, pages are short
+        joined = False
+        for i, left in enumerate(spans):
+            j = _right_piece(page, spans, left)
+            if j is not None:
+                right = spans.pop(j)
+                spans[i if j > i else i - 1] = _join(left, right)
+                joined = True
+                break
+    return replace(page, spans=spans)
+
+
+def _right_piece(page: PageText, spans: list[TextSpan], left: TextSpan) -> int | None:
+    if not _LEFT.fullmatch(left.text) or _AMOUNT.fullmatch(left.text):
+        return None
+    for j, right in enumerate(spans):
+        if right is left or not _RIGHT.fullmatch(right.text) or _AMOUNT.fullmatch(right.text):
+            continue
+        if _AMOUNT.fullmatch(_number(left, right)) and _touching(page, left, right):
+            return j
+    return None
+
+
+def _number(left: TextSpan, right: TextSpan) -> str:
+    return (left.text + right.text).translate(_ZERO)
+
+
+def _touching(page: PageText, left: TextSpan, right: TextSpan) -> bool:
+    """Same row (heights overlap by half) and a gap under MAX_GAP character heights."""
+    (_, ly0, lx1, ly1), (rx0, ry0, _, ry1) = left.box, right.box
+    height = max(ly1 - ly0, ry1 - ry0) * page.height
+    overlap = (min(ly1, ry1) - max(ly0, ry0)) * page.height
+    gap = (rx0 - lx1) * page.width
+    return height > 0 and overlap >= height / 2 and -height / 2 <= gap <= MAX_GAP * height
+
+
+def _join(left: TextSpan, right: TextSpan) -> TextSpan:
+    box = (min(left.box[0], right.box[0]), min(left.box[1], right.box[1]),
+           max(left.box[2], right.box[2]), max(left.box[3], right.box[3]))  # fmt: skip
+    confidences = [c for c in (left.confidence, right.confidence) if c is not None]
+    return TextSpan(_number(left, right), box, min(confidences) if confidences else None)
 
 
 class ReadOutcome(StrEnum):
