@@ -36,6 +36,7 @@ from app.pipeline.descriptions import clean_descriptions
 from app.pipeline.line_totals import repair_unit_prices
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.no_vat import clear_unprinted_vat
+from app.pipeline.paid import receipt_when_paid
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.vat_line import remove_vat_line
@@ -202,6 +203,8 @@ def extract_document(
         invoice = clear_unprinted_vat(invoice, pages)
         # Decision 60: the VAT copied as a line, proven by the model's own amounts.
         invoice = remove_vat_line(invoice)
+        # Decision 61: a slip paid at the till (cash given - total = change printed) is a receipt.
+        invoice = receipt_when_paid(invoice, pages)
 
     attempt = (
         1 + session.scalars(select(func.count()).where(Extraction.document_id == document.id)).one()

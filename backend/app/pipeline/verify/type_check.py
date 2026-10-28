@@ -10,7 +10,9 @@ be issued for returns" on a bill is not mistaken for a title.
 - Debit notes and sales invoices: not in the MVP scope, error with the reason.
 - Bill vs receipt (paid or owed?) unclear: warning only; UAE shop slips are often titled
   "TAX INVOICE" too.
-The type itself is never changed (rule 8): the accountant decides. When the model says
+The type itself is never changed here (rule 8): the accountant decides, and bill vs receipt
+offers the other type with one click. (A payment proven by the printed numbers already made it
+a receipt right after extraction: decision 61, `pipeline/paid.py`.) When the model says
 non-postable but nothing confirms it, the error offers the type the document shows: a
 receipt when it shows a payment (an app's order screen: "Order Details", "Payment method
 Cash", "Amount Paid"; decision 48), else the type its title names.
@@ -93,7 +95,7 @@ def check_document_type(
         if DocumentType.NON_POSTABLE in titles:
             return TypeCheck([], park=True)
         reason = f"but its title says {_NAMES[named]}" if named else "but its title does not say so"
-        if _shows_payment(pages):
+        if shows_payment(pages):
             return TypeCheck(
                 [
                     _conflict(
@@ -146,12 +148,12 @@ def check_document_type(
     return TypeCheck(issues, park=False)
 
 
-def _shows_payment(pages: Sequence[PageText]) -> bool:
+def shows_payment(pages: Sequence[PageText]) -> bool:
     return any(_PAYMENT_MARKS.search(page.text) for page in pages)
 
 
 def _paid_or_owed(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
-    paid = _shows_payment(pages)
+    paid = shows_payment(pages)
     if invoice.document_type is DocumentType.BILL and paid:
         return [
             Issue(
@@ -160,6 +162,7 @@ def _paid_or_owed(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
                 "document_type",
                 "Read as a bill to pay, but the document shows a payment (cash/card/"
                 "paid): is it a receipt (already paid)?",
+                suggestion=DocumentType.RECEIPT,
             )
         ]
     if invoice.document_type is DocumentType.RECEIPT and not paid:
@@ -170,6 +173,7 @@ def _paid_or_owed(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
                 "document_type",
                 "Read as a receipt (already paid), but no payment is shown: is it a "
                 "bill still to pay?",
+                suggestion=DocumentType.BILL,
             )
         ]
     return []

@@ -5,6 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.domain.enums import DocumentStatus as S
+from app.domain.enums import DocumentType
 from app.domain.state_machine import InvalidTransitionError
 from app.models import AuditLog, Correction, Document
 from app.services.pipeline import (
@@ -78,6 +79,20 @@ def test_reextract_sends_a_document_in_review_back_to_the_model(
     assert session.scalars(select(Correction).where(Correction.document_id == doc.id)).all() == []
     entry = last_audit(session, doc)
     assert (entry.from_status, entry.actor, entry.reason) == (status, "admin:cli", "extract again")
+
+
+def test_reextract_lets_the_new_answer_change_the_type(session: Session) -> None:
+    """Decision 61: a bill read again may come back a receipt. Its old key must not block the
+    change when a receipt of that supplier holds the same number (the check claims it again)."""
+    keys = {"vendor_key": "TRN:100304657800003", "business_key": "N:147"}
+    make_document(session, status=S.IN_REVIEW, document_type=DocumentType.RECEIPT, **keys)
+    bill = make_document(session, status=S.IN_REVIEW, document_type=DocumentType.BILL, **keys)
+
+    reextract_document(session, bill, actor="admin:cli")
+    bill.document_type = DocumentType.RECEIPT  # what extraction then sets
+    session.flush()
+
+    assert bill.business_key is None
 
 
 @pytest.mark.parametrize("status", [S.APPROVED, S.POSTED, S.REJECTED, S.FAILED, S.EXTRACTED])

@@ -63,9 +63,12 @@ def retry_document(session: Session, document: Document, *, actor: str) -> None:
 def reextract_document(session: Session, document: Document, *, actor: str) -> None:
     """Back to the model (decision 55), for after an app or model update: the pages are kept
     (not read again), the model's earlier answers stay in `extractions`. What review did on the
-    current version is replaced: verified fields, codes and correction rows. Only documents
-    waiting in review or parked; raises InvalidTransitionError otherwise."""
+    current version is replaced: verified fields, codes and correction rows. Its business key
+    is released too: the new answer may be another type (a bill now a receipt, decision 61),
+    and the unique index would refuse the type change; the check claims the key again. Only
+    documents waiting in review or parked; raises InvalidTransitionError otherwise."""
     transition(session, document, DocumentStatus.READ, actor=actor, reason="extract again")
+    document.business_key = None
     document.verified_fields = []
     document.coding = None
     document.issues = None

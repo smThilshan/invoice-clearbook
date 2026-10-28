@@ -112,6 +112,22 @@ def test_receipt_without_any_payment_may_be_a_bill() -> None:
     assert codes == {"type_maybe_bill"}
 
 
+@pytest.mark.parametrize(
+    ("model", "body", "offered"),
+    [
+        (T.BILL, "Total 90.00 VISA ****1234 PAID", T.RECEIPT),
+        (T.RECEIPT, "Total 90.00 Payment due in 30 days", T.BILL),
+    ],
+)
+def test_bill_or_receipt_offers_the_other_type_with_one_click(
+    model: T, body: str, offered: T
+) -> None:
+    result = check_document_type(Invoice(document_type=model), [page("TAX INVOICE", body)])
+
+    [issue] = result.issues
+    assert (issue.severity, issue.suggestion) == (Severity.WARNING, offered)
+
+
 def test_shop_slip_titled_tax_invoice_with_cash_payment_is_a_fine_receipt() -> None:
     assert check(T.RECEIPT, "TAX INVOICE", "Total 90.00 CASH 100.00 CHANGE 10.00") == (set(), False)
 

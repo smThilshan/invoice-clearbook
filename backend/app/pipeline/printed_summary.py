@@ -43,7 +43,7 @@ MAX_ROUNDING = Decimal("0.24")  # cash is rounded to the nearest 0.25 at most
 ROUNDING = "Rounding"
 
 # Money as printed with two decimals ("1,050.10", "115.00"); not phone numbers or barcodes.
-_MONEY = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+\.\d{2}(?!\d)|(?<![\d.,])\d+\.\d{2}(?!\d)")
+MONEY = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+\.\d{2}(?!\d)|(?<![\d.,])\d+\.\d{2}(?!\d)")
 
 _Summary = tuple[Decimal, Decimal, Decimal, Decimal]  # before VAT, VAT, total, rounding
 
@@ -79,7 +79,7 @@ def _adds_up(invoice: Invoice) -> bool:
 def _printed_money(pages: Sequence[PageText]) -> set[Decimal]:
     exact = "\n".join(page.text for page in pages)
     ocr = "\n".join(fold_ocr_digits(page.text) for page in pages if page.source == "ocr")
-    found = _MONEY.findall(to_ascii_digits(f"{exact}\n{ocr}"))
+    found = MONEY.findall(to_ascii_digits(f"{exact}\n{ocr}"))
     return {amount for text in found if (amount := Decimal(text.replace(",", ""))) > 0}
 
 
