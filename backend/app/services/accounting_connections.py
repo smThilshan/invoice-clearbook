@@ -10,6 +10,7 @@ the access working, disconnect. Any provider in the registry; its own calls stay
 
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 from contextlib import suppress
@@ -20,10 +21,12 @@ from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.base import ConnectorError, Tokens
+from app.adapters.accounting.base import AccessRevoked, ConnectorError, Tokens
 from app.adapters.accounting.registry import ProviderEntry, Registry, by_slug
 from app.core.config import Settings
 from app.models import AccountingConnection, Client
+
+logger = logging.getLogger(__name__)
 
 STATE_SECONDS = 600  # a sign-in must be finished within 10 minutes
 RENEW_BEFORE = timedelta(minutes=2)
@@ -31,6 +34,11 @@ RENEW_BEFORE = timedelta(minutes=2)
 
 class AccountingConnectionError(Exception):
     """The connection cannot be made, used or removed; the message says why, without secrets."""
+
+
+class ReconnectNeeded(AccountingConnectionError):  # noqa: N818 - a state, read as a sentence
+    """The stored access is gone for good (decision 68): the connection is marked, and nothing
+    is sent for this client until someone connects again."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +93,7 @@ def finish(
     )
     connection.tenant_id, connection.tenant_name = organisation.organisation_id, organisation.name
     connection.connection_id = organisation.connection_id
+    connection.needs_reconnect, connection.reconnect_reason = False, None
     _store(settings, connection, tokens)
     session.add(connection)
     session.flush()
@@ -96,23 +105,51 @@ def connection_of(session: Session, client_id: str) -> AccountingConnection | No
 
 
 def access_token(session: Session, settings: Settings, registry: Registry, client_id: str) -> str:
-    """A working access token for the client's organisation, renewed when needed."""
+    """A working access token for the client's organisation, renewed when needed. Raises
+    ReconnectNeeded (and marks the connection) when only signing in again can help; any other
+    AccountingConnectionError may pass by itself."""
     connection = _connection(session, client_id, for_update=True)
     if connection is None:
         raise AccountingConnectionError("this client is not connected to an accounting system")
-    cipher = _cipher(settings)
-    if connection.expires_at - datetime.now(UTC) > RENEW_BEFORE:
-        return _decrypt(cipher, connection.access_token)
     entry = registry[connection.provider]
+    if connection.needs_reconnect:
+        raise ReconnectNeeded(connection.reconnect_reason or f"connect {entry.name} again")
+    cipher = _cipher(settings)
     try:
+        if connection.expires_at - datetime.now(UTC) > RENEW_BEFORE:
+            return _decrypt(cipher, connection.access_token)
         tokens = entry.connector(settings).refresh(_decrypt(cipher, connection.refresh_token))
+    except AccessRevoked as exc:
+        raise _mark(connection, f"{entry.name} access was withdrawn ({exc})") from exc
     except ConnectorError as exc:
-        raise AccountingConnectionError(
-            f"{entry.name} access expired, connect again ({exc})"
-        ) from exc
+        raise AccountingConnectionError(f"{entry.name} could not renew access ({exc})") from exc
+    except AccountingConnectionError as exc:  # stored tokens unreadable: only a new sign-in helps
+        raise _mark(connection, str(exc)) from exc
     _store(settings, connection, tokens)
     session.flush()
     return tokens.access_token
+
+
+def mark_reconnect_needed(session: Session, client_id: str, reason: str) -> None:
+    """The provider refused the access while it was used (e.g. a permission missing)."""
+    connection = _connection(session, client_id, for_update=True)
+    if connection is not None:
+        _mark(connection, reason)
+        session.flush()
+
+
+def expire_access(session: Session, client_id: str) -> None:
+    """The provider refused an access token we thought valid: renew it at the next use."""
+    connection = _connection(session, client_id, for_update=True)
+    if connection is not None:
+        connection.expires_at = datetime.now(UTC)
+        session.flush()
+
+
+def _mark(connection: AccountingConnection, reason: str) -> ReconnectNeeded:
+    connection.needs_reconnect, connection.reconnect_reason = True, reason
+    logger.warning("client %s: accounting connection needs a new sign-in", connection.client_id)
+    return ReconnectNeeded(reason)
 
 
 def disconnect(session: Session, settings: Settings, registry: Registry, client_id: str) -> None:

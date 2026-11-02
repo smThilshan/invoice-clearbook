@@ -4,6 +4,7 @@
              in Xero (decision 40); none: back to review before anything is created
     contact  the matched contact, else found by TRN or exact name, else created
     checked  no live bill with this supplier and invoice number is already in Xero (dup 5)
+    create_sent  saved right before the create request: the bill may exist from now on
     bill     ACCPAY created as SUBMITTED (Awaiting Approval) with the idempotency key
     attached the original file on the bill (decision 41); if Xero will not take it, the bill
              stays and the note says so
@@ -21,7 +22,9 @@ from typing import Any
 from urllib.parse import quote
 
 from app.adapters.accounting.base import (
+    CREATE_SENT,
     Posted,
+    PostingAccessDenied,
     PostingBill,
     PostingRefused,
     PostingUnavailable,
@@ -71,6 +74,9 @@ def post_bill(
             progress["checked"] = True
             save("checked")
         if "bill_id" not in progress:
+            if CREATE_SENT not in progress:
+                progress[CREATE_SENT] = True
+                save(CREATE_SENT)
             body = _bill(bill, progress["contact_id"], progress["due_date"])
             created = xero.put("Invoices", {"Invoices": [body]}, key=key, unitdp=4)["Invoices"][0]
             progress["bill_id"], progress["total"] = created["InvoiceID"], str(created["Total"])
@@ -87,6 +93,8 @@ def post_bill(
             progress["noted"] = True
             save("noted")
     except XeroApiError as exc:
+        if exc.access:
+            raise PostingAccessDenied(str(exc), reconnect=exc.access == 403) from exc
         if exc.temporary:
             raise PostingUnavailable(str(exc), exc.retry_after) from exc
         raise PostingRefused("; ".join(exc.messages) or str(exc)) from exc

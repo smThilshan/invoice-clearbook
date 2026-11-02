@@ -21,7 +21,8 @@ class XeroApiError(Exception):
     """Xero refused a request or could not be reached.
 
     temporary: worth trying again later (rate limit, timeout, server error, access to renew);
-    otherwise Xero refused the content and `messages` says why."""
+    otherwise Xero refused the content and `messages` says why. `access`: Xero refused the access
+    token, 401 (renew it) or 403 (a permission or the organisation's access is gone)."""
 
     def __init__(
         self,
@@ -30,11 +31,13 @@ class XeroApiError(Exception):
         temporary: bool,
         messages: list[str] | None = None,
         retry_after: int | None = None,
+        access: int | None = None,
     ) -> None:
         super().__init__(message)
         self.temporary = temporary
         self.messages = messages or []
         self.retry_after = retry_after
+        self.access = access
 
 
 class XeroClient:
@@ -101,7 +104,8 @@ def _error(resource: str, response: httpx.Response) -> XeroApiError:
         return XeroApiError(
             f"Xero refused access to {resource} (HTTP {code}): reconnect Xero and allow every "
             "permission asked",
-            temporary=True,  # fixed by reconnecting, not by changing the document
+            temporary=True,  # fixed by renewing or reconnecting, not by changing the document
+            access=code,
         )
     if code >= httpx.codes.INTERNAL_SERVER_ERROR:
         return XeroApiError(f"Xero answered HTTP {code} for {resource}", temporary=True)

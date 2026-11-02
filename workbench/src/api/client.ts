@@ -45,6 +45,7 @@ export type TaxType = Schemas['TaxType']
 export type ValueKind = Schemas['ValueKind']
 export type Place = Schemas['Place']
 export type Located = Schemas['Located']
+export type Sending = Schemas['SendingOut']
 
 export interface QueueQuery {
   client_id: string
@@ -166,6 +167,10 @@ export const api = {
   reextractDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/reextract`, {}),
   rejectDocument: (id: string, body: RejectBody) =>
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
+  /** A send that gave up starts again, same key and saved progress (decision 69). */
+  sendAgain: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/send-again`, {}),
+  /** A send that gave up goes back to review with the reason (decision 69). */
+  sendBack: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/send-back`, {}),
   /** A rejected document back to review, checked again (decision 45). */
   restoreDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/restore`, {}),
   /** Delete a rejected document permanently, files included (decision 45). */

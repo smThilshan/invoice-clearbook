@@ -137,10 +137,26 @@ class PostingUnavailable(Exception):  # noqa: N818
         self.retry_after = retry_after
 
 
+class PostingAccessDenied(PostingUnavailable):
+    """The accounting system refused the access token (decision 68). `reconnect`: only signing
+    in again can fix it (a permission missing, the organisation's access removed); otherwise the
+    access is renewed and the document tried again."""
+
+    def __init__(self, message: str, *, reconnect: bool) -> None:
+        super().__init__(message)
+        self.reconnect = reconnect
+
+
+# Set in `progress` and saved right before the create request (decision 69): from then on the
+# document may exist in the accounting system, so only a retry with the same key is safe.
+CREATE_SENT = "create_sent"
+
+
 class PostingSystem(Protocol):
     """Posts approved documents. `progress` holds each finished sub-step's result; `save` stores
     it at once, so a crash resumes from the failed sub-step (architecture §12). `key` is sent as
-    the idempotency key: a repeat never creates a second document."""
+    the idempotency key: a repeat never creates a second document. `progress[CREATE_SENT]` is
+    set and saved before the request that creates the document."""
 
     def post_bill(
         self,
@@ -180,6 +196,11 @@ class Organisation:
 
 class ConnectorError(Exception):
     """The provider refused the sign-in or could not be reached. Never carries a token."""
+
+
+class AccessRevoked(ConnectorError):  # noqa: N818 - a state of the connection, not a bug
+    """The provider says the stored access is no longer valid (revoked, expired from disuse, the
+    app removed): only signing in again fixes it. Any other ConnectorError may pass by itself."""
 
 
 class Connector(Protocol):

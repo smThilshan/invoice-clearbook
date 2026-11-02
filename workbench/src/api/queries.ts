@@ -161,12 +161,20 @@ export function useQueue(query: QueueQuery | undefined) {
   })
 }
 
-/** Refreshed every few seconds while the document is still being read (after "Read again"). */
+/** Sending states that change within seconds (after Approve or Try again). */
+const MOVING = new Set(['waiting', 'sending'])
+
+/** Refreshed every few seconds while the document is still being read (after "Read again") or
+ * on its way to the accounting system. */
 export function useDocument(documentId: string) {
   return useQuery({
     queryKey: queryKeys.document(documentId),
     queryFn: () => api.document(documentId),
-    refetchInterval: (query) => (WORKING.has(query.state.data?.status ?? '') ? RUN_REFRESH_MS : false),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const busy = WORKING.has(data?.status ?? '') || MOVING.has(data?.sending?.state ?? '')
+      return busy ? RUN_REFRESH_MS : false
+    },
   })
 }
 
@@ -202,6 +210,14 @@ export function useApproveDocument() {
 
 export function useReextractDocument() {
   return useDocumentChange<null>((id) => api.reextractDocument(id))
+}
+
+export function useSendAgain() {
+  return useDocumentChange<null>((id) => api.sendAgain(id))
+}
+
+export function useSendBack() {
+  return useDocumentChange<null>((id) => api.sendBack(id))
 }
 
 export function useRestoreDocument() {

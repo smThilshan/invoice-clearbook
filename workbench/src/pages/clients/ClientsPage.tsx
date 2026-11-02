@@ -1,4 +1,14 @@
-import { CircleCheck, Clock, Link2, RefreshCw, Send, Undo2, Unlink } from 'lucide-react'
+import {
+  CircleCheck,
+  Clock,
+  Link2,
+  PauseCircle,
+  RefreshCw,
+  Send,
+  TriangleAlert,
+  Undo2,
+  Unlink,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
@@ -82,14 +92,19 @@ function ClientRow({ client }: { client: Client }) {
   const synced = Boolean(status.data?.connected && status.data.master_data_from === status.data.provider)
   const summary = status.data?.posting
   const connected = status.data?.connected === true
+  // Decision 68: the access was withdrawn; nothing is sent until someone signs in again.
+  const reconnect = status.data?.needs_reconnect === true
   // The connected system's name; before connecting, the systems that could be connected.
   const system = status.data?.provider_name ?? 'the accounting system'
   const available = (status.data?.providers ?? []).filter((p) => p.configured)
+  const signIn = status.data?.providers.find((p) => p.key === status.data?.provider)
   const connectionLabel = status.isPending
     ? 'Checking connection'
     : status.isError
       ? 'Status unavailable'
-      : connected
+      : reconnect
+        ? `${system}: sign in again`
+        : connected
         ? `${system} ${synced ? 'synced' : 'connected'}`
         : status.data && !status.data.configured
           ? 'No accounting system set up'
@@ -102,7 +117,9 @@ function ClientRow({ client }: { client: Client }) {
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate font-semibold">{client.name}</p>
-            <Badge variant={connected ? 'secondary' : 'outline'}>{connectionLabel}</Badge>
+            <Badge variant={reconnect ? 'destructive' : connected ? 'secondary' : 'outline'}>
+              {connectionLabel}
+            </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
             {status.isPending
@@ -114,12 +131,41 @@ function ClientRow({ client }: { client: Client }) {
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
           {summary && (
-            <PostingLines summary={summary} synced={synced} system={system} clientId={client.client_id} />
+            <PostingLines
+              summary={summary}
+              synced={synced}
+              system={system}
+              clientId={client.client_id}
+              showPaused={!reconnect}
+            />
           )}
         </div>
       </div>
+      {reconnect && (
+        <Alert variant="destructive" aria-label="Sign in again" className="mt-3">
+          <PauseCircle aria-hidden />
+          <AlertTitle>{system} needs you to sign in again</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              {summary && summary.paused > 0
+                ? `${plural(summary.paused, 'bill')} paused: they are sent automatically as soon as you connect again.`
+                : `Nothing is sent to ${system} until you connect again.`}
+              {status.data?.reconnect_reason ? ` Reason: ${status.data.reconnect_reason}.` : ''}
+            </p>
+            {signIn && (
+              <Button asChild size="sm">
+                {/* A full page change: the browser goes to its sign-in and comes back here. */}
+                <a href={`/api${signIn.connect_url}?${query}`}>
+                  <Link2 aria-hidden />
+                  Connect {system} again
+                </a>
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
-        {synced && summary && summary.ready > 0 && !sending && (
+        {synced && !reconnect && summary && summary.ready > 0 && !sending && (
           <Button
             size="sm"
             disabled={send.isPending}
@@ -205,17 +251,20 @@ const NOT_YET_LABELS: Record<string, [string, string]> = {
   CREDIT_NOTE: ['credit note', 'credit notes'],
 }
 
-/** Every approved document, in plain words: ready, retrying, sent back, not possible yet, done. */
+/** Every approved document, in plain words: ready, paused, retrying, sent back, not possible yet,
+ * done. */
 function PostingLines({
   summary,
   synced,
   system,
   clientId,
+  showPaused,
 }: {
   summary: PostingSummary
   synced: boolean
   system: string
   clientId: string
+  showPaused: boolean // false while the sign-in banner says it already
 }) {
   const queue = `/queue?${new URLSearchParams({ client: clientId })}`
   return (
@@ -227,6 +276,15 @@ function PostingLines({
             : `${plural(summary.ready, 'approved bill')} waiting: connect and sync the accounting system to send them.`}
         </li>
       )}
+      {showPaused && summary.paused > 0 && (
+        <li className="flex items-start gap-1.5 font-medium text-destructive">
+          <PauseCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            {plural(summary.paused, 'approved bill')} paused
+            {summary.paused_reason ? `: ${summary.paused_reason}` : ''}.
+          </span>
+        </li>
+      )}
       {summary.retrying > 0 && (
         <li className="flex items-start gap-1.5 text-warning">
           <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
@@ -234,6 +292,15 @@ function PostingLines({
             {plural(summary.retrying, 'bill')} will be sent again automatically
             {summary.retry_at ? ` at ${formatTime(summary.retry_at)}` : ''}
             {summary.retry_reason ? `: ${summary.retry_reason}` : ''}.
+          </span>
+        </li>
+      )}
+      {summary.failed > 0 && (
+        <li className="flex items-start gap-1.5 font-medium text-destructive">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            {plural(summary.failed, 'bill')} could not be sent
+            {summary.failed_reason ? `: ${summary.failed_reason}` : ''}. Open it to try again.
           </span>
         </li>
       )}

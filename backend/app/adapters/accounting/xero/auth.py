@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from app.adapters.accounting.base import ConnectorError, Organisation, Tokens
+from app.adapters.accounting.base import AccessRevoked, ConnectorError, Organisation, Tokens
 from app.core.config import Settings
 
 AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize"
@@ -25,6 +25,10 @@ TIMEOUT_SECONDS = 20.0
 
 class XeroAuthError(ConnectorError):
     """Xero refused or could not be reached. Never carries a token."""
+
+
+class XeroAccessRevoked(XeroAuthError, AccessRevoked):  # noqa: N818 - see AccessRevoked
+    """Xero's `invalid_grant`: the refresh token was revoked or expired (60 days unused)."""
 
 
 class XeroAuth:
@@ -82,9 +86,9 @@ class XeroAuth:
         except httpx.HTTPError as exc:
             raise XeroAuthError(f"cannot reach Xero ({type(exc).__name__})") from exc
         if response.is_error:
-            raise XeroAuthError(
-                f"Xero refused the sign-in (HTTP {response.status_code}): {_reason(response)}"
-            )
+            reason = _reason(response)
+            error = XeroAccessRevoked if reason == "invalid_grant" else XeroAuthError
+            raise error(f"Xero refused the sign-in (HTTP {response.status_code}): {reason}")
         body = response.json()
         access = body["access_token"]
         return Tokens(

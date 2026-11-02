@@ -15,6 +15,14 @@ connected to an accounting system (the export, 5.2, comes later): other rows wai
 posted as a bill, due on its own date (decision 50): it stays Awaiting Approval like every bill,
 and its payment is recorded in the accounting system. The client's
 provider comes from the registry (decision 43): nothing here names one.
+
+A connection whose access is gone for good (decision 68: withdrawn, a permission missing) pauses
+the client's rows: nothing is sent, no attempt is counted, until someone connects again. An
+access token refused once (401) is renewed and the row tried again.
+
+A row that gives up (DEAD: unknown error, or every attempt used) stays visible as "could not
+send" (decision 69): the accountant tries it again with the same key and saved progress, or sends
+it back to review, which is refused once the create request may have reached the system.
 """
 
 import logging
@@ -31,7 +39,9 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import (
+    CREATE_SENT,
     Attachment,
+    PostingAccessDenied,
     PostingBill,
     PostingLine,
     PostingRefused,
@@ -48,7 +58,13 @@ from app.models import AccountingConnection, Client, Contact, Document, Outbox
 from app.models.outbox import ACTIVE_OUTBOX, OutboxStatus
 from app.pipeline.coding import ChartOfAccounts, load_chart
 from app.pipeline.verify.step import working_copy
-from app.services.accounting_connections import AccountingConnectionError, access_token
+from app.services.accounting_connections import (
+    AccountingConnectionError,
+    ReconnectNeeded,
+    access_token,
+    expire_access,
+    mark_reconnect_needed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +78,8 @@ TOLERANCE = Decimal("0.01")
 MAX_DESCRIPTION = 4000  # the shortest line-description limit of the systems we post to
 # Sent as bills (decision 50): a receipt is a bill already paid.
 POSTED_AS_BILLS = frozenset({DocumentType.BILL, DocumentType.RECEIPT})
+SENDABLE = (DocumentStatus.APPROVED, DocumentStatus.POSTING)
+REVIEW_ACTOR = "workbench"  # the accountant's own actions here, until login (decision 26)
 
 Sessions = Callable[[], AbstractContextManager[Session]]
 
@@ -69,8 +87,22 @@ Sessions = Callable[[], AbstractContextManager[Session]]
 @dataclass(frozen=True, slots=True)
 class Outcome:
     outbox_id: str
-    result: str  # "posted" | "refused" | "retry" | "dead"
+    result: str  # "posted" | "refused" | "retry" | "paused" | "dead"
     retry_in: int | None = None  # seconds, for "retry"
+
+
+class SendError(Exception):
+    """Try again / send back cannot be done now; the message is safe to show the accountant."""
+
+
+@dataclass(frozen=True, slots=True)
+class Sending:
+    """Where one approved document is on its way to the accounting system (decision 69)."""
+
+    state: str  # "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted"
+    reason: str | None = None  # why it is retrying, paused or failed
+    next_try_at: datetime | None = None  # retrying: when
+    can_send_back: bool = False  # failed, and the create request was never sent
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +118,7 @@ class _Claim:
     tenant_id: str | None
     total: Decimal | None
     unavailable: str | None = None
+    paused: str | None = None  # the connection needs a new sign-in: why
 
 
 def send_next(
@@ -106,6 +139,8 @@ def send_next(
         return None
     if claim.refusal is not None:
         return _refused(sessions, claim, claim.refusal)
+    if claim.paused is not None:
+        return _paused(sessions, claim, claim.paused)
     if claim.unavailable is not None:
         return _unavailable(sessions, claim, PostingUnavailable(claim.unavailable))
     assert claim.bill and claim.token and claim.tenant_id  # noqa: S101 - set together in _claim
@@ -121,6 +156,8 @@ def send_next(
         )
     except PostingRefused as exc:
         return _refused(sessions, claim, str(exc))
+    except PostingAccessDenied as exc:
+        return _access_denied(sessions, claim, exc)
     except PostingUnavailable as exc:
         return _unavailable(sessions, claim, exc)
     except Exception as exc:  # unknown: dead-letter, never retried blindly (architecture §12)
@@ -148,6 +185,77 @@ def send_next(
     return Outcome(str(claim.outbox_id), "posted")
 
 
+def sending_of(session: Session, document: Document) -> Sending | None:
+    """None: not approved (yet or any more)."""
+    if document.status is DocumentStatus.POSTED:
+        return Sending("posted")
+    if document.status not in SENDABLE:
+        return None
+    outbox = _latest_row(session, document.id)
+    if outbox is None:
+        return Sending("waiting")
+    if outbox.status is OutboxStatus.DEAD:
+        progress = outbox.progress or {}
+        return Sending("failed", outbox.last_error, can_send_back=CREATE_SENT not in progress)
+    if (paused := _paused_because(session, document.client_id)) is not None:
+        return Sending("paused", paused)
+    if outbox.status is OutboxStatus.IN_PROGRESS:
+        return Sending("sending")
+    if outbox.last_error and outbox.next_attempt_at > datetime.now(UTC):
+        return Sending("retrying", outbox.last_error, outbox.next_attempt_at)
+    return Sending("waiting")
+
+
+def try_again(session: Session, document: Document) -> Outbox:
+    """A send that gave up starts again from its saved progress, with the same key: a document
+    the system already created is returned, never made twice. The caller commits, then asks the
+    worker to send the returned row."""
+    outbox = _failed_row(session, document)
+    outbox.status, outbox.attempts, outbox.last_error = OutboxStatus.PENDING, 0, None
+    outbox.next_attempt_at = datetime.now(UTC)
+    session.flush()
+    return outbox
+
+
+def send_back(session: Session, document: Document) -> None:
+    """A send that gave up goes back to review, to change and approve again (a new row, a new
+    key). Refused once the create request was sent: the document may exist there already, and a
+    new key could make it twice. The caller commits."""
+    outbox = _failed_row(session, document)
+    if CREATE_SENT in (outbox.progress or {}):
+        raise SendError(
+            "it may already be in the accounting system (the request to create it was sent): "
+            "use Try again, which never creates it twice"
+        )
+    reason = outbox.last_error or "it could not be sent"
+    outbox.status = OutboxStatus.FAILED
+    document.failure_reason = f"Sent back after it could not be sent: {reason}"
+    if document.status is DocumentStatus.APPROVED:  # gave up before it was ever claimed
+        transition(session, document, DocumentStatus.POSTING, actor=ACTOR)
+    transition(session, document, DocumentStatus.POST_ERROR, actor=REVIEW_ACTOR, reason=reason)
+    transition(session, document, DocumentStatus.IN_REVIEW, actor=REVIEW_ACTOR)
+    session.flush()
+
+
+def _failed_row(session: Session, document: Document) -> Outbox:
+    outbox = _latest_row(session, document.id, for_update=True)
+    if document.status not in SENDABLE or outbox is None or outbox.status is not OutboxStatus.DEAD:
+        raise SendError("only a document that could not be sent can be tried again or sent back")
+    return outbox
+
+
+def _latest_row(
+    session: Session, document_id: uuid.UUID, *, for_update: bool = False
+) -> Outbox | None:
+    query = (
+        select(Outbox)
+        .where(Outbox.document_id == document_id)
+        .order_by(Outbox.created_at.desc())
+        .limit(1)
+    )
+    return session.scalars(query.with_for_update() if for_update else query).first()
+
+
 def waiting(session: Session, client_id: str) -> int:
     """Approved documents of this client not posted yet."""
     return session.scalars(
@@ -167,6 +275,10 @@ class PostingSummary:
     not_yet: dict[str, int]  # document type -> count: approved, but not sent in this version
     sent_back: int  # back in review because they could not be sent
     posted: int  # in the accounting system
+    paused: int = 0  # bills waiting for someone to connect again (decision 68)
+    paused_reason: str | None = None
+    failed: int = 0  # gave up: waiting for Try again or Send back (decision 69)
+    failed_reason: str | None = None  # the latest one's
 
 
 def summary(session: Session, client_id: str) -> PostingSummary:
@@ -176,7 +288,8 @@ def summary(session: Session, client_id: str) -> PostingSummary:
         .where(Outbox.client_id == client_id, Outbox.status.in_(ACTIVE_OUTBOX))
     ).all()
     now = datetime.now(UTC)
-    ready = retrying = 0
+    paused_reason = _paused_because(session, client_id)
+    ready = retrying = paused = 0
     retry_at: datetime | None = None
     retry_reason: str | None = None
     not_yet: dict[str, int] = {}
@@ -184,6 +297,8 @@ def summary(session: Session, client_id: str) -> PostingSummary:
         if document_type not in POSTED_AS_BILLS:
             key = document_type.value if document_type else "UNKNOWN"
             not_yet[key] = not_yet.get(key, 0) + 1
+        elif paused_reason is not None:
+            paused += 1
         elif status is OutboxStatus.PENDING and last_error and next_attempt_at > now:
             retrying += 1
             if retry_at is None or next_attempt_at < retry_at:
@@ -195,6 +310,16 @@ def summary(session: Session, client_id: str) -> PostingSummary:
             Document.client_id == client_id, Document.status == DocumentStatus.POSTED
         )
     ).one()
+    failed = session.scalars(
+        select(Outbox.last_error)
+        .join(Document, Document.id == Outbox.document_id)
+        .where(
+            Outbox.client_id == client_id,
+            Outbox.status == OutboxStatus.DEAD,
+            Document.status.in_(SENDABLE),
+        )
+        .order_by(Outbox.updated_at.desc())
+    ).all()
     # Sent back = in review again after a send attempt that could not go through.
     sent_back = session.scalars(
         select(func.count(func.distinct(Document.id)))
@@ -213,7 +338,30 @@ def summary(session: Session, client_id: str) -> PostingSummary:
         not_yet=not_yet,
         sent_back=sent_back,
         posted=posted,
+        paused=paused,
+        paused_reason=paused_reason if paused else None,
+        failed=len(failed),
+        failed_reason=failed[0] if failed else None,
     )
+
+
+def _paused_because(session: Session, client_id: str) -> str | None:
+    """Why nothing can be sent for this client until a person acts; None = it can be sent. A
+    client on CSV master data waits for the export (5.2) instead."""
+    client = session.scalars(select(Client).where(Client.client_id == client_id)).first()
+    if client is None or client.accounting_provider is AccountingProvider.MANUAL:
+        return None
+    connection = session.scalars(
+        select(AccountingConnection).where(
+            AccountingConnection.client_id == client_id,
+            AccountingConnection.provider == client.accounting_provider,
+        )
+    ).first()
+    if connection is None:
+        return "not connected: connect the accounting system again"
+    if connection.needs_reconnect:
+        return connection.reconnect_reason or "connect the accounting system again"
+    return None
 
 
 # --- 1. claim --------------------------------------------------------------------------------
@@ -238,6 +386,7 @@ def _claim(
             and_(
                 AccountingConnection.client_id == Outbox.client_id,
                 AccountingConnection.provider == Client.accounting_provider,
+                AccountingConnection.needs_reconnect.is_(False),  # paused (decision 68)
             ),
         )
         .where(
@@ -249,6 +398,7 @@ def _claim(
                 ),
             ),
             Document.document_type.in_(POSTED_AS_BILLS),
+            Document.status.in_(SENDABLE),  # never a document changed since it was approved
             Client.accounting_provider.in_(list(registry)),
         )
         .order_by(Outbox.created_at)
@@ -275,7 +425,7 @@ def _claim(
     bill, refusal = _bill(session, document, invoice, chart, provider, name)
     if bill is not None:
         bill = replace(bill, attachment=_original(storage, document))
-    token = tenant_id = unavailable = None
+    token = tenant_id = unavailable = paused = None
     if bill is not None:
         try:
             token = access_token(session, settings, registry, outbox.client_id)
@@ -285,8 +435,10 @@ def _claim(
                 )
             ).one()
             tenant_id = connection.tenant_id
+        except ReconnectNeeded as exc:
+            paused = str(exc)  # marked on the connection: waits for a new sign-in
         except AccountingConnectionError as exc:
-            unavailable = str(exc)  # posting waits until it is connected again
+            unavailable = str(exc)  # e.g. the provider could not be reached to renew access
     session.flush()
     return _Claim(
         outbox_id=outbox.id,
@@ -300,6 +452,7 @@ def _claim(
         tenant_id=tenant_id,
         total=invoice.total if invoice else None,
         unavailable=unavailable,
+        paused=paused,
     )
 
 
@@ -467,6 +620,30 @@ def _unavailable(sessions: Sessions, claim: _Claim, exc: PostingUnavailable) -> 
         outbox.next_attempt_at = datetime.now(UTC) + timedelta(seconds=wait)
     logger.info("outbox %s: %s unavailable, next try in %d s", claim.outbox_id, claim.name, wait)
     return Outcome(str(claim.outbox_id), "retry", wait)
+
+
+def _access_denied(sessions: Sessions, claim: _Claim, exc: PostingAccessDenied) -> Outcome:
+    """403: only a new sign-in helps, pause. 401: renew the access at the next try."""
+    if exc.reconnect:
+        with sessions() as session:
+            outbox, _ = _load(session, claim.outbox_id)
+            mark_reconnect_needed(session, outbox.client_id, str(exc))
+        return _paused(sessions, claim, str(exc))
+    with sessions() as session:
+        outbox, _ = _load(session, claim.outbox_id)
+        expire_access(session, outbox.client_id)
+    return _unavailable(sessions, claim, exc)
+
+
+def _paused(sessions: Sessions, claim: _Claim, reason: str) -> Outcome:
+    """Back in line, the attempt not counted: it waits for a person, not for the system."""
+    with sessions() as session:
+        outbox, _ = _load(session, claim.outbox_id)
+        outbox.status, outbox.last_error = OutboxStatus.PENDING, reason
+        outbox.attempts = max(outbox.attempts - 1, 0)
+        outbox.next_attempt_at = datetime.now(UTC)
+    logger.info("outbox %s: paused until %s is connected again", claim.outbox_id, claim.name)
+    return Outcome(str(claim.outbox_id), "paused")
 
 
 def _dead(sessions: Sessions, claim: _Claim, reason: str) -> Outcome:

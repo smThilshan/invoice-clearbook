@@ -75,6 +75,7 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
     cleaned_descriptions: 0,
     repaired_unit_prices: 0,
     cleared_vat: null,
+    sending: null,
     updated_at: '2026-10-21T08:01:00Z',
     corrections: [],
     ...changes,
@@ -408,6 +409,52 @@ describe('review screen', () => {
 
     expect(screen.getByText('Sent back: not posted')).toBeInTheDocument()
     expect(screen.getByText(reason)).toBeInTheDocument()
+  })
+
+  it('shows a send that gave up, tries it again, and offers no send back once it may exist', async () => {
+    const failed = detail({
+      status: 'POSTING',
+      sending: { state: 'failed', reason: 'unexpected error (RuntimeError)', next_try_at: null,
+                 can_send_back: false },
+    })  // prettier-ignore
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}`]: failed,
+      [`POST /documents/${ID}/send-again`]: detail({
+        status: 'POSTING', sending: { state: 'waiting', reason: null, next_try_at: null, can_send_back: false },
+      }),
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    await open(api)
+
+    const box = screen.getByRole('alert', { name: 'Could not send' })
+    expect(box).toHaveTextContent('unexpected error (RuntimeError)')
+    expect(within(box).queryByRole('button', { name: 'Send back to review' })).not.toBeInTheDocument()
+    expect(box).toHaveTextContent('It may already be in the accounting system')
+    await user.click(within(box).getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(api.calls).toContain(`POST /documents/${ID}/send-again`))
+    await waitFor(() => expect(screen.queryByRole('alert', { name: 'Could not send' })).not.toBeInTheDocument())
+  })
+
+  it('sends a failed document back to review while it cannot exist there yet', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      [`/documents/${ID}`]: detail({
+        status: 'POSTING',
+        sending: { state: 'failed', reason: 'made-up error', next_try_at: null, can_send_back: true },
+      }),
+      [`POST /documents/${ID}/send-back`]: detail({
+        failure_reason: 'Sent back after it could not be sent: made-up error',
+      }),
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    await open(api)
+
+    await user.click(screen.getByRole('button', { name: 'Send back to review' }))
+
+    await waitFor(() => expect(api.calls).toContain(`POST /documents/${ID}/send-back`))
+    expect(await screen.findByText('Sent back after it could not be sent: made-up error')).toBeInTheDocument()
   })
 
   it('cannot change a document that is no longer in review', async () => {

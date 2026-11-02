@@ -6,6 +6,7 @@ back to /<slug>/callback (the address registered with the provider), and that se
 to the Workbench with the outcome. No login yet: the API listens on localhost only.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
@@ -35,6 +36,7 @@ from app.services.accounting_sync import sync
 from app.services.clients import get_client
 from app.services.master_data import Counts
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["accounting system"])
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -66,12 +68,18 @@ class PostingOut(BaseModel):
     not_yet: dict[str, int]  # document type -> count, e.g. {"RECEIPT": 2}
     sent_back: int
     posted: int
+    paused: int  # waiting for someone to connect again (decision 68)
+    paused_reason: str | None
+    failed: int  # gave up: Try again or Send back on the document (decision 69)
+    failed_reason: str | None
 
 
 class AccountingStatus(BaseModel):
     providers: list[ProviderOut]  # what this client could be connected to
     configured: bool  # at least one provider has its app keys in .env
     connected: bool
+    needs_reconnect: bool  # the access was withdrawn: sending is paused until connected again
+    reconnect_reason: str | None
     provider: AccountingProvider | None  # the connected one
     provider_name: str | None  # "Xero", for the screen
     organisation: str | None
@@ -119,17 +127,25 @@ def connect(
         return _back(settings, client=client_id, error=str(exc))
 
 
+def get_enqueue_sweep() -> Callable[[str], object]:
+    from app.workers.tasks import send_posting  # imported lazily: the API does not need a worker
+
+    return lambda client_id: send_posting.delay(None, client_id)
+
+
 @router.get("/{slug}/callback")
 def callback(
     slug: str,
     session: SessionDep,
     settings: SettingsDep,
     registry: RegistryDep,
+    enqueue: Annotated[Callable[[str], object], Depends(get_enqueue_sweep)],
     state: str = "",
     code: Annotated[str, Query()] = "",
     error: str | None = None,
 ) -> RedirectResponse:
-    """The provider sends the user back here; they are sent on to the Workbench."""
+    """The provider sends the user back here; they are sent on to the Workbench. Bills that
+    waited for this (a paused connection, decision 68) are sent at once."""
     entry = by_slug(registry, slug)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown accounting system")
@@ -143,6 +159,10 @@ def callback(
     except AccountingConnectionError as exc:
         session.rollback()
         return _back(settings, error=str(exc))
+    try:
+        enqueue(connected.client_id)
+    except Exception:  # connected and saved: "Send waiting bills" or the worker's start sends them
+        logger.warning("client %s: could not ask the worker to send now", connected.client_id)
     return _back(
         settings,
         client=connected.client_id,
@@ -171,6 +191,8 @@ def accounting_status(
         providers=providers,
         configured=any(p.configured for p in providers),
         connected=connection is not None,
+        needs_reconnect=bool(connection and connection.needs_reconnect),
+        reconnect_reason=connection.reconnect_reason if connection else None,
         provider=connection.provider if connection else None,
         provider_name=entry.name if entry else None,
         organisation=connection.tenant_name if connection else None,
@@ -221,12 +243,6 @@ def sync_accounting(
     )
 
 
-def get_enqueue_sweep() -> Callable[[str], object]:
-    from app.workers.tasks import send_posting  # imported lazily: the API does not need a worker
-
-    return lambda client_id: send_posting.delay(None, client_id)
-
-
 @router.post("/clients/{client_id}/accounting/send")
 def send_waiting(
     client_id: str,
@@ -237,6 +253,10 @@ def send_waiting(
 ) -> AccountingStatus:
     """Ask the posting worker to send this client's approved documents now (task 5.1)."""
     status_now = accounting_status(client_id, session, settings, registry)
+    if status_now.needs_reconnect:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"connect {status_now.provider_name} again first"
+        )
     if not status_now.connected or status_now.master_data_from != status_now.provider:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "connect and sync the accounting system first"

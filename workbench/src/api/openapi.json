@@ -81,6 +81,10 @@
             "title": "Master Data From",
             "type": "string"
           },
+          "needs_reconnect": {
+            "title": "Needs Reconnect",
+            "type": "boolean"
+          },
           "organisation": {
             "anyOf": [
               {
@@ -123,6 +127,17 @@
             "title": "Providers",
             "type": "array"
           },
+          "reconnect_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconnect Reason"
+          },
           "waiting": {
             "title": "Waiting",
             "type": "integer"
@@ -132,6 +147,8 @@
           "providers",
           "configured",
           "connected",
+          "needs_reconnect",
+          "reconnect_reason",
           "provider",
           "provider_name",
           "organisation",
@@ -503,6 +520,16 @@
             "title": "Run Id",
             "type": "string"
           },
+          "sending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SendingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "source_path": {
             "title": "Source Path",
             "type": "string"
@@ -591,7 +618,8 @@
           "timings",
           "cleaned_descriptions",
           "repaired_unit_prices",
-          "cleared_vat"
+          "cleared_vat",
+          "sending"
         ],
         "title": "DocumentDetail",
         "type": "object"
@@ -1854,12 +1882,42 @@
       "PostingOut": {
         "description": "Where the client's approved documents are (see services/posting.PostingSummary).",
         "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "failed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Reason"
+          },
           "not_yet": {
             "additionalProperties": {
               "type": "integer"
             },
             "title": "Not Yet",
             "type": "object"
+          },
+          "paused": {
+            "title": "Paused",
+            "type": "integer"
+          },
+          "paused_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paused Reason"
           },
           "posted": {
             "title": "Posted",
@@ -1908,7 +1966,11 @@
           "retry_reason",
           "not_yet",
           "sent_back",
-          "posted"
+          "posted",
+          "paused",
+          "paused_reason",
+          "failed",
+          "failed_reason"
         ],
         "title": "PostingOut",
         "type": "object"
@@ -2319,6 +2381,58 @@
         ],
         "title": "RunStatus",
         "type": "string"
+      },
+      "SendingOut": {
+        "description": "Where an approved document is on its way to the accounting system (decision 69).",
+        "properties": {
+          "can_send_back": {
+            "title": "Can Send Back",
+            "type": "boolean"
+          },
+          "next_try_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Try At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "state": {
+            "enum": [
+              "waiting",
+              "sending",
+              "retrying",
+              "paused",
+              "failed",
+              "posted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "reason",
+          "next_try_at",
+          "can_send_back"
+        ],
+        "title": "SendingOut",
+        "type": "object"
       },
       "Span": {
         "properties": {
@@ -3869,6 +3983,94 @@
         ]
       }
     },
+    "/documents/{document_id}/send-again": {
+      "post": {
+        "description": "A send that gave up starts again with the same key and saved progress (decision 69). 409\nif it did not give up.",
+        "operationId": "send_again_documents__document_id__send_again_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Again",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/send-back": {
+      "post": {
+        "description": "A send that gave up goes back to review with the reason (decision 69). 409 if it did not\ngive up, or if the request to create it may have reached the accounting system.",
+        "operationId": "send_back_documents__document_id__send_back_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Back",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/folders": {
       "get": {
         "operationId": "get_folder_folders_get",
@@ -4286,7 +4488,7 @@
     },
     "/{slug}/callback": {
       "get": {
-        "description": "The provider sends the user back here; they are sent on to the Workbench.",
+        "description": "The provider sends the user back here; they are sent on to the Workbench. Bills that\nwaited for this (a paused connection, decision 68) are sent at once.",
         "operationId": "callback__slug__callback_get",
         "parameters": [
           {

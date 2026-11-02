@@ -12,15 +12,18 @@ const CLIENTS = [
 ]
 const NOTHING: PostingSummary = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
+  paused: 0, paused_reason: null, failed: 0, failed_reason: null,
 }  // prettier-ignore
 const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url: '/xero/connect' }
 const NOT_CONNECTED: AccountingStatus = {
-  providers: [XERO], configured: true, connected: false, provider: null, provider_name: null,
+  providers: [XERO], configured: true, connected: false, needs_reconnect: false,
+  reconnect_reason: null, provider: null, provider_name: null,
   organisation: null, connected_at: null, bills_where: null, master_data_from: 'MANUAL',
   waiting: 0, posting: NOTHING,
 }  // prettier-ignore
 const CONNECTED: AccountingStatus = {
-  providers: [XERO], configured: true, connected: true, provider: 'XERO', provider_name: 'Xero',
+  providers: [XERO], configured: true, connected: true, needs_reconnect: false,
+  reconnect_reason: null, provider: 'XERO', provider_name: 'Xero',
   organisation: 'Demo Company (Global)', connected_at: '2026-10-23T10:00:00Z',
   bills_where: 'Bills to pay, Awaiting approval', master_data_from: 'MANUAL', waiting: 0,
   posting: NOTHING,
@@ -155,6 +158,57 @@ describe('clients', () => {
     expect(await within(row).findByRole('button', { name: 'Send 3 bills to Zoho Books' })).toBeInTheDocument()
     expect(within(row).getByRole('button', { name: 'Sync from Zoho Books' })).toBeInTheDocument()
     expect(row).not.toHaveTextContent('Xero')
+  })
+
+  it('asks to sign in again when the access was withdrawn, and offers no Send', async () => {
+    const withdrawn: AccountingStatus = {
+      ...SYNCED_WAITING, needs_reconnect: true,
+      reconnect_reason: 'Xero access was withdrawn (invalid_grant)',
+      posting: { ...NOTHING, paused: 3, paused_reason: 'Xero access was withdrawn (invalid_grant)' },
+    }  // prettier-ignore
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': withdrawn })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    const banner = await within(row).findByRole('alert', { name: 'Sign in again' })
+    expect(banner).toHaveTextContent('Xero needs you to sign in again')
+    expect(banner).toHaveTextContent('3 bills paused: they are sent automatically as soon as you connect again.')
+    expect(banner).toHaveTextContent('Reason: Xero access was withdrawn (invalid_grant).')
+    expect(within(banner).getByRole('link', { name: 'Connect Xero again' })).toHaveAttribute(
+      'href', '/api/xero/connect?client_id=cafe-al-noor',
+    )  // prettier-ignore
+    expect(within(row).getByText('Xero: sign in again')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /Send/ })).not.toBeInTheDocument()
+  })
+
+  it('says how many bills could not be sent, with the latest reason', async () => {
+    const failed = { ...SYNCED_WAITING, waiting: 0,
+                     posting: { ...NOTHING, failed: 2, failed_reason: 'unexpected error (RuntimeError)' } }  // prettier-ignore
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': failed })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(
+      await within(row).findByText(/2 bills could not be sent: unexpected error \(RuntimeError\)\. Open it to try again\./),
+    ).toBeInTheDocument()
+  })
+
+  it('says bills are paused when the client was disconnected', async () => {
+    const disconnected: AccountingStatus = {
+      ...NOT_CONNECTED, master_data_from: 'XERO', waiting: 2,
+      posting: { ...NOTHING, paused: 2, paused_reason: 'not connected: connect the accounting system again' },
+    }  // prettier-ignore
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': disconnected })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(
+      await within(row).findByText(/2 approved bills paused: not connected: connect the accounting system again/),
+    ).toBeInTheDocument()
+    expect(within(row).getByRole('link', { name: 'Connect Xero' })).toBeInTheDocument()
   })
 
   it('says how a Xero sign-in ended when Xero sends the browser back', async () => {

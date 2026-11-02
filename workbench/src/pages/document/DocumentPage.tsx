@@ -9,6 +9,7 @@ import {
   RefreshCw,
   RotateCcw,
   Trash2,
+  TriangleAlert,
   Undo2,
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
@@ -25,6 +26,8 @@ import {
   useMarkCorrect,
   useReextractDocument,
   useRestoreDocument,
+  useSendAgain,
+  useSendBack,
   useUpdateDocument,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
@@ -158,7 +161,8 @@ export function DocumentPage() {
           <AlertDescription>{doc.failure_reason}</AlertDescription>
         </Alert>
       )}
-      {doc.status === 'APPROVED' && (
+      {doc.sending?.state === 'failed' && <SendFailed document={doc} />}
+      {doc.status === 'APPROVED' && doc.sending?.state !== 'failed' && (
         <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
           <CircleCheck className="size-4" aria-hidden />
           Approved: waiting to be posted.
@@ -242,6 +246,50 @@ export function DocumentPage() {
         />
       </div>
     </PageContainer>
+  )
+}
+
+/**
+ * A send that gave up (decision 69): the reason, Try again (same key, never twice), and Send back
+ * to review while the create request was never sent.
+ */
+function SendFailed({ document }: { document: DocumentDetail }) {
+  const again = useSendAgain()
+  const back = useSendBack()
+  const sending = document.sending
+  const busy = again.isPending || back.isPending
+  return (
+    <Alert variant="destructive" aria-label="Could not send">
+      <TriangleAlert aria-hidden />
+      <AlertTitle>Could not send to the accounting system</AlertTitle>
+      <AlertDescription className="space-y-2">
+        <p>{sending?.reason ?? 'The reason was not recorded.'}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={busy} onClick={() => again.mutate({ id: document.document_id, body: null })}>
+            <RotateCcw aria-hidden />
+            {again.isPending ? 'Sending…' : 'Try again'}
+          </Button>
+          {sending?.can_send_back ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => back.mutate({ id: document.document_id, body: null })}
+            >
+              <Undo2 aria-hidden />
+              Send back to review
+            </Button>
+          ) : (
+            <span className="self-center text-xs">
+              It may already be in the accounting system, so it cannot be sent back: Try again
+              never creates it twice.
+            </span>
+          )}
+        </div>
+        {again.isError && <ErrorAlert title="Not tried again" error={again.error} />}
+        {back.isError && <ErrorAlert title="Not sent back" error={back.error} />}
+      </AlertDescription>
+    </Alert>
   )
 }
 

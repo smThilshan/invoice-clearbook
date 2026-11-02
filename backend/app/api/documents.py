@@ -7,6 +7,7 @@ for the Workbench; they are never logged.
 import logging
 import uuid
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import PurePosixPath
@@ -34,7 +35,7 @@ from app.pipeline.no_vat import cleared_vat
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.verify.locate import ValueKind, locate
 from app.pipeline.verify.step import working_copy
-from app.services import answer_key, approval, deletion, review
+from app.services import answer_key, approval, deletion, posting, review
 from app.services.clients import get_client
 from app.services.corrections import corrections_of
 from app.services.pipeline import reextract_document, retry_document
@@ -94,6 +95,15 @@ class CorrectionOut(BaseModel):
     final_value: Any
 
 
+class SendingOut(BaseModel):
+    """Where an approved document is on its way to the accounting system (decision 69)."""
+
+    state: Literal["waiting", "sending", "retrying", "paused", "failed", "posted"]
+    reason: str | None  # why it is retrying, paused or failed
+    next_try_at: datetime | None
+    can_send_back: bool  # failed before the create request was sent
+
+
 class DocumentDetail(DocumentSummary):
     source_path: str  # inside the client's folder
     mime_type: str
@@ -111,6 +121,7 @@ class DocumentDetail(DocumentSummary):
     cleaned_descriptions: int  # item codes / "5 x" removed after extraction (decision 42)
     repaired_unit_prices: int  # unit prices worked out from line totals (decision 44)
     cleared_vat: str | None  # the VAT the model read on a document that is no tax invoice (52)
+    sending: SendingOut | None  # None: not approved (yet or any more)
 
 
 class DocumentUpdate(BaseModel):
@@ -390,6 +401,42 @@ def approve_document(
     return _detail(session, document)
 
 
+@router.post("/{document_id}/send-again")
+def send_again(
+    document_id: uuid.UUID,
+    session: SessionDep,
+    enqueue_posting: Annotated[Callable[[str], object], Depends(get_enqueue_posting)],
+) -> DocumentDetail:
+    """A send that gave up starts again with the same key and saved progress (decision 69). 409
+    if it did not give up."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        with session.begin_nested():
+            outbox = posting.try_again(session, document)
+    except posting.SendError as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    try:
+        enqueue_posting(str(outbox.id))
+    except Exception:  # back in line and saved: the worker's start-up sweep sends it
+        logger.warning("outbox %s: could not ask the worker to post it now", outbox.id)
+    return _detail(session, document)
+
+
+@router.post("/{document_id}/send-back")
+def send_back(document_id: uuid.UUID, session: SessionDep) -> DocumentDetail:
+    """A send that gave up goes back to review with the reason (decision 69). 409 if it did not
+    give up, or if the request to create it may have reached the accounting system."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        with session.begin_nested():
+            posting.send_back(session, document)
+    except (posting.SendError, StaleStatusError) as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    return _detail(session, document)
+
+
 def get_enqueue_step() -> Callable[[str, DocumentStatus], object]:
     from app.workers.tasks import enqueue_next  # imported lazily: the API does not need a worker
 
@@ -425,7 +472,10 @@ def _check_page(document: Document, page: int) -> None:
 
 
 def _http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, review.NotEditableError | StaleStatusError | deletion.NotRejectedError):
+    if isinstance(
+        exc,
+        review.NotEditableError | StaleStatusError | deletion.NotRejectedError | posting.SendError,
+    ):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
@@ -480,6 +530,9 @@ def _detail(session: Session, document: Document) -> DocumentDetail:
         cleaned_descriptions=cleaned_count(latest.raw_output, latest.data) if latest else 0,
         repaired_unit_prices=repaired_count(latest.raw_output, latest.data) if latest else 0,
         cleared_vat=cleared_vat(latest.raw_output, latest.data) if latest else None,
+        sending=SendingOut(**asdict(sent))
+        if (sent := posting.sending_of(session, document))
+        else None,
     )
 
 

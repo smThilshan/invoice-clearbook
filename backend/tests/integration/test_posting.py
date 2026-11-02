@@ -14,7 +14,10 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import (
+    AccessRevoked,
+    ConnectorError,
     Posted,
+    PostingAccessDenied,
     PostingBill,
     PostingRefused,
     PostingUnavailable,
@@ -23,6 +26,7 @@ from app.domain.enums import AccountClass, AccountingProvider, AmountType, Docum
 from app.domain.enums import DocumentStatus as S
 from app.domain.invoice import Invoice, Line
 from app.models import Contact, Document, LedgerAccount, Outbox, OutboxStatus, TaxRate
+from app.services import accounting_connections as connections
 from app.services import posting
 from app.services.clients import get_client
 from tests.integration.factories import CLIENT, make_document
@@ -296,3 +300,232 @@ def test_the_summary_says_where_each_approved_document_is(
     assert summary.retry_reason == "Xero's request limit was reached"
     session.refresh(busy)
     assert summary.retry_at == busy.next_attempt_at
+
+
+# --- A connection that needs a new sign-in (decision 68) -----------------------------------------
+
+
+def expiring(session: Session) -> None:
+    """The stored access is about to expire: the next send must renew it."""
+    connection = connections.connection_of(session, CLIENT)
+    assert connection is not None
+    connection.expires_at = datetime.now(UTC) + timedelta(seconds=30)
+    session.flush()
+
+
+def test_a_withdrawn_access_pauses_the_clients_bills_until_it_is_connected_again(
+    session: Session, xero: FakePosting, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, outbox = approved(session)
+    expiring(session)
+
+    def withdrawn(self: FakeXero, refresh_token: str) -> None:
+        raise AccessRevoked("Xero refused the sign-in (HTTP 400): invalid_grant")
+
+    monkeypatch.setattr(FakeXero, "refresh", withdrawn)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "paused"
+    session.refresh(outbox)
+    assert (outbox.status, outbox.attempts) == (OutboxStatus.PENDING, 0)  # no attempt counted
+    connection = connections.connection_of(session, CLIENT)
+    assert connection is not None and connection.needs_reconnect
+    assert "invalid_grant" in (connection.reconnect_reason or "")
+    assert send(session, xero) is None  # paused: the client is not even asked
+    summary = posting.summary(session, CLIENT)
+    assert (summary.paused, summary.ready) == (1, 0)
+    assert summary.paused_reason == connection.reconnect_reason
+    assert not xero.bills
+
+    monkeypatch.undo()
+    connect(session, FakeXero())  # someone signs in again
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "posted"
+    assert connections.connection_of(session, CLIENT).needs_reconnect is False  # type: ignore[union-attr]
+
+
+def test_xero_unreachable_while_renewing_is_tried_again_not_paused(
+    session: Session, xero: FakePosting, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approved(session)
+    expiring(session)
+
+    def unreachable(self: FakeXero, refresh_token: str) -> None:
+        raise ConnectorError("cannot reach Xero (ConnectTimeout)")
+
+    monkeypatch.setattr(FakeXero, "refresh", unreachable)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "retry"
+    assert connections.connection_of(session, CLIENT).needs_reconnect is False  # type: ignore[union-attr]
+
+
+def test_a_permission_refused_while_sending_pauses_the_client(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, outbox = approved(session)
+    xero.outcome = PostingAccessDenied("Xero refused access (HTTP 403)", reconnect=True)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "paused"
+    session.refresh(outbox)
+    session.refresh(doc)
+    assert (outbox.status, outbox.attempts, doc.status) == (OutboxStatus.PENDING, 0, S.POSTING)
+    assert connections.connection_of(session, CLIENT).needs_reconnect  # type: ignore[union-attr]
+
+
+def test_an_access_token_refused_once_is_renewed_at_the_next_try(
+    session: Session, xero: FakePosting
+) -> None:
+    _, outbox = approved(session)
+    xero.outcome = PostingAccessDenied("Xero refused access (HTTP 401)", reconnect=False)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "retry"
+    connection = connections.connection_of(session, CLIENT)
+    assert connection is not None and not connection.needs_reconnect
+    assert connection.expires_at <= datetime.now(UTC)  # renewed before the next call
+    session.refresh(outbox)
+    assert outbox.attempts == 1
+
+
+def test_bills_of_a_disconnected_client_are_paused_not_ready(
+    session: Session, xero: FakePosting
+) -> None:
+    approved(session)
+    connections.disconnect(session, SETTINGS, registry(FakeXero()), CLIENT)
+
+    summary = posting.summary(session, CLIENT)
+
+    assert (summary.paused, summary.ready) == (1, 0)
+    assert summary.paused_reason is not None and "not connected" in summary.paused_reason
+
+
+# --- A send that gave up (decision 69) ------------------------------------------------------------
+
+
+def gave_up(session: Session, xero: FakePosting, **progress: Any) -> tuple[Document, Outbox]:
+    """An approved bill whose send failed with an unknown error, after `progress` was saved."""
+    doc, outbox = approved(session)
+    xero.outcome = RuntimeError("made-up unknown error")
+    assert send(session, xero).result == "dead"  # type: ignore[union-attr]
+    outbox.progress = {**(outbox.progress or {}), **progress}
+    session.flush()
+    xero.outcome = None
+    return doc, outbox
+
+
+def test_a_send_that_gave_up_is_shown_as_failed_with_its_reason(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, _ = gave_up(session, xero)
+
+    sending = posting.sending_of(session, doc)
+    summary = posting.summary(session, CLIENT)
+
+    assert sending is not None and sending.state == "failed"
+    assert sending.reason == "unexpected error (RuntimeError)"
+    assert sending.can_send_back  # the create request was never sent
+    assert (summary.failed, summary.failed_reason) == (1, "unexpected error (RuntimeError)")
+    assert send(session, xero) is None  # not tried again by itself
+
+
+def test_try_again_resumes_with_the_same_key_and_posts_once(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, outbox = gave_up(session, xero, create_sent=True)
+
+    row = posting.try_again(session, doc)
+    outcome = send(session, xero, outbox_id=str(row.id))
+
+    assert row.id == outbox.id  # same row, so the same idempotency key
+    assert outcome is not None and outcome.result == "posted"
+    assert xero.started_with[-1]["create_sent"] is True  # resumed from the saved progress
+    session.refresh(doc)
+    assert doc.status is S.POSTED
+    assert posting.summary(session, CLIENT).failed == 0
+
+
+def test_send_back_is_refused_once_the_create_request_was_sent(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, outbox = gave_up(session, xero, create_sent=True)
+
+    assert posting.sending_of(session, doc).can_send_back is False  # type: ignore[union-attr]
+    with pytest.raises(posting.SendError, match="use Try again"):
+        posting.send_back(session, doc)
+    session.refresh(outbox)
+    assert outbox.status is OutboxStatus.DEAD  # nothing changed
+
+
+def test_send_back_before_the_create_request_returns_it_to_review(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, outbox = gave_up(session, xero)
+
+    posting.send_back(session, doc)
+
+    session.refresh(outbox)
+    session.refresh(doc)
+    assert (outbox.status, doc.status) == (OutboxStatus.FAILED, S.IN_REVIEW)
+    assert doc.failure_reason == (
+        "Sent back after it could not be sent: unexpected error (RuntimeError)")  # fmt: skip
+    assert posting.sending_of(session, doc) is None
+
+
+def test_only_a_send_that_gave_up_can_be_tried_again_or_sent_back(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, _ = approved(session)
+
+    with pytest.raises(posting.SendError):
+        posting.try_again(session, doc)
+    with pytest.raises(posting.SendError):
+        posting.send_back(session, doc)
+
+
+def test_a_document_changed_since_approval_is_never_sent(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, _ = approved(session)
+    session.execute(update(Document).where(Document.id == doc.id)
+                    .values(status=S.IN_REVIEW))  # fmt: skip
+
+    assert send(session, xero) is None
+    assert not xero.bills
+
+
+def test_the_review_screen_tries_again_or_sends_back_through_the_api(
+    session: Session, xero: FakePosting
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.documents import get_enqueue_posting
+    from app.core.config import get_settings
+    from app.core.db import get_session
+    from app.main import create_app
+
+    asked: list[str] = []
+    app = create_app(SETTINGS)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_settings] = lambda: SETTINGS
+    app.dependency_overrides[get_enqueue_posting] = lambda: asked.append
+    sent_create, _ = gave_up(session, xero, create_sent=True)
+    with TestClient(app) as api:
+        failed = api.get(f"/documents/{sent_create.id}").json()["sending"]
+        refused = api.post(f"/documents/{sent_create.id}/send-back")
+        again = api.post(f"/documents/{sent_create.id}/send-again")
+        not_failed = api.post(f"/documents/{sent_create.id}/send-again")
+
+    assert failed == {"state": "failed", "reason": "unexpected error (RuntimeError)",
+                      "next_try_at": None, "can_send_back": False}  # fmt: skip
+    assert refused.status_code == 409 and "use Try again" in refused.json()["detail"]
+    assert again.status_code == 200 and again.json()["sending"]["state"] == "waiting"
+    assert len(asked) == 1  # the worker was asked to send that row
+    assert not_failed.status_code == 409

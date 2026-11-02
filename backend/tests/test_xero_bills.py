@@ -13,6 +13,7 @@ import pytest
 
 from app.adapters.accounting.base import (
     Attachment,
+    PostingAccessDenied,
     PostingBill,
     PostingLine,
     PostingRefused,
@@ -123,7 +124,8 @@ def test_a_new_supplier_is_created_and_the_bill_sent_awaiting_approval() -> None
                     "terms in Xero."}]}  # fmt: skip
     assert (posted.external_id, posted.total, posted.contact_created) == (
         "bill-1", Decimal("38.89"), True)  # fmt: skip
-    assert state["saved"] == ["due_date", "contact", "checked", "bill", "attached", "noted"]
+    assert state["saved"] == [
+        "due_date", "contact", "checked", "create_sent", "bill", "attached", "noted"]  # fmt: skip
 
 
 def test_a_supplier_already_in_xero_is_found_by_its_trn() -> None:
@@ -237,7 +239,7 @@ def test_after_a_crash_finished_sub_steps_are_not_done_again() -> None:
         ("PUT", "Invoices"),
         ("PUT", "History"),
     ]  # fmt: skip  (no file to attach here)
-    assert state["saved"] == ["bill", "attached", "noted"]
+    assert state["saved"] == ["create_sent", "bill", "attached", "noted"]
 
 
 def test_xero_refusing_the_content_gives_its_reasons() -> None:
@@ -263,6 +265,18 @@ def test_a_busy_or_down_xero_means_try_again_later(status: int, retry_after: int
 
     assert error.value.retry_after == retry_after
     assert "token" not in str(error.value)
+
+
+@pytest.mark.parametrize(("status", "reconnect"), [(401, False), (403, True)])
+def test_a_refused_access_says_if_a_new_sign_in_is_needed(status: int, reconnect: bool) -> None:
+    xero = FakeXero()
+    xero.override = lambda r: httpx.Response(status, json={"Title": "Unauthorized"})
+
+    with pytest.raises(PostingAccessDenied) as error:
+        post(xero)
+
+    assert error.value.reconnect is reconnect  # 401: renew the access; 403: connect again
+    assert not xero.bills
 
 
 def test_money_goes_to_json_as_exact_numbers() -> None:

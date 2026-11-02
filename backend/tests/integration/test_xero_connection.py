@@ -159,8 +159,14 @@ def test_without_a_token_key_connecting_says_how_to_fix_it(
 
 
 @pytest.fixture
-def api(session: Session, xero: FakeXero) -> Iterator[TestClient]:
-    from app.api.accounting import get_registry
+def sweeps() -> list[str]:
+    """Clients the worker was asked to send waiting bills for."""
+    return []
+
+
+@pytest.fixture
+def api(session: Session, xero: FakeXero, sweeps: list[str]) -> Iterator[TestClient]:
+    from app.api.accounting import get_enqueue_sweep, get_registry
     from app.core.config import get_settings
     from app.core.db import get_session
     from app.main import create_app
@@ -169,6 +175,7 @@ def api(session: Session, xero: FakeXero) -> Iterator[TestClient]:
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SETTINGS
     app.dependency_overrides[get_registry] = lambda: registry(xero)
+    app.dependency_overrides[get_enqueue_sweep] = lambda: sweeps.append
     with TestClient(app, follow_redirects=False) as client:
         yield client
 
@@ -304,3 +311,36 @@ def test_sending_waiting_bills_needs_xero_master_data_then_asks_the_worker(
     assert before_sync.status_code == 409
     assert after_sync.status_code == 200 and after_sync.json()["waiting"] == 0
     assert asked == [CLIENT]
+
+
+# --- A connection that needs a new sign-in (decision 68) -----------------------------------------
+
+
+def test_a_withdrawn_access_is_shown_sending_refused_and_signing_in_again_sends(
+    api: TestClient, session: Session, xero: FakeXero, sweeps: list[str]
+) -> None:
+    connect(session, xero)
+    api.post(f"/clients/{CLIENT}/accounting/sync")
+    connections.mark_reconnect_needed(session, CLIENT, "Xero access was withdrawn (invalid_grant)")
+
+    status = api.get(f"/clients/{CLIENT}/accounting").json()
+    refused = api.post(f"/clients/{CLIENT}/accounting/send")
+    state = api.get("/xero/connect", params={"client_id": CLIENT}).headers["location"]
+    api.get("/xero/callback", params={"code": "code-1", "state": state.split("state=")[1]})
+    after = api.get(f"/clients/{CLIENT}/accounting").json()
+
+    assert (status["needs_reconnect"], status["reconnect_reason"]) == (
+        True, "Xero access was withdrawn (invalid_grant)")  # fmt: skip
+    assert refused.status_code == 409 and "connect Xero again" in refused.json()["detail"]
+    assert (after["needs_reconnect"], after["reconnect_reason"]) == (False, None)
+    assert sweeps == [CLIENT]  # what waited is sent at once
+
+
+def test_an_unreadable_stored_access_needs_a_new_sign_in(session: Session, xero: FakeXero) -> None:
+    connection = connect(session, xero)
+    connection.access_token = "not-what-we-encrypted"
+
+    with pytest.raises(connections.ReconnectNeeded, match="TOKEN_KEY changed"):
+        connections.access_token(session, SETTINGS, registry(xero), CLIENT)
+
+    assert connection.needs_reconnect

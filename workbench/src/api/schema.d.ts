@@ -405,6 +405,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/documents/{document_id}/send-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Again
+         * @description A send that gave up starts again with the same key and saved progress (decision 69). 409
+         *     if it did not give up.
+         */
+        post: operations["send_again_documents__document_id__send_again_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{document_id}/send-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Back
+         * @description A send that gave up goes back to review with the reason (decision 69). 409 if it did not
+         *     give up, or if the request to create it may have reached the accounting system.
+         */
+        post: operations["send_back_documents__document_id__send_back_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/folders": {
         parameters: {
             query?: never;
@@ -611,7 +653,8 @@ export interface paths {
         };
         /**
          * Callback
-         * @description The provider sends the user back here; they are sent on to the Workbench.
+         * @description The provider sends the user back here; they are sent on to the Workbench. Bills that
+         *     waited for this (a paused connection, decision 68) are sent at once.
          */
         get: operations["callback__slug__callback_get"];
         put?: never;
@@ -678,6 +721,8 @@ export interface components {
             connected_at: string | null;
             /** Master Data From */
             master_data_from: string;
+            /** Needs Reconnect */
+            needs_reconnect: boolean;
             /** Organisation */
             organisation: string | null;
             posting: components["schemas"]["PostingOut"];
@@ -686,6 +731,8 @@ export interface components {
             provider_name: string | null;
             /** Providers */
             providers: components["schemas"]["ProviderOut"][];
+            /** Reconnect Reason */
+            reconnect_reason: string | null;
             /** Waiting */
             waiting: number;
         };
@@ -809,6 +856,7 @@ export interface components {
              * Format: uuid
              */
             run_id: string;
+            sending: components["schemas"]["SendingOut"] | null;
             /** Source Path */
             source_path: string;
             status: components["schemas"]["DocumentStatus"];
@@ -1187,10 +1235,18 @@ export interface components {
          * @description Where the client's approved documents are (see services/posting.PostingSummary).
          */
         PostingOut: {
+            /** Failed */
+            failed: number;
+            /** Failed Reason */
+            failed_reason: string | null;
             /** Not Yet */
             not_yet: {
                 [key: string]: number;
             };
+            /** Paused */
+            paused: number;
+            /** Paused Reason */
+            paused_reason: string | null;
             /** Posted */
             posted: number;
             /** Ready */
@@ -1370,6 +1426,23 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
+        /**
+         * SendingOut
+         * @description Where an approved document is on its way to the accounting system (decision 69).
+         */
+        SendingOut: {
+            /** Can Send Back */
+            can_send_back: boolean;
+            /** Next Try At */
+            next_try_at: string | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted";
+        };
         /** Span */
         Span: {
             /** Box */
@@ -2240,6 +2313,68 @@ export interface operations {
         };
     };
     retry_failed_document_documents__document_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_again_documents__document_id__send_again_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_back_documents__document_id__send_back_post: {
         parameters: {
             query?: never;
             header?: never;

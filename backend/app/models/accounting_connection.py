@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, Text, UniqueConstraint
+from sqlalchemy import String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import AccountingProvider
@@ -22,5 +22,9 @@ class AccountingConnection(UuidPk, ClientScoped, Timestamps, Base):
     expires_at: Mapped[datetime]  # when the access token stops working
     scopes: Mapped[str] = mapped_column(Text, default="")
     connected_by: Mapped[str | None] = mapped_column(String(128))
+    # Decision 68: the provider refused the stored access for good; sending pauses until someone
+    # connects again. The reason is for the screen (no secrets).
+    needs_reconnect: Mapped[bool] = mapped_column(default=False, server_default=false())
+    reconnect_reason: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (UniqueConstraint("client_id", "provider"),)

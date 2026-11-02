@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from app.adapters.accounting.base import AccessRevoked
 from app.adapters.accounting.xero.auth import XeroAuth, XeroAuthError
 from app.core.config import Settings
 
@@ -74,3 +75,17 @@ def test_only_organisations_are_offered() -> None:
         "Demo Company (Global)",
         "c1",
     )
+
+
+def test_a_withdrawn_access_is_told_apart_from_xero_being_unreachable() -> None:
+    def withdrawn(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("made-up timeout")
+
+    with pytest.raises(AccessRevoked, match="invalid_grant"):  # only a new sign-in helps
+        fake_xero(withdrawn).refresh("refresh-1")
+    with pytest.raises(XeroAuthError) as error:  # may pass by itself
+        fake_xero(unreachable).refresh("refresh-1")
+    assert not isinstance(error.value, AccessRevoked)
