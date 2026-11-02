@@ -57,7 +57,9 @@ def test_approve_moves_to_approved_with_an_outbox_row(
         select(AuditLog).where(AuditLog.document_id == doc.id).order_by(AuditLog.id.desc())
     ).first()
     assert last is not None
-    assert (last.from_status, last.to_status, last.actor) == (S.IN_REVIEW, S.APPROVED, "workbench")
+    assert (last.from_status, last.to_status, last.actor) == (
+        S.IN_REVIEW, S.APPROVED, "tester@missan.test"  # the logged-in user (decision 71)
+    )  # fmt: skip
     queue = ok(api.get("/documents", params={"client_id": CLIENT}))
     assert str(doc.id) not in {d["document_id"] for d in queue["documents"]}
 

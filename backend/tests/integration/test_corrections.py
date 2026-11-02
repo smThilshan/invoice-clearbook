@@ -53,7 +53,7 @@ def test_a_changed_field_is_recorded_with_supplier_model_and_prompt(
     [row] = rows(session, doc).values()
     assert (row.field, row.model_value, row.final_value) == ("total", "1050.00", "1060.00")
     assert (row.vendor_key, row.model, row.prompt_version, row.corrected_by) == (
-        doc.vendor_key, MODEL, PROMPT, "workbench"
+        doc.vendor_key, MODEL, PROMPT, "tester@missan.test"  # the logged-in user (decision 71)
     )  # fmt: skip
     assert row.extraction_id is not None
     assert body["corrections"] == [

@@ -27,7 +27,7 @@ from app.domain.state_machine import transition
 from app.models import Document, Outbox, VendorMapping
 from app.pipeline.verify.step import recheck_document, working_copy
 from app.services.corrections import sync_corrections
-from app.services.review import ACTOR, NotEditableError, ReviewError
+from app.services.review import NotEditableError, ReviewError
 
 
 class ApprovalBlockedError(ReviewError):
@@ -47,8 +47,10 @@ def approve_document(
     *,
     settings: Settings,
     today: date,
+    actor: str,
 ) -> Outbox:
-    """Runs in the caller's transaction; the caller commits (or rolls back on an error)."""
+    """Runs in the caller's transaction; the caller commits (or rolls back on an error).
+    `actor`: who approves (the user's email)."""
     if document.status is not DocumentStatus.IN_REVIEW:
         raise NotEditableError(document.status)
     assessment = recheck_document(session, storage, document, settings=settings, today=today)
@@ -56,9 +58,9 @@ def approve_document(
     if assessment.errors or invoice is None:
         raise ApprovalBlockedError(assessment.errors or 1)
 
-    sync_corrections(session, document, corrected_by=ACTOR)
+    sync_corrections(session, document, corrected_by=actor)
     summary = {"queue": assessment.queue.value, "warnings": assessment.warnings}
-    transition(session, document, DocumentStatus.APPROVED, actor=ACTOR, details=summary)
+    transition(session, document, DocumentStatus.APPROVED, actor=actor, details=summary)
     document.failure_reason = None  # an earlier "not sent" reason is now answered
     outbox = Outbox(client_id=document.client_id, document_id=document.id)
     session.add(outbox)

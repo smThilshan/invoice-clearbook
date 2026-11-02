@@ -23,6 +23,7 @@ from app.adapters.llm import ExtractionClient, get_extraction_client
 from app.adapters.storage import Storage, get_storage
 from app.adapters.storage.base import NotFoundError
 from app.adapters.storage.keys import ocr_key, page_image_key
+from app.api.auth import UserDep
 from app.api.runs import StepTimingsOut
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
@@ -284,6 +285,7 @@ def update_document(
     storage: StorageDep,
     settings: SettingsDep,
     llm: Annotated[Callable[[], ExtractionClient], Depends(get_review_llm)],
+    user: UserDep,
 ) -> DocumentDetail:
     """Save the corrected invoice; every check runs again. No model call, except to suggest
     accounts when the type changes from non-postable to a postable one."""
@@ -292,7 +294,8 @@ def update_document(
         with session.begin_nested():  # an error undoes only this request's changes
             review.update_document(session, storage, document, body.invoice,
                                    confirmed=body.confirmed, settings=settings,
-                                   today=settings.business_today(), llm=llm)  # fmt: skip
+                                   today=settings.business_today(), actor=user.email,
+                                   llm=llm)  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
@@ -301,12 +304,13 @@ def update_document(
 
 @router.post("/{document_id}/reject")
 def reject_document(
-    document_id: uuid.UUID, body: RejectBody, session: SessionDep
+    document_id: uuid.UUID, body: RejectBody, session: SessionDep, user: UserDep
 ) -> DocumentDetail:
     document = _found(session, document_id, for_update=True)
     try:
         with session.begin_nested():
-            review.reject_document(session, document, body.reason, note=body.note)
+            review.reject_document(session, document, body.reason, actor=user.email,
+                                   note=body.note)  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
@@ -315,7 +319,11 @@ def reject_document(
 
 @router.post("/{document_id}/restore")
 def restore_document(
-    document_id: uuid.UUID, session: SessionDep, storage: StorageDep, settings: SettingsDep
+    document_id: uuid.UUID,
+    session: SessionDep,
+    storage: StorageDep,
+    settings: SettingsDep,
+    user: UserDep,
 ) -> DocumentDetail:
     """A rejected document back to review, checked again (decision 45). 409 if it is not
     rejected; 422 if another live document now holds its supplier and invoice number."""
@@ -323,7 +331,7 @@ def restore_document(
     try:
         with session.begin_nested():
             deletion.bring_back(session, storage, document, settings=settings,
-                                today=settings.business_today())  # fmt: skip
+                                today=settings.business_today(), actor=user.email)  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
@@ -331,13 +339,15 @@ def restore_document(
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_document(document_id: uuid.UUID, session: SessionDep, storage: StorageDep) -> Response:
+def delete_document(
+    document_id: uuid.UUID, session: SessionDep, storage: StorageDep, user: UserDep
+) -> Response:
     """Delete a rejected document permanently, files included (decision 45). 409 if it is not
     rejected, 422 if it is in the accounting system. Cannot be undone."""
     document = _found(session, document_id, for_update=True)
     try:
         with session.begin_nested():
-            keys = deletion.delete_permanently(session, document)
+            keys = deletion.delete_permanently(session, document, actor=user.email)
     except ReviewError as exc:
         raise _http_error(exc) from exc
     session.commit()
@@ -389,6 +399,7 @@ def approve_document(
     storage: StorageDep,
     settings: SettingsDep,
     enqueue_posting: Annotated[Callable[[str], object], Depends(get_enqueue_posting)],
+    user: UserDep,
 ) -> DocumentDetail:
     """Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
     approval takes the document as last saved. 422 if errors remain; nothing changes then.
@@ -397,7 +408,8 @@ def approve_document(
     try:
         with session.begin_nested():
             outbox = approval.approve_document(session, storage, document, settings=settings,
-                                               today=settings.business_today())  # fmt: skip
+                                               today=settings.business_today(),
+                                               actor=user.email)  # fmt: skip
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
@@ -431,13 +443,13 @@ def send_again(
 
 
 @router.post("/{document_id}/send-back")
-def send_back(document_id: uuid.UUID, session: SessionDep) -> DocumentDetail:
+def send_back(document_id: uuid.UUID, session: SessionDep, user: UserDep) -> DocumentDetail:
     """A send that gave up goes back to review with the reason (decision 69). 409 if it did not
     give up, or if the request to create it may have reached the accounting system."""
     document = _found(session, document_id, for_update=True)
     try:
         with session.begin_nested():
-            posting.send_back(session, document)
+            posting.send_back(session, document, actor=user.email)
     except (posting.SendError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
@@ -455,12 +467,13 @@ def retry_failed_document(
     document_id: uuid.UUID,
     session: SessionDep,
     enqueue: Annotated[Callable[[str, DocumentStatus], object], Depends(get_enqueue_step)],
+    user: UserDep,
 ) -> DocumentDetail:
     """A FAILED document starts over from reading (task 4.14). 409 if it is not FAILED."""
     document = _found(session, document_id, for_update=True)
     if document.status is not DocumentStatus.FAILED:
         raise HTTPException(status.HTTP_409_CONFLICT, "only a failed document can be retried")
-    retry_document(session, document, actor="workbench")
+    retry_document(session, document, actor=user.email)
     session.commit()
     enqueue(str(document.id), document.status)  # after commit: the worker finds it CAPTURED
     return _detail(session, document)
@@ -572,12 +585,13 @@ def reextract(
     document_id: uuid.UUID,
     session: SessionDep,
     enqueue: Annotated[Callable[[str, DocumentStatus], object], Depends(get_enqueue_step)],
+    user: UserDep,
 ) -> DocumentDetail:
     """The model reads a document in review or parked again (decision 55); the review work on
     it is replaced. 409 for any other status."""
     document = _found(session, document_id, for_update=True)
     try:
-        reextract_document(session, document, actor="workbench")
+        reextract_document(session, document, actor=user.email)
     except InvalidTransitionError as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "only a document in review or parked can be read again"

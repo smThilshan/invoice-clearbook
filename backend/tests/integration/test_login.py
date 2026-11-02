@@ -6,15 +6,17 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth import COOKIE, get_login_redis
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.domain.enums import Role
+from app.domain.enums import DocumentStatus, Role
 from app.main import create_app
+from app.models import AuditLog
 from app.services import users
-from tests.integration.factories import CLIENT, make_client
+from tests.integration.factories import CLIENT, make_client, make_document
 
 pytestmark = pytest.mark.integration
 
@@ -165,3 +167,18 @@ def test_a_user_needs_an_email_a_long_password_and_no_twin(
     with pytest.raises(users.UserError, match=problem):
         users.create_user(session, email=email, name="Made-up", role=Role.ACCOUNTANT,
                           password=password)  # fmt: skip
+
+
+def test_what_a_user_does_is_recorded_under_their_own_email(
+    api: TestClient, session: Session
+) -> None:
+    doc = make_document(session, status=DocumentStatus.IN_REVIEW)
+    log_in(api, email="accountant@missan.test")
+
+    answer = api.post(f"/documents/{doc.id}/reject", json={"reason": "DUPLICATE"}, headers=CHANGE)
+
+    assert answer.status_code == 200, answer.text
+    last = session.scalars(select(AuditLog).where(AuditLog.document_id == doc.id)
+                           .order_by(AuditLog.id.desc())).first()  # fmt: skip
+    assert last is not None and (last.to_status, last.actor) == (
+        DocumentStatus.REJECTED, "accountant@missan.test")  # fmt: skip

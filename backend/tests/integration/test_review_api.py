@@ -436,7 +436,9 @@ def test_reject_records_the_reason_and_releases_the_business_key(
         select(AuditLog).where(AuditLog.document_id == doc.id).order_by(AuditLog.id.desc())
     ).first()
     assert last is not None
-    assert (last.to_status, last.reason, last.actor) == (S.REJECTED, "DUPLICATE", "workbench")
+    assert (last.to_status, last.reason, last.actor) == (
+        S.REJECTED, "DUPLICATE", "tester@missan.test"  # the logged-in user (decision 71)
+    )  # fmt: skip
     assert last.details == {"note": "resent by email"}
     assert in_review(session, storage).queue is QueueCategory.READY  # key free again
 

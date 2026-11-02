@@ -80,7 +80,6 @@ MAX_DESCRIPTION = 4000  # the shortest line-description limit of the systems we 
 POSTED_AS_BILLS = frozenset({DocumentType.BILL, DocumentType.RECEIPT})
 SENDABLE = (DocumentStatus.APPROVED, DocumentStatus.POSTING)
 POSTED_STATUSES = (DocumentStatus.POSTED, DocumentStatus.SYNCED)
-REVIEW_ACTOR = "workbench"  # the accountant's own actions here, until login (decision 26)
 
 Sessions = Callable[[], AbstractContextManager[Session]]
 
@@ -256,7 +255,7 @@ def try_again(session: Session, document: Document) -> Outbox:
     return outbox
 
 
-def send_back(session: Session, document: Document) -> None:
+def send_back(session: Session, document: Document, *, actor: str) -> None:
     """A send that gave up goes back to review, to change and approve again (a new row, a new
     key). Refused once the create request was sent: the document may exist there already, and a
     new key could make it twice. The caller commits."""
@@ -271,8 +270,8 @@ def send_back(session: Session, document: Document) -> None:
     document.failure_reason = f"Sent back after it could not be sent: {reason}"
     if document.status is DocumentStatus.APPROVED:  # gave up before it was ever claimed
         transition(session, document, DocumentStatus.POSTING, actor=ACTOR)
-    transition(session, document, DocumentStatus.POST_ERROR, actor=REVIEW_ACTOR, reason=reason)
-    transition(session, document, DocumentStatus.IN_REVIEW, actor=REVIEW_ACTOR)
+    transition(session, document, DocumentStatus.POST_ERROR, actor=actor, reason=reason)
+    transition(session, document, DocumentStatus.IN_REVIEW, actor=actor)
     session.flush()
 
 

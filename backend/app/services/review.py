@@ -11,7 +11,8 @@
 
 Every save also brings the document's corrections up to date (task 4.7). Approve comes with
 the outbox in task 4.8. No login yet
-(decision 26): changes are recorded as made by the Workbench.
+(decision 26): changes were recorded as made by the Workbench. Since login (decision 71) every
+change names the user who made it (`actor`, their email).
 """
 
 import json
@@ -43,7 +44,6 @@ from app.pipeline.verify.step import (
 from app.services.corrections import sync_corrections
 from app.services.posting import POSTED_STATUSES, SENDABLE
 
-ACTOR: Final = "workbench"  # until login (decision 26)
 EDITABLE: Final = frozenset({DocumentStatus.IN_REVIEW, DocumentStatus.NON_POSTABLE})
 # What the accountant may confirm: every invoice field except the model's own evidence.
 CONFIRMABLE: Final = frozenset(Invoice.model_fields) - {"evidence"}
@@ -190,10 +190,12 @@ def update_document(
     confirmed: Collection[str] = (),
     settings: Settings,
     today: date,
+    actor: str,
     llm: Callable[[], ExtractionClient] | None = None,
 ) -> Assessment:
     """Save the accountant's version of the invoice and check it again. Runs in the caller's
-    transaction; the caller commits. `llm` makes the model client, only if coding needs it."""
+    transaction; the caller commits. `llm` makes the model client, only if coding needs it;
+    `actor`: who made the change (the user's email)."""
     if document.status not in EDITABLE:
         raise NotEditableError(document.status)
     unknown = sorted(set(confirmed) - CONFIRMABLE)
@@ -212,13 +214,13 @@ def update_document(
 
     parked = invoice.document_type is DocumentType.NON_POSTABLE
     if document.status is DocumentStatus.IN_REVIEW and parked:
-        transition(session, document, DocumentStatus.NON_POSTABLE, actor=ACTOR,
+        transition(session, document, DocumentStatus.NON_POSTABLE, actor=actor,
                    reason="marked non-postable in review")  # fmt: skip
     elif document.status is DocumentStatus.NON_POSTABLE and not parked:
-        transition(session, document, DocumentStatus.IN_REVIEW, actor=ACTOR,
+        transition(session, document, DocumentStatus.IN_REVIEW, actor=actor,
                    reason=f"type changed to {invoice.document_type.value} in review")  # fmt: skip
     assessment = recheck_document(session, storage, document, settings=settings, today=today)
-    sync_corrections(session, document, corrected_by=ACTOR)  # after the re-check: current supplier
+    sync_corrections(session, document, corrected_by=actor)  # after the re-check: current supplier
     return assessment
 
 
@@ -231,7 +233,12 @@ def _made_postable(before: Invoice | None, after: Invoice) -> bool:
 
 
 def reject_document(
-    session: Session, document: Document, reason: RejectReason, *, note: str | None = None
+    session: Session,
+    document: Document,
+    reason: RejectReason,
+    *,
+    actor: str,
+    note: str | None = None,
 ) -> None:
     """Rejected documents release their business key (decision 18), so a corrected copy can
     come in later."""
@@ -241,7 +248,7 @@ def reject_document(
     if document.status is not DocumentStatus.IN_REVIEW:
         raise NotEditableError(document.status)
     details: dict[str, Any] = {"note": note} if note else {}
-    transition(session, document, DocumentStatus.REJECTED, actor=ACTOR, reason=reason.value,
+    transition(session, document, DocumentStatus.REJECTED, actor=actor, reason=reason.value,
                details=details)  # fmt: skip
 
 

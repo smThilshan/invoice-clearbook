@@ -24,7 +24,7 @@ from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
 from app.models import AuditLog, Deletion, Document, Outbox
 from app.pipeline.verify.step import recheck_document
-from app.services.review import ACTOR, ReviewError
+from app.services.review import ReviewError
 
 
 class NotRejectedError(ReviewError):
@@ -33,7 +33,13 @@ class NotRejectedError(ReviewError):
 
 
 def bring_back(
-    session: Session, storage: Storage, document: Document, *, settings: Settings, today: date
+    session: Session,
+    storage: Storage,
+    document: Document,
+    *,
+    settings: Settings,
+    today: date,
+    actor: str,
 ) -> None:
     """Rejected -> in review, checked again. Refused when another live document now holds its
     supplier and invoice number (decision 18). The caller commits."""
@@ -41,7 +47,7 @@ def bring_back(
         raise NotRejectedError(document.status)
     try:
         with session.begin_nested():
-            transition(session, document, DocumentStatus.IN_REVIEW, actor=ACTOR,
+            transition(session, document, DocumentStatus.IN_REVIEW, actor=actor,
                        reason="brought back")  # fmt: skip
     except IntegrityError as exc:
         raise ReviewError(
@@ -51,7 +57,7 @@ def bring_back(
     recheck_document(session, storage, document, settings=settings, today=today)
 
 
-def delete_permanently(session: Session, document: Document) -> list[str]:
+def delete_permanently(session: Session, document: Document, *, actor: str) -> list[str]:
     """Remove the document and everything about it; the storage keys to remove after the
     caller commits."""
     if document.status is not DocumentStatus.REJECTED:
@@ -75,7 +81,7 @@ def delete_permanently(session: Session, document: Document) -> list[str]:
             sha256=document.sha256,
             page_count=document.page_count,
             rejected_reason=reason,
-            deleted_by=ACTOR,
+            deleted_by=actor,
         )
     )
     session.delete(document)  # extractions and corrections go with it (ON DELETE CASCADE)

@@ -461,7 +461,7 @@ def test_send_back_is_refused_once_the_create_request_was_sent(
 
     assert posting.sending_of(session, doc).can_send_back is False  # type: ignore[union-attr]
     with pytest.raises(posting.SendError, match="use Try again"):
-        posting.send_back(session, doc)
+        posting.send_back(session, doc, actor="tester@missan.test")
     session.refresh(outbox)
     assert outbox.status is OutboxStatus.DEAD  # nothing changed
 
@@ -471,7 +471,7 @@ def test_send_back_before_the_create_request_returns_it_to_review(
 ) -> None:
     doc, outbox = gave_up(session, xero)
 
-    posting.send_back(session, doc)
+    posting.send_back(session, doc, actor="tester@missan.test")
 
     session.refresh(outbox)
     session.refresh(doc)
@@ -489,7 +489,7 @@ def test_only_a_send_that_gave_up_can_be_tried_again_or_sent_back(
     with pytest.raises(posting.SendError):
         posting.try_again(session, doc)
     with pytest.raises(posting.SendError):
-        posting.send_back(session, doc)
+        posting.send_back(session, doc, actor="tester@missan.test")
 
 
 def test_a_document_changed_since_approval_is_never_sent(
