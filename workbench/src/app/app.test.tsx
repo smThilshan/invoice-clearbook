@@ -37,11 +37,11 @@ describe('layout and navigation', () => {
     await waitFor(() => expect(document.title).toBe('Review queue – Clearbook'))
   })
 
-  it('shows a not-found page for unknown paths', () => {
+  it('shows a not-found page for unknown paths', async () => {
     mockReadiness(ALL_OK)
     renderApp('/nowhere')
 
-    expect(screen.getByRole('heading', { name: /page not found/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /page not found/i })).toBeInTheDocument()
   })
 })
 

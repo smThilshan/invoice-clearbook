@@ -1,14 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 
+import { makeQueryClient } from '@/api/queryClient'
 import { routes } from '@/app/routes'
 import { startTheme } from '@/lib/theme'
 
 import './index.css'
 
-const queryClient = new QueryClient({
+const queryClient = makeQueryClient({
   defaultOptions: {
     queries: { staleTime: 10_000, refetchOnWindowFocus: true },
   },

@@ -1715,6 +1715,26 @@
         "title": "Located",
         "type": "object"
       },
+      "LoginBody": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginBody",
+        "type": "object"
+      },
       "MasterDataImportOut": {
         "description": "Per table; None = that file was not uploaded.",
         "properties": {
@@ -1755,6 +1775,28 @@
           "contacts"
         ],
         "title": "MasterDataImportOut",
+        "type": "object"
+      },
+      "MeOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "role"
+        ],
+        "title": "MeOut",
         "type": "object"
       },
       "ModelStatus": {
@@ -2177,6 +2219,15 @@
           "OTHER"
         ],
         "title": "RejectReason",
+        "type": "string"
+      },
+      "Role": {
+        "description": "What a Missan user may do (decision 71). Every user works on every client.",
+        "enum": [
+          "ACCOUNTANT",
+          "ADMIN"
+        ],
+        "title": "Role",
         "type": "string"
       },
       "RunAccepted": {
@@ -2824,6 +2875,83 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/auth/login": {
+      "post": {
+        "description": "401 for a wrong email or password (never which), 429 while locked.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "login"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "login"
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "login"
+        ]
+      }
+    },
     "/clients": {
       "get": {
         "operationId": "get_clients_clients_get",

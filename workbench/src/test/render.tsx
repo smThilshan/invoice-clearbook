@@ -1,13 +1,14 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
+import { makeQueryClient } from '@/api/queryClient'
 import { routes } from '@/app/routes'
 
 /** The real app routes in memory, with a fresh query cache per test. `state`: what the page
  * was opened with (e.g. the list a review came from). */
 export function renderApp(path = '/', state?: unknown) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = makeQueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createMemoryRouter(routes, { initialEntries: [{ pathname: path.split('?')[0], search: path.includes('?') ? `?${path.split('?')[1]}` : '', state }] })
   render(
     <QueryClientProvider client={client}>
@@ -32,6 +33,10 @@ export interface FakeApi {
   bodies: Record<string, unknown>
 }
 
+/** Tests act as this logged-in admin unless they answer /auth/me themselves (decision 71). */
+export const TEST_USER = { email: 'tester@missan.test', name: 'Made-up Tester', role: 'ADMIN' }
+const DEFAULTS: Record<string, Answer> = { '/auth/me': TEST_USER }
+
 /**
  * Replace fetch with a fake backend. Keys are "/path" (any method) or "METHOD /path"; the
  * query string is ignored for matching. Unknown paths answer 404, like the real API.
@@ -44,7 +49,7 @@ export function mockApi(answers: Record<string, Answer>): FakeApi {
     const path = url.pathname.replace(/^\/api/, '')
     fake.calls.push(`${request.method} ${path}${url.search}`)
     if (init?.body) fake.bodies[`${request.method} ${path}`] = JSON.parse(String(init.body))
-    const answer = answers[`${request.method} ${path}`] ?? answers[path]
+    const answer = answers[`${request.method} ${path}`] ?? answers[path] ?? DEFAULTS[path]
     if (answer === undefined) return json({ detail: 'Not Found' }, 404)
     const result = typeof answer === 'function' ? answer(request) : answer
     return isReply(result) ? json(result.body, result.status ?? 200) : json(result, 200)

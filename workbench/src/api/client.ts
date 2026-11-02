@@ -7,6 +7,9 @@ import type { components } from './schema'
 
 export type Schemas = components['schemas']
 export type Readiness = Schemas['Readiness']
+export type Me = Schemas['MeOut']
+export type Role = Schemas['Role']
+export type LoginBody = Schemas['LoginBody']
 export type ModelStatus = Schemas['ModelStatus']
 export type Client = Schemas['ClientOut']
 export type ClientCreate = Schemas['ClientCreate']
@@ -69,6 +72,10 @@ export class ApiError extends Error {
   }
 }
 
+/** Sent with every request: the API refuses a change without it, and another site cannot add
+ * it, so a logged-in browser cannot be made to change anything from elsewhere (decision 71). */
+const APP_HEADER = { 'X-Clearbook': '1' }
+
 interface RequestOptions extends RequestInit {
   /** Non-2xx statuses whose JSON body is still the answer (e.g. 503 from readiness). */
   acceptStatuses?: number[]
@@ -78,7 +85,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const { acceptStatuses = [], headers, ...init } = options
   const response = await fetch(`/api${path}`, {
     ...init,
-    headers: { Accept: 'application/json', ...headers },
+    headers: { Accept: 'application/json', ...APP_HEADER, ...headers },
   })
   if (!response.ok && !acceptStatuses.includes(response.status)) {
     throw new ApiError(response.status, await errorMessage(response))
@@ -105,8 +112,8 @@ function sendJson<T>(method: 'POST' | 'PATCH', path: string, body: unknown): Pro
 }
 
 /** A call answered with no content (204), e.g. a delete. */
-async function sendNoContent(method: 'DELETE', path: string): Promise<void> {
-  const response = await fetch(`/api${path}`, { method, headers: { Accept: 'application/json' } })
+async function sendNoContent(method: 'DELETE' | 'POST', path: string): Promise<void> {
+  const response = await fetch(`/api${path}`, { method, headers: { Accept: 'application/json', ...APP_HEADER } })
   if (!response.ok) throw new ApiError(response.status, await errorMessage(response))
 }
 
@@ -120,6 +127,10 @@ export function pageImageUrl(documentId: string, page: number): string {
 export const api = {
   /** Readiness answers 503 (with the same body) when Postgres or Redis is down. */
   readiness: () => request<Readiness>('/health/ready', { acceptStatuses: [503] }),
+  /** Who is logged in; 401 when nobody is (decision 71). */
+  me: () => request<Me>('/auth/me'),
+  login: (body: LoginBody) => sendJson<Me>('POST', '/auth/login', body),
+  logout: () => sendNoContent('POST', '/auth/logout'),
   clients: () => request<Client[]>('/clients'),
   /** Is the client connected to its accounting system (task 5.3)? */
   accounting: (clientId: string) =>

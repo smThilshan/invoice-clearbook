@@ -4,6 +4,8 @@ import {
   api,
   ApiError,
   type ClientCreate,
+  type LoginBody,
+  type Me,
   type DocumentDetail,
   type DocumentUpdate,
   type ValueKind,
@@ -15,6 +17,7 @@ import {
 import { WORKING } from '@/lib/labels'
 
 export const queryKeys = {
+  me: ['me'] as const,
   readiness: ['readiness'] as const,
   clients: ['clients'] as const,
   places: (clientId: string) => ['places', clientId] as const,
@@ -33,6 +36,44 @@ export const queryKeys = {
 const READINESS_REFRESH_MS = 30_000
 export const RUN_REFRESH_MS = 3_000
 export const QUEUE_REFRESH_MS = 30_000
+
+/** Who is logged in; null when nobody is (decision 71). A 401 from any other call sets it to
+ * null too (api/queryClient.ts). */
+export function useMe() {
+  return useQuery({
+    queryKey: queryKeys.me,
+    queryFn: async (): Promise<Me | null> => {
+      try {
+        return await api.me()
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) return null
+        throw error
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
+export function useLogin() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: LoginBody) => api.login(body),
+    onSuccess: (me) => client.setQueryData(queryKeys.me, me),
+  })
+}
+
+/** Everything cached belonged to the session: it all goes. */
+export function useLogout() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: api.logout,
+    onSettled: () => {
+      client.clear()
+      client.setQueryData(queryKeys.me, null)
+    },
+  })
+}
 
 /** System status, refreshed every 30 seconds while the Workbench is open. */
 export function useReadiness() {

@@ -98,7 +98,7 @@ retries never double-post.
 ## After the MVP
 
 ### Phase 6 — Go live on Missan's setup (Week 4)
-**First: login & roles (decision 26)** — `users` table (Missan staff, access to all restaurants), Argon2-hashed passwords, JWT with expiry, roles reviewer / approver / admin, `make add-user`, every endpoint except health requires login, approve requires approver; then the API may listen beyond localhost.
+**First: login & roles (decision 26)** — ✅ done 2026-11-02 (decision 71: roles accountant / admin, 24 h sessions, every route protected by default, Workbench login page; still on 127.0.0.1 until HTTPS) — `users` table (Missan staff, access to all restaurants), Argon2-hashed passwords, JWT with expiry, roles reviewer / approver / admin, `make add-user`, every endpoint except health requires login, approve requires approver; then the API may listen beyond localhost.
 GPU server + vLLM serving Qwen3-VL-4B; Missan's real accounting system connected; daily use, all `SUBMITTED`.
 Done when: real invoices flow daily on the production server.
 

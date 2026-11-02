@@ -1,14 +1,24 @@
 import { Navigate, type RouteObject } from 'react-router'
 
 import { AppLayout } from '@/app/AppLayout'
+import { RequireLogin } from '@/app/RequireLogin'
 import { NotFoundPage } from '@/pages/placeholders'
 
 /** Each page's code is loaded when the page is first opened (task 4.15): the Workbench starts
- * with the layout only, and the review screen's viewer is not loaded until it is needed. */
+ * with the layout only, and the review screen's viewer is not loaded until it is needed. Every
+ * page but /login needs a logged-in user (decision 71). */
 export const routes: RouteObject[] = [
   {
+    path: '/login',
+    lazy: async () => ({ Component: (await import('@/pages/login/LoginPage')).LoginPage }),
+  },
+  {
     path: '/',
-    element: <AppLayout />,
+    element: (
+      <RequireLogin>
+        <AppLayout />
+      </RequireLogin>
+    ),
     children: [
       { index: true, element: <Navigate to="/run" replace /> },
       {

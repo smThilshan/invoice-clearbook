@@ -1,6 +1,8 @@
-import { Building2, FileSearch, FolderInput, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Building2, FileSearch, FolderInput, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+
+import { useLogout, useMe } from '@/api/queries'
 
 import { SystemStatus } from '@/components/SystemStatus'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
@@ -57,6 +59,31 @@ function NavItem({
   )
 }
 
+/** Who is logged in, and Log out (decision 71). */
+function UserMenu() {
+  const me = useMe().data
+  const logout = useLogout()
+  const navigate = useNavigate()
+  if (!me) return null
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="hidden text-muted-foreground sm:inline" title={me.email}>
+        {me.name}
+        {me.role === 'ADMIN' ? ' · admin' : ''}
+      </span>
+      <button
+        type="button"
+        onClick={() => logout.mutate(undefined, { onSettled: () => void navigate('/login') })}
+        disabled={logout.isPending}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground hover:bg-muted"
+      >
+        <LogOut className="size-4" aria-hidden />
+        Log out
+      </button>
+    </div>
+  )
+}
+
 /** Header with system status, side navigation, and the current page (tasks 4.1, 4.18).
  * The review screen needs its width for the page and the form: there the sidebar folds to
  * icons and the header is compact, unless the user chose otherwise (remembered per computer). */
@@ -98,6 +125,7 @@ export function AppLayout() {
         </div>
         <div className="flex items-center gap-3">
           <ThemeSwitch />
+          <UserMenu />
         </div>
       </header>
       <SystemStatus />
