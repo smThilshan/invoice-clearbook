@@ -1,6 +1,8 @@
 """Words grouped into printed lines, from the boxes the Read step saved. Shared by the TRN
 finder (decision 29) and the field locator (task 4.6)."""
 
+import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.pipeline.read import PageText, TextSpan
@@ -24,10 +26,14 @@ class Line:
 
 
 def page_lines(page: PageText) -> list[Line]:
-    """The page's words as lines, top to bottom, each line left to right."""
+    """The page's words as lines, top to bottom, each line left to right (decision 67): heights
+    as if the photo were level, and a word joins a line when it is at the height of the word
+    of that line nearest to it, so a line that still drifts (curled paper) is followed word by
+    word. The words keep their own boxes, for highlighting."""
+    level = _leveller(page)
     rows: list[list[TextSpan]] = []
-    for span in sorted(page.spans, key=centre):
-        if rows and abs(centre(span) - centre(rows[-1][0])) <= LINE_TOLERANCE:
+    for span in sorted(page.spans, key=level):
+        if rows and abs(level(span) - level(_nearest(rows[-1], span))) <= LINE_TOLERANCE:
             rows[-1].append(span)
         else:
             rows.append([span])
@@ -35,9 +41,30 @@ def page_lines(page: PageText) -> list[Line]:
     for row in rows:
         row.sort(key=lambda span: span.box[0])
         lines.append(
-            Line(page.page, centre(row[0]), row[0].box[0], tuple(row), page.source == "ocr")
+            Line(page.page, level(row[0]), row[0].box[0], tuple(row), page.source == "ocr")
         )
     return lines
+
+
+def _leveller(page: PageText) -> Callable[[TextSpan], float]:
+    """A word's vertical centre with the page turned level by its tilt (fraction of the height)."""
+    if not page.tilt:
+        return centre
+    turn = math.radians(page.tilt)
+    sin, cos = math.sin(turn), math.cos(turn)
+    width, height = page.width, page.height
+
+    def level(span: TextSpan) -> float:
+        x = ((span.box[0] + span.box[2]) / 2 - 0.5) * width  # pixels from the page centre
+        y = (centre(span) - 0.5) * height
+        return (cos * y - sin * x) / height + 0.5
+
+    return level
+
+
+def _nearest(row: list[TextSpan], span: TextSpan) -> TextSpan:
+    """The word of the row horizontally nearest to `span` (0 when they overlap)."""
+    return min(row, key=lambda word: max(word.box[0] - span.box[2], span.box[0] - word.box[2], 0.0))
 
 
 def centre(span: TextSpan) -> float:

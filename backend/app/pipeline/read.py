@@ -5,7 +5,8 @@
   text is used, but it is OCR text, with OCR mistakes (S for 5), so it is marked "ocr" and the
   checks allow for them (decision 29).
 - Scanned page or photo: OCR on the page image. Photos are turned upright from their EXIF
-  orientation first (phone photos of receipts are often sideways).
+  orientation first (phone photos of receipts are often sideways). A few degrees off level is
+  measured, not turned (decision 67): words are grouped into lines as if level.
 Per page, Storage gets a PNG (for the model and the Workbench viewer) and a JSON with text spans
 and boxes as fractions of the page (0-1), so the Workbench can highlight at any zoom.
 
@@ -41,6 +42,7 @@ from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
 from app.models import Document
 from app.pipeline.page_quality import PageQuality, measure, prepare_for_ocr
+from app.pipeline.tilt import find_tilt
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,7 @@ class PageText:
     source: Literal["text_layer", "ocr"]  # "ocr": ours or a scanner's, may misread characters
     spans: list[TextSpan] = field(default_factory=list)
     quality: PageQuality | None = None  # pictures only (photo or scan); None = digital page
+    tilt: float = 0.0  # degrees our OCR's photo is off level (decision 67); 0 = level or unknown
 
     @property
     def text(self) -> str:
@@ -215,9 +218,7 @@ def read_pages(
     ):
         text = _text_layer(page, image, number, min_text_chars) if page is not None else None
         if text is None:
-            quality = measure(image)
-            text = _ocr(ocr(), prepare_for_ocr(image, quality), number)
-            text.quality = quality
+            text = ocr_page(ocr(), image, number)
         elif text.source == "ocr":  # a scanner's text over the page picture
             text.quality = measure(image)
         result.append((image, text))
@@ -233,10 +234,12 @@ def decode_image(data: bytes) -> Image:
 
 
 def ocr_page(engine: OcrEngine, image: Image, number: int) -> PageText:
-    """Our own OCR of one page picture, with the light evened out when needed (decision 30)."""
+    """Our own OCR of one page picture, with the light evened out when needed (decision 30),
+    and the photo's tilt measured for grouping its words into lines (decision 67)."""
     quality = measure(image)
     text = _ocr(engine, prepare_for_ocr(image, quality), number)
     text.quality = quality
+    text.tilt = find_tilt(image)
     return text
 
 
