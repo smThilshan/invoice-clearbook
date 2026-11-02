@@ -11,14 +11,18 @@ Labels name candidates only; the arithmetic decides, because words differ betwee
 - Exactly one such answer (T, V, r); when the slack fits two (small amounts), the one whose
   amount before VAT is printed too.
 
-Then the items: lines at the end that are printed in the block (copied summary rows, the cash
-given, the change, an item copied again) are removed, as few as needed, never every line, until
-the rest add up exactly to T - r (VAT included in the prices) or to T - r - V (VAT on top). One
+Then the items: the whole list read twice (A, B, A, B) becomes one copy when that copy adds up
+to the block (decision 66). Otherwise lines at the end that are printed in the block (copied
+summary rows, the cash given, the change, an item copied again) are removed, as few as needed,
+never every line, until the rest add up exactly to T - r (VAT included in the prices) or to
+T - r - V (VAT on top). One
 item left a fils away from T - r is the till's own rounding of that line ("18.38" with
 "17.50 + 0.87"): the VAT summary is what the VAT is claimed from, so the item takes its amount.
 A printed rounding becomes the line "Rounding" with no VAT, as in decision 58; the subtotal is
-T - V, and the VAT type is set from the amounts. Otherwise nothing changes, and the steps after
-(decisions 56-61) run as before. The model's own answer stays in `extractions.raw_output`.
+T - V, and the VAT type is set from the amounts. When no items fit, the proven totals are still
+taken (subtotal T - V, VAT V, total T; decision 66) and the items stay as read, for the rules
+to flag. Without a proven block nothing changes, and the steps after (decisions 56-61) run as
+before. The model's own answer stays in `extractions.raw_output`.
 """
 
 import re
@@ -114,7 +118,12 @@ def apply_totals_block(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
         return invoice
     items = _items(invoice.lines, block)
     if items is None:
-        return invoice
+        if not _totals_alone_proven(block):
+            return invoice
+        # The totals are proven, the items are not: they stay as read, flagged by the rules.
+        return invoice.model_copy(update={
+            "subtotal": block.total - block.vat, "vat": block.vat, "total": block.total,
+        })  # fmt: skip
     if block.rounding:
         items = [*items, Line(description=ROUNDING, amount=block.rounding, tax_type=TaxType.NONE)]
     fixed = invoice.model_copy(update={
@@ -134,6 +143,11 @@ def _items(lines: list[Line], block: TotalsBlock) -> list[Line] | None:
                 and _is_vat(line.description or "")]  # fmt: skip
     if len(vat_rows) == 1 and len(lines) > 1:
         lines = lines[: vat_rows[0]] + lines[vat_rows[0] + 1 :]
+    # The whole item list read twice (A, B, A, B): one copy adding up to the block proves it.
+    half = len(lines) // 2
+    if (half and len(lines) % 2 == 0 and lines[:half] == lines[half:]
+            and sum((line.amount for line in lines[:half]), Decimal(0)) in targets):  # fmt: skip
+        return lines[:half]
     for removed in range(len(lines)):  # never every line
         if removed and not _block_row(lines[-removed].amount, block):
             break  # a real item: nothing before it is a copied row either
@@ -147,6 +161,17 @@ def _items(lines: list[Line], block: TotalsBlock) -> list[Line] | None:
         price = block.items if item.unit_price is not None else None
         return [item.model_copy(update={"amount": block.items, "unit_price": price})]
     return None
+
+
+def _totals_alone_proven(block: TotalsBlock) -> bool:
+    """Without the items to confirm it, the block must prove more: on small amounts the rate
+    slack also fits the amount before VAT taken as the total ("Total Amount 5.70 / Total Tax
+    0.29" when "Net Amount 6.00" is misread). So the VAT is 5% to the fils, and the amount
+    before VAT is printed (a fils or two off: the till rounds per line)."""
+    before = block.before_vat
+    return abs(before * UAE_VAT - block.vat) <= CENT and any(
+        abs(amount - before) <= RATE_SLACK for amount in block.printed
+    )
 
 
 def _block_row(amount: Decimal, block: TotalsBlock) -> bool:

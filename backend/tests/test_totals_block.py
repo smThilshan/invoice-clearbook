@@ -124,10 +124,58 @@ def test_nothing_changes_without_proof(text: str, why: str) -> None:
         ("9.19", "9.19"),  # two items a fils off: which one?
     ],
 )
-def test_items_that_do_not_fit_are_left_alone(amounts: tuple[str, ...]) -> None:
-    model = receipt(*amounts)
+def test_items_that_do_not_fit_are_left_alone_and_the_proven_totals_taken(
+    amounts: tuple[str, ...],
+) -> None:
+    """Decision 66: 5% of 17.50 is 0.87 to the fils and 17.50 is printed: the totals stand on
+    their own; the items stay as read, for the rules to flag."""
+    fixed = apply_totals_block(receipt(*amounts), [page(AVOCADO)])
 
-    assert apply_totals_block(model, [page(AVOCADO)]) == model
+    assert summary(fixed) == (list(amounts), "17.38", "0.87", "18.25", None)
+
+
+# Al Shahama 9: "Net Amount 18.50" is the total, "Total Amount 17.61" the amount before VAT.
+SHAHAMA_9 = """MASAFI MINERAL WATER 1.00 6.50
+RAINBOW ORIGINAL 2.00 12.00
+Total Qty: 3.00 | Total Amount : 17.61
+Total Tax : 0.89
+Net Amount : 18.50
+Tendered Amount 18.50
+Balance Amount 0.00
+5.00 17.61 0.89"""
+
+
+def test_the_item_list_read_twice_becomes_one_copy_and_the_missing_total_is_taken() -> None:
+    model = receipt("6.50", "12.00", "6.50", "12.00", subtotal=Decimal("17.61"),
+                    vat=Decimal("0.89"))  # fmt: skip
+    model.lines[2:] = [line.model_copy() for line in model.lines[:2]]  # the very same lines
+
+    assert summary(apply_totals_block(model, [page(SHAHAMA_9)])) == (
+        ["6.50", "12.00"], "17.61", "0.89", "18.50", AmountType.INCLUSIVE)  # fmt: skip
+
+
+def test_a_list_read_twice_whose_copy_does_not_fit_keeps_every_line() -> None:
+    model = receipt("6.50", "11.00", "6.50", "11.00")
+    model.lines[2:] = [line.model_copy() for line in model.lines[:2]]
+
+    assert [str(line.amount) for line in apply_totals_block(model, [page(SHAHAMA_9)]).lines] == [
+        "6.50", "11.00", "6.50", "11.00"]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        (
+            "Total Amount 5.70\nTotal Tax 0.29\nRounding 0.01\nNet.Amount 6.00",
+            "the real total's label misread: 5.70 fits only with the rate slack",
+        ),
+        ("Total Amount 6.18\nTotal Tax 0.31\nNet Amount 650", "the real total's dot lost"),
+    ],
+)
+def test_totals_without_their_items_need_the_stricter_proof(text: str, why: str) -> None:
+    model = receipt("5.99", total=Decimal("6.00"))
+
+    assert apply_totals_block(model, [page(text)]) == model, why
 
 
 def test_a_real_last_item_priced_as_a_block_amount_is_kept() -> None:
