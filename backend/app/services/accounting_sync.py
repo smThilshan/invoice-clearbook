@@ -65,6 +65,7 @@ def sync(session: Session, settings: Settings, registry: Registry, client: Clien
         )
     )
     client.accounting_provider = provider
+    connection.org_ref = data.organisation_ref or connection.org_ref
     session.flush()
     return SyncReport(
         accounts=report.accounts or Counts(),

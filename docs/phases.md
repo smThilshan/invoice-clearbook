@@ -86,7 +86,7 @@ Goal: folder → review → posted works for bills, credit notes and receipts, w
 - [ ] **5.6 Xero error handling** — retry/backoff for 429/timeouts, business errors → `POST_ERROR` back to review with Xero message, token expiry pauses posting, rate limiter
 - [ ] **5.7 Xero credit notes** — ACCPAYCREDIT + allocation to original
 - [x] **5.8 Xero receipts** — posted as ACCPAY bills (Awaiting Approval), due on their own date; the payment is recorded in Xero (bank-feed match or petty cash) (decision 50; real receipts in a Xero test organisation, checked 2026-11-02)
-- [ ] **5.9 Workbench posting status** — posted / exported / error shown, with link to the document in the accounting system
+- [x] **5.9 Workbench posting status** — posted / exported / error shown, with link to the document in the accounting system (decision 70: queue lists Waiting to send / Could not send / Posted with counts; Open in Xero opens the right organisation by its ShortCode; export status comes with 5.2)
 - [ ] **5.10 End-to-end run** — real sample invoices through the full flow, manual and Xero; fix what breaks
 - [ ] **5.11 README + demo script**
 

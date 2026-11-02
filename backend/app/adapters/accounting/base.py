@@ -54,6 +54,9 @@ class MasterData:
     accounts: Sequence[LedgerAccountRecord] | None = None
     tax_rates: Sequence[TaxRateRecord] | None = None
     contacts: Sequence[ContactRecord] | None = None
+    # The provider's short reference for the organisation, for links into its own screens
+    # (decision 70); None = not known, links open whichever organisation is signed in.
+    organisation_ref: str | None = None
 
 
 class MasterDataError(Exception):

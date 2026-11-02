@@ -300,7 +300,14 @@ function PostingLines({
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
             {plural(summary.failed, 'bill')} could not be sent
-            {summary.failed_reason ? `: ${summary.failed_reason}` : ''}. Open it to try again.
+            {summary.failed_reason ? `: ${summary.failed_reason}` : ''}.{' '}
+            <Link
+              to={`/queue?${new URLSearchParams({ client: clientId, sending: 'failed' })}`}
+              className="underline underline-offset-2"
+            >
+              Open the list
+            </Link>{' '}
+            to try again.
           </span>
         </li>
       )}

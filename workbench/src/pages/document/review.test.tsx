@@ -457,6 +457,39 @@ describe('review screen', () => {
     expect(await screen.findByText('Sent back after it could not be sent: made-up error')).toBeInTheDocument()
   })
 
+  it('links a posted document to the bill in the accounting system', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      '/clients/cafe/accounting': { provider_name: 'Xero' },
+      [`/documents/${ID}`]: detail({
+        status: 'POSTED',
+        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false },
+        external_url: 'https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=bill-1',
+      }),
+    })  // prettier-ignore
+    await open(api)
+
+    const status = screen.getByRole('status', { name: 'Sending' })
+    await waitFor(() => expect(status).toHaveTextContent('Posted to Xero, waiting for approval there.'))
+    expect(within(status).getByRole('link', { name: 'Open in Xero' })).toHaveAttribute(
+      'href', 'https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=bill-1',
+    )  // prettier-ignore
+  })
+
+  it('says a paused document waits for a new sign-in, and where to give it', async () => {
+    await open(backend(detail({
+      status: 'POSTING',
+      sending: { state: 'paused', reason: 'Xero access was withdrawn (invalid_grant)', next_try_at: null,
+                 can_send_back: false },
+    })))  // prettier-ignore
+
+    const status = screen.getByRole('status', { name: 'Sending' })
+    expect(status).toHaveTextContent('Paused: Xero access was withdrawn (invalid_grant).')
+    expect(within(status).getByRole('link', { name: 'Connect again on the Clients page' })).toHaveAttribute(
+      'href', '/clients',
+    )  // prettier-ignore
+  })
+
   it('cannot change a document that is no longer in review', async () => {
     await open(backend(detail({ status: 'POSTED' })))
 

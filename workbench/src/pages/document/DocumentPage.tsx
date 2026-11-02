@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
+  ExternalLink,
   LoaderCircle,
   RefreshCw,
   RotateCcw,
@@ -12,11 +13,12 @@ import {
   TriangleAlert,
   Undo2,
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import { useBlocker, useLocation, useNavigate, useParams } from 'react-router'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router'
 
-import { type DocumentDetail, type DocumentStatus } from '@/api/client'
+import { type DocumentDetail, type DocumentStatus, type Sending } from '@/api/client'
 import {
+  useAccounting,
   useAnswerKey,
   useApproveDocument,
   useCodingOptions,
@@ -36,7 +38,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDate, QUEUE_LABELS, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
+import { formatDate, formatDateTime, QUEUE_LABELS, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
 import { neighbours, type ReviewContext, reviewContext } from '@/lib/reviewList'
 import { formatDuration, workMs } from '@/lib/timings'
 import { usePageTitle } from '@/lib/usePageTitle'
@@ -162,18 +164,7 @@ export function DocumentPage() {
         </Alert>
       )}
       {doc.sending?.state === 'failed' && <SendFailed document={doc} />}
-      {doc.status === 'APPROVED' && doc.sending?.state !== 'failed' && (
-        <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
-          <CircleCheck className="size-4" aria-hidden />
-          Approved: waiting to be posted.
-        </p>
-      )}
-      {doc.status === 'POSTED' && (
-        <p role="status" className="flex items-center gap-2 text-sm font-medium text-success">
-          <CircleCheck className="size-4" aria-hidden />
-          Posted to the accounting system, waiting for approval there.
-        </p>
-      )}
+      {doc.sending && doc.sending.state !== 'failed' && <SendingStatus document={doc} />}
       {save.isSuccess && !save.isPending && (
         <p role="status" className="text-sm text-muted-foreground">
           Saved and checked again
@@ -247,6 +238,52 @@ export function DocumentPage() {
       </div>
     </PageContainer>
   )
+}
+
+/** Where an approved document is on its way (decision 70); the posted one links to it there. */
+function SendingStatus({ document }: { document: DocumentDetail }) {
+  const system = useAccounting(document.client_id, false).data?.provider_name ?? 'the accounting system'
+  if (!document.sending) return null
+  const [tone, text] = sendingText(document.sending, system)
+  return (
+    <p role="status" aria-label="Sending" className={`flex flex-wrap items-center gap-2 text-sm font-medium ${tone}`}>
+      <CircleCheck className="size-4" aria-hidden />
+      <span>{text}</span>
+      {document.external_url && (
+        <a
+          href={document.external_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
+        >
+          Open in {system}
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
+      )}
+    </p>
+  )
+}
+
+function sendingText(sending: Sending, system: string): [string, ReactNode] {
+  if (sending.state === 'posted') return ['text-success', `Posted to ${system}, waiting for approval there.`]
+  if (sending.state === 'paused') {
+    return [
+      'text-destructive',
+      <>
+        Paused: {sending.reason}.{' '}
+        <Link to="/clients" className="underline underline-offset-2">
+          Connect again on the Clients page
+        </Link>
+        .
+      </>,
+    ]
+  }
+  if (sending.state === 'retrying') {
+    const when = sending.next_try_at ? ` at ${formatDateTime(sending.next_try_at)}` : ''
+    const why = sending.reason ? ` (${sending.reason})` : ''
+    return ['text-warning', `Approved: ${system} will be tried again${when}${why}.`]
+  }
+  return ['text-success', `Approved: being sent to ${system}.`]
 }
 
 /**

@@ -46,6 +46,7 @@ export type ValueKind = Schemas['ValueKind']
 export type Place = Schemas['Place']
 export type Located = Schemas['Located']
 export type Sending = Schemas['SendingOut']
+export type SendingList = Schemas['SendingList']
 
 export interface QueueQuery {
   client_id: string
@@ -53,6 +54,7 @@ export interface QueueQuery {
   status?: DocumentStatus
   run_id?: string
   search?: string
+  sending?: SendingList // a list of approved documents instead of `status` (decision 70)
   limit: number
   offset: number
 }

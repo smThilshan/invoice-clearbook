@@ -223,6 +223,7 @@ class FakeOrganisation:
             TaxRateRecord("OUTPUT", "OUTPUT", "Standard Rated Income", Decimal("5"), None),
         ]  # fmt: skip
         self.contacts = [ContactRecord("c1", "Made-up Supplier LLC", None, is_supplier=True)]
+        self.organisation_ref: str | None = "!aB1cD"
         self.asked: list[tuple[str, str]] = []
 
     def system(self, token: str, tenant_id: str) -> "FakeOrganisation":
@@ -232,7 +233,7 @@ class FakeOrganisation:
     provider = AccountingProvider.XERO
 
     def fetch_master_data(self) -> MasterData:
-        return MasterData(self.accounts, self.tax_rates, self.contacts)
+        return MasterData(self.accounts, self.tax_rates, self.contacts, self.organisation_ref)
 
 
 def test_syncing_brings_xero_master_data_and_switches_the_client_to_it(
@@ -253,6 +254,19 @@ def test_syncing_brings_xero_master_data_and_switches_the_client_to_it(
     chart = load_chart(session, client_id=CLIENT, provider=AccountingProvider.XERO)
     assert sorted(chart.accounts) == ["400", "420"]
     assert chart.tax_codes == {TaxType.STANDARD_5: "INPUT"}
+
+
+def test_syncing_keeps_the_organisation_reference_for_links(
+    session: Session, xero: FakeXero
+) -> None:
+    connection = connect(session, xero)
+    client = get_client(session, CLIENT)
+    sync(session, SETTINGS, registry(xero), client)  # type: ignore[arg-type]
+    xero.organisation.organisation_ref = None  # Xero did not say this time
+
+    sync(session, SETTINGS, registry(xero), client)  # type: ignore[arg-type]
+
+    assert connection.org_ref == "!aB1cD"  # kept, not wiped
 
 
 def test_syncing_again_marks_what_was_removed_in_xero_inactive(

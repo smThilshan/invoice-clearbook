@@ -79,6 +79,7 @@ MAX_DESCRIPTION = 4000  # the shortest line-description limit of the systems we 
 # Sent as bills (decision 50): a receipt is a bill already paid.
 POSTED_AS_BILLS = frozenset({DocumentType.BILL, DocumentType.RECEIPT})
 SENDABLE = (DocumentStatus.APPROVED, DocumentStatus.POSTING)
+POSTED_STATUSES = (DocumentStatus.POSTED, DocumentStatus.SYNCED)
 REVIEW_ACTOR = "workbench"  # the accountant's own actions here, until login (decision 26)
 
 Sessions = Callable[[], AbstractContextManager[Session]]
@@ -187,23 +188,61 @@ def send_next(
 
 def sending_of(session: Session, document: Document) -> Sending | None:
     """None: not approved (yet or any more)."""
-    if document.status is DocumentStatus.POSTED:
+    return sending_states(session, [document]).get(document.id)
+
+
+def sending_states(session: Session, documents: Sequence[Document]) -> dict[uuid.UUID, Sending]:
+    """Where each approved document is (a queue page at a time): one query for the outbox rows,
+    one per client for a paused connection, whatever the number of documents."""
+    approved = [d for d in documents if d.status in SENDABLE or d.status in POSTED_STATUSES]
+    rows: dict[uuid.UUID, Outbox] = {}
+    for outbox in session.scalars(
+        select(Outbox)
+        .where(Outbox.document_id.in_([d.id for d in approved if d.status in SENDABLE]))
+        .order_by(Outbox.created_at)
+    ):
+        rows[outbox.document_id] = outbox  # the latest row of each document wins
+    paused = {c: _paused_because(session, c) for c in {d.client_id for d in approved}}
+    now = datetime.now(UTC)
+    return {d.id: _state(d, rows.get(d.id), paused[d.client_id], now) for d in approved}
+
+
+def _state(document: Document, outbox: Outbox | None, paused: str | None, now: datetime) -> Sending:
+    if document.status in POSTED_STATUSES:
         return Sending("posted")
-    if document.status not in SENDABLE:
-        return None
-    outbox = _latest_row(session, document.id)
     if outbox is None:
         return Sending("waiting")
     if outbox.status is OutboxStatus.DEAD:
         progress = outbox.progress or {}
         return Sending("failed", outbox.last_error, can_send_back=CREATE_SENT not in progress)
-    if (paused := _paused_because(session, document.client_id)) is not None:
+    if paused is not None:
         return Sending("paused", paused)
     if outbox.status is OutboxStatus.IN_PROGRESS:
         return Sending("sending")
-    if outbox.last_error and outbox.next_attempt_at > datetime.now(UTC):
+    if outbox.last_error and outbox.next_attempt_at > now:
         return Sending("retrying", outbox.last_error, outbox.next_attempt_at)
     return Sending("waiting")
+
+
+def document_links(
+    session: Session, registry: Registry, documents: Sequence[Document]
+) -> dict[uuid.UUID, str]:
+    """Each posted document in its accounting system's own screens (decision 70)."""
+    posted = [d for d in documents if d.external_id]
+    links: dict[uuid.UUID, str] = {}
+    for client_id in {d.client_id for d in posted}:
+        client = session.scalars(select(Client).where(Client.client_id == client_id)).one()
+        connection = session.scalars(
+            select(AccountingConnection).where(AccountingConnection.client_id == client_id)
+        ).first()
+        entry = registry.get(connection.provider if connection else client.accounting_provider)
+        if entry is None:
+            continue
+        org_ref = connection.org_ref if connection else None
+        for document in (d for d in posted if d.client_id == client_id):
+            if url := entry.document_url(org_ref, document.external_id or ""):
+                links[document.id] = url
+    return links
 
 
 def try_again(session: Session, document: Document) -> Outbox:

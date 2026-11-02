@@ -191,8 +191,11 @@ describe('clients', () => {
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
     expect(
-      await within(row).findByText(/2 bills could not be sent: unexpected error \(RuntimeError\)\. Open it to try again\./),
+      await within(row).findByText(/2 bills could not be sent: unexpected error \(RuntimeError\)\./),
     ).toBeInTheDocument()
+    expect(within(row).getByRole('link', { name: 'Open the list' })).toHaveAttribute(
+      'href', '/queue?client=cafe-al-noor&sending=failed',
+    )  // prettier-ignore
   })
 
   it('says bills are paused when the client was disconnected', async () => {

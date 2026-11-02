@@ -27,8 +27,9 @@ from app.domain.enums import DocumentStatus as S
 from app.domain.invoice import Invoice, Line
 from app.models import Contact, Document, LedgerAccount, Outbox, OutboxStatus, TaxRate
 from app.services import accounting_connections as connections
-from app.services import posting
+from app.services import posting, review
 from app.services.clients import get_client
+from app.services.review import SendingList
 from tests.integration.factories import CLIENT, make_document
 from tests.integration.test_xero_connection import SETTINGS, FakeXero, connect, registry
 
@@ -529,3 +530,74 @@ def test_the_review_screen_tries_again_or_sends_back_through_the_api(
     assert again.status_code == 200 and again.json()["sending"]["state"] == "waiting"
     assert len(asked) == 1  # the worker was asked to send that row
     assert not_failed.status_code == 409
+
+
+# --- Where every approved document is: the queue's lists (decision 70) --------------------------
+
+
+def one_of_each(session: Session, xero: FakePosting) -> dict[str, Document]:
+    """A posted, a failed and a waiting bill, and one still in review."""
+    posted, _ = approved(session, invoice_number="INV-1")
+    send(session, xero)
+    failed, _ = gave_up(session, xero)
+    waiting, _ = approved(session, invoice_number="INV-3")
+    in_review, _ = approved(session, invoice_number="INV-4")
+    session.execute(update(Document).where(Document.id == in_review.id)
+                    .values(status=S.IN_REVIEW))  # fmt: skip
+    session.expire_all()
+    return {"posted": posted, "failed": failed, "waiting": waiting}
+
+
+def test_each_list_holds_its_approved_documents_and_counts_them_all(
+    session: Session, xero: FakePosting
+) -> None:
+    docs = one_of_each(session, xero)
+
+    for name in SendingList:
+        page = review.list_queue(session, client_id=CLIENT, sending=name)
+
+        assert [d.id for d in page.documents] == [docs[name.value].id], name
+        assert page.sending_counts == {SendingList.WAITING: 1, SendingList.FAILED: 1,
+                                       SendingList.POSTED: 1}  # fmt: skip
+        assert page.counts == {}  # categories are for documents in review
+
+
+def test_a_page_of_states_says_the_same_as_each_document_alone(
+    session: Session, xero: FakePosting
+) -> None:
+    docs = list(one_of_each(session, xero).values())
+
+    together = posting.sending_states(session, docs)
+
+    assert {d.id: posting.sending_of(session, d) for d in docs} == together
+    assert sorted(s.state for s in together.values()) == ["failed", "posted", "waiting"]
+
+
+def test_posted_rows_link_to_the_bill_in_xero_through_the_api(
+    session: Session, xero: FakePosting
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.core.config import get_settings
+    from app.core.db import get_session
+    from app.main import create_app
+
+    one_of_each(session, xero)
+    connections.connection_of(session, CLIENT).org_ref = "!aB1cD"  # type: ignore[union-attr]
+    session.flush()
+    app = create_app(SETTINGS)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_settings] = lambda: SETTINGS
+    with TestClient(app) as api:
+        posted = api.get("/documents", params={"client_id": CLIENT, "sending": "posted"}).json()
+        failed = api.get("/documents", params={"client_id": CLIENT, "sending": "failed"}).json()
+
+    [row] = posted["documents"]
+    assert row["sending"]["state"] == "posted"
+    assert row["external_url"].startswith(
+        "https://go.xero.com/organisationlogin/default.aspx?shortcode=%21aB1cD"
+    )
+    assert row["external_url"].endswith("InvoiceID%3Dxero-bill-1")
+    assert posted["sending_counts"] == {"waiting": 1, "failed": 1, "posted": 1}
+    [row] = failed["documents"]
+    assert (row["sending"]["state"], row["external_url"]) == ("failed", None)

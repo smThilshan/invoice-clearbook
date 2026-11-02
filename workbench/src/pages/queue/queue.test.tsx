@@ -30,6 +30,8 @@ function doc(id: string, changes: Partial<DocumentSummary> = {}): DocumentSummar
     errors: 0,
     warnings: 0,
     created_at: '2026-10-21T08:00:00Z',
+    sending: null,
+    external_url: null,
     ...changes,
   }
 }
@@ -40,6 +42,7 @@ const PAGE: QueuePage = {
   offset: 0,
   counts: { EXCEPTION: 1, CHECK: 1, READY: 1 },
   processing: 0,
+  sending_counts: { waiting: 1, failed: 2, posted: 5 },
   documents: [
     doc('d1', { queue: 'EXCEPTION', errors: 2, warnings: 1, total: '1234567.5' }),
     doc('d2', { queue: 'CHECK', warnings: 1, vendor_name: null }),
@@ -272,5 +275,58 @@ describe('review queue', () => {
 
     expect(await screen.findByText('The queue could not be loaded')).toBeInTheDocument()
     expect(screen.getByText('client not found')).toBeInTheDocument()
+  })
+})
+
+describe('approved documents (decision 70)', () => {
+  const XERO_STATUS = { provider_name: 'Xero' }
+  const SENT: QueuePage = {
+    ...PAGE, total: 2, counts: {},
+    documents: [
+      doc('p1', { status: 'POSTED', sending: { state: 'posted', reason: null, next_try_at: null,
+                  can_send_back: false },
+                  external_url: 'https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=bill-1' }),
+      doc('f1', { status: 'POSTING', sending: { state: 'failed', reason: 'made-up error',
+                  next_try_at: null, can_send_back: true } }),
+    ],
+  }  // prettier-ignore
+
+  it('lists where each one is, links the posted one, and counts what could not be sent', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/runs': RUNS,
+      '/clients/cafe-al-noor/accounting': XERO_STATUS, '/documents': SENT,
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor')
+
+    const sent = await screen.findByRole('group', { name: 'Sent' })
+    await waitFor(() =>
+      expect(within(sent).getByRole('button', { name: /^Could not send/ })).toHaveTextContent('Could not send2'),
+    )
+    await user.click(within(sent).getByRole('button', { name: /^Posted/ }))
+
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&sending=posted'))
+    await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ sending: 'posted' }))
+    expect(screen.queryByRole('group', { name: 'Category' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Queue overview' })).not.toBeInTheDocument()
+    const [posted, failed] = screen.getAllByRole('row').slice(1) as [HTMLElement, HTMLElement]
+    expect(await within(posted).findByRole('link', { name: 'Open in Xero' })).toHaveAttribute(
+      'href', 'https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=bill-1',
+    )  // prettier-ignore
+    expect(failed).toHaveTextContent('Could not send')
+    expect(failed).toHaveTextContent('made-up error')
+  })
+
+  it('goes back to the documents in review from a list of sent ones', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor&sending=failed')
+
+    await screen.findByRole('table', { name: 'Documents' })
+    expect(queueCalls(api)[0]).toMatchObject({ sending: 'failed' })
+    await user.click(screen.getByRole('button', { name: 'In review' }))
+
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
+    expect(screen.getByRole('group', { name: 'Category' })).toBeInTheDocument()
   })
 })

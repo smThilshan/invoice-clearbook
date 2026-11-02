@@ -49,9 +49,20 @@ class XeroAccountingSystem:
                 accounts=[_account(a) for a in self._xero.get("Accounts").get("Accounts", [])],
                 tax_rates=[_tax_rate(t) for t in self._xero.get("TaxRates").get("TaxRates", [])],
                 contacts=[_contact(c) for c in self._contacts()],
+                organisation_ref=self._short_code(),
             )
         except XeroApiError as exc:
             raise AccountingSystemError(str(exc)) from exc
+
+    def _short_code(self) -> str | None:
+        """Xero's ShortCode, which links use to open the right organisation (decision 70). Only
+        for links: a failure here leaves the links without it and the sync goes on."""
+        try:
+            organisations = self._xero.get("Organisation").get("Organisations") or [{}]
+        except XeroApiError:
+            return None
+        code = organisations[0].get("ShortCode")
+        return code if isinstance(code, str) and code else None
 
     def post_bill(
         self,

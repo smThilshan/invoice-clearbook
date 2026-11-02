@@ -18,12 +18,12 @@ import json
 import uuid
 from collections.abc import Callable, Collection, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from typing import Any, Final
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, exists, func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.llm import ExtractionClient
@@ -32,7 +32,7 @@ from app.core.config import Settings
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
-from app.models import Document
+from app.models import Document, Outbox, OutboxStatus
 from app.pipeline.verify.issues import Severity
 from app.pipeline.verify.step import (
     Assessment,
@@ -41,6 +41,7 @@ from app.pipeline.verify.step import (
     working_copy,
 )
 from app.services.corrections import sync_corrections
+from app.services.posting import POSTED_STATUSES, SENDABLE
 
 ACTOR: Final = "workbench"  # until login (decision 26)
 EDITABLE: Final = frozenset({DocumentStatus.IN_REVIEW, DocumentStatus.NON_POSTABLE})
@@ -62,6 +63,14 @@ class RejectReason(StrEnum):
     OTHER = "OTHER"  # needs a note
 
 
+class SendingList(StrEnum):
+    """The queue's lists of approved documents (decision 70)."""
+
+    WAITING = "waiting"  # on its way: waiting, sending, retrying or paused
+    FAILED = "failed"  # gave up: Try again or Send back
+    POSTED = "posted"  # in the accounting system
+
+
 class ReviewError(Exception):
     """The request cannot be applied; the message is safe to show the accountant."""
 
@@ -80,6 +89,7 @@ class QueuePage:
     # selected), and the client's documents still being processed (not in the list yet).
     counts: dict[QueueCategory, int]
     processing: int
+    sending_counts: dict["SendingList", int] = field(default_factory=dict)  # same filters
 
 
 def list_queue(
@@ -90,32 +100,58 @@ def list_queue(
     queue: QueueCategory | None = None,
     run_id: uuid.UUID | None = None,
     search: str | None = None,
+    sending: SendingList | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> QueuePage:
-    base = select(Document).where(Document.client_id == client_id, Document.status == status)
+    """`sending`: one of the lists of approved documents instead of `status` (decision 70)."""
+    scope = select(Document).where(Document.client_id == client_id)
     if run_id is not None:
-        base = base.where(Document.run_id == run_id)
+        scope = scope.where(Document.run_id == run_id)
     if search and search.strip():
-        base = base.where(_matches(search.strip()))
-    counts = {
-        category: count
-        for category, count in session.execute(
-            base.with_only_columns(Document.queue, func.count()).group_by(Document.queue)
-        )
-        if category is not None
+        scope = scope.where(_matches(search.strip()))
+    sending_counts = {
+        name: session.scalar(scope.where(_sending(name)).with_only_columns(func.count())) or 0
+        for name in SendingList
     }
-    query = base.where(Document.queue == queue) if queue is not None else base
+    counts: dict[QueueCategory, int] = {}
+    if sending is not None:
+        query = scope.where(_sending(sending))
+        newest_first = sending is not SendingList.WAITING  # what just happened, on top
+        order: tuple[Any, ...] = (
+            Document.updated_at.desc() if newest_first else Document.updated_at,
+            Document.id,
+        )
+    else:
+        base = scope.where(Document.status == status)
+        counts = {
+            category: count
+            for category, count in session.execute(
+                base.with_only_columns(Document.queue, func.count()).group_by(Document.queue)
+            )
+            if category is not None
+        }
+        query = base.where(Document.queue == queue) if queue is not None else base
+        order = (_QUEUE_ORDER, Document.created_at, Document.id)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-    documents = session.scalars(
-        query.order_by(_QUEUE_ORDER, Document.created_at, Document.id).limit(limit).offset(offset)
-    ).all()
+    documents = session.scalars(query.order_by(*order).limit(limit).offset(offset)).all()
     still = select(func.count()).where(
         Document.client_id == client_id, Document.status.in_(PROCESSING)
     )
     if run_id is not None:
         still = still.where(Document.run_id == run_id)
-    return QueuePage(list(documents), total, counts, session.scalar(still) or 0)
+    return QueuePage(list(documents), total, counts, session.scalar(still) or 0, sending_counts)
+
+
+def _sending(name: SendingList) -> Any:
+    gave_up = exists().where(Outbox.document_id == Document.id, Outbox.status == OutboxStatus.DEAD)
+    match name:
+        case SendingList.WAITING:
+            return and_(Document.status.in_(SENDABLE), ~gave_up)
+        case SendingList.FAILED:
+            return and_(Document.status.in_(SENDABLE), gave_up)
+        case SendingList.POSTED:
+            return Document.status.in_(POSTED_STATUSES)
 
 
 # Statuses whose pipeline step is still to come or running: not in the review queue yet.

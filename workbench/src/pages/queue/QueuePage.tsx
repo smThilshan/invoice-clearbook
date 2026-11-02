@@ -1,9 +1,9 @@
-import { ChevronLeft, ChevronRight, LoaderCircle, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, Search } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 
-import type { DocumentSummary, QueueCategory, QueueQuery, RunOption } from '@/api/client'
-import { useClients, useQueue, useRuns } from '@/api/queries'
+import type { DocumentSummary, QueueCategory, QueueQuery, RunOption, SendingList } from '@/api/client'
+import { useAccounting, useClients, useQueue, useRuns } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { ClientSelect } from '@/components/ClientSelect'
@@ -48,6 +48,12 @@ const LISTS = [
   { status: 'REJECTED', label: 'Rejected' },
 ] as const
 type ListStatus = (typeof LISTS)[number]['status']
+// Approved documents on their way to the accounting system (decision 70).
+const SENDING_LISTS: { key: SendingList; label: string }[] = [
+  { key: 'waiting', label: 'Waiting to send' },
+  { key: 'failed', label: 'Could not send' },
+  { key: 'posted', label: 'Posted' },
+]
 
 const CATEGORY_STYLES: Record<QueueCategory, string> = {
   EXCEPTION: 'bg-destructive/10 text-destructive',
@@ -70,6 +76,7 @@ export function QueuePage() {
     (clients.data?.some((c) => c.client_id === remembered) ? remembered : undefined)
   const category = asCategory(params.get('queue'))
   const status: ListStatus = LISTS.find((l) => l.status === params.get('status'))?.status ?? 'IN_REVIEW'
+  const sending = SENDING_LISTS.find((l) => l.key === params.get('sending'))?.key
   const runId = params.get('run') ?? undefined
   const search = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
@@ -84,12 +91,15 @@ export function QueuePage() {
         status,
         run_id: runId,
         search: search || undefined,
+        sending,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       }
     : undefined
   const queue = useQueue(query)
   const counts = queue.data?.counts
+  const sendingCounts = queue.data?.sending_counts
+  const system = useAccounting(clientId ?? '', false).data?.provider_name ?? 'the accounting system'
 
   /** Change filters; any change other than the page goes back to page 1. */
   function update(changes: Record<string, string | undefined>) {
@@ -115,7 +125,7 @@ export function QueuePage() {
         description="Exception first, then Check, then Ready; oldest first inside each."
       />
 
-      {clientId && counts && (
+      {clientId && counts && !sending && (
         <section aria-label="Queue overview" className="grid gap-3 sm:grid-cols-3">
           {(['EXCEPTION', 'CHECK', 'READY'] as const).map((key) => (
             <button
@@ -142,34 +152,63 @@ export function QueuePage() {
             value={clientId}
             onChange={(c) => update({ client: c.client_id, run: undefined })}
           />
-          <Toggle label="Category">
-            {CATEGORIES.map((c) => (
-              <ToggleButton
-                key={c ?? 'ALL'}
-                pressed={category === c}
-                onClick={() => update({ queue: c })}
-              >
-                {c ? QUEUE_LABELS[c] : 'All'}
-                {counts && (
-                  <span className="ml-1.5 tabular-nums text-muted-foreground">
-                    {c ? (counts[c] ?? 0) : Object.values(counts).reduce((a, b) => a + (b ?? 0), 0)}
-                  </span>
-                )}
-              </ToggleButton>
-            ))}
-          </Toggle>
+          {!sending && (
+            <Toggle label="Category">
+              {CATEGORIES.map((c) => (
+                <ToggleButton
+                  key={c ?? 'ALL'}
+                  pressed={category === c}
+                  onClick={() => update({ queue: c })}
+                >
+                  {c ? QUEUE_LABELS[c] : 'All'}
+                  {counts && (
+                    <span className="ml-1.5 tabular-nums text-muted-foreground">
+                      {c ? (counts[c] ?? 0) : Object.values(counts).reduce((a, b) => a + (b ?? 0), 0)}
+                    </span>
+                  )}
+                </ToggleButton>
+              ))}
+            </Toggle>
+          )}
           <Toggle label="List">
             {LISTS.map((list) => (
               <ToggleButton
                 key={list.status}
-                pressed={status === list.status}
+                pressed={!sending && status === list.status}
                 onClick={() =>
-                  update({ status: list.status === 'IN_REVIEW' ? undefined : list.status })
+                  update({
+                    status: list.status === 'IN_REVIEW' ? undefined : list.status,
+                    sending: undefined,
+                  })
                 }
               >
                 {list.label}
               </ToggleButton>
             ))}
+          </Toggle>
+          <Toggle label="Sent">
+            {SENDING_LISTS.map((list) => {
+              const count = sendingCounts?.[list.key] ?? 0
+              return (
+                <ToggleButton
+                  key={list.key}
+                  pressed={sending === list.key}
+                  onClick={() => update({ sending: list.key, status: undefined, queue: undefined })}
+                >
+                  {list.label}
+                  {sendingCounts && (
+                    <span
+                      className={cn(
+                        'ml-1.5 tabular-nums',
+                        list.key === 'failed' && count > 0 ? 'font-semibold text-destructive' : 'text-muted-foreground',
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </ToggleButton>
+              )
+            })}
           </Toggle>
           {clientId && (
             <RunFilter clientId={clientId} runId={runId} onChange={(run) => update({ run })} />
@@ -198,14 +237,24 @@ export function QueuePage() {
       ) : queue.isError ? (
         <ErrorAlert title="The queue could not be loaded" error={queue.error} />
       ) : queue.data.total === 0 ? (
-        <EmptyQueue
-          filtered={Boolean(category || search || runId)}
-          list={status}
-          onClear={() => update({ queue: undefined, q: undefined, run: undefined })}
-        />
+        sending ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm font-medium">
+            {sending === 'failed'
+              ? 'Nothing failed to send.'
+              : sending === 'posted'
+                ? `Nothing posted to ${system} yet.`
+                : 'Nothing waiting to be sent.'}
+          </p>
+        ) : (
+          <EmptyQueue
+            filtered={Boolean(category || search || runId)}
+            list={status}
+            onClear={() => update({ queue: undefined, q: undefined, run: undefined })}
+          />
+        )
       ) : (
         <>
-          <DocumentTable documents={queue.data.documents} />
+          <DocumentTable documents={queue.data.documents} sendingList={Boolean(sending)} system={system} />
           <Pager
             page={page}
             total={queue.data.total}
@@ -313,7 +362,15 @@ function runLabel(run: RunOption): string {
 
 /** Fits the page: fixed column widths, long text cut with … (full text on hover); the type,
  * folder and file sit under the supplier. Narrow screens drop the number column. */
-function DocumentTable({ documents }: { documents: DocumentSummary[] }) {
+function DocumentTable({
+  documents,
+  sendingList,
+  system,
+}: {
+  documents: DocumentSummary[]
+  sendingList: boolean // a list of approved documents: where each is instead of its issues
+  system: string
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   // Review opens with this list, for Back, previous / next and Approve & next (task 4.15).
@@ -331,7 +388,9 @@ function DocumentTable({ documents }: { documents: DocumentSummary[] }) {
             <TableHead className="hidden w-40 lg:table-cell">Number</TableHead>
             <TableHead className="w-28">Date</TableHead>
             <TableHead className="w-32 text-right">Total</TableHead>
-            <TableHead className="w-36">Issues</TableHead>
+            <TableHead className={sendingList ? 'w-56' : 'w-36'}>
+              {sendingList ? 'Sending' : 'Issues'}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -378,7 +437,11 @@ function DocumentTable({ documents }: { documents: DocumentSummary[] }) {
                   {doc.total !== null ? `${doc.currency ?? ''} ${formatAmount(doc.total)}`.trim() : ''}
                 </TableCell>
                 <TableCell>
-                  <IssueCounts errors={doc.errors} warnings={doc.warnings} />
+                  {sendingList ? (
+                    <SendingCell document={doc} system={system} />
+                  ) : (
+                    <IssueCounts errors={doc.errors} warnings={doc.warnings} />
+                  )}
                 </TableCell>
               </TableRow>
             )
@@ -386,6 +449,52 @@ function DocumentTable({ documents }: { documents: DocumentSummary[] }) {
         </TableBody>
       </Table>
     </div>
+  )
+}
+
+const SENDING_LABELS: Record<string, string> = {
+  waiting: 'Waiting',
+  sending: 'Sending',
+  retrying: 'Trying again later',
+  paused: 'Paused',
+  failed: 'Could not send',
+  posted: 'Posted',
+}
+
+/** Where an approved document is (decision 70): the state, why, and the posted one's link. */
+function SendingCell({ document, system }: { document: DocumentSummary; system: string }) {
+  const sending = document.sending
+  if (!sending) return null
+  const tone =
+    sending.state === 'failed' || sending.state === 'paused'
+      ? 'text-destructive'
+      : sending.state === 'posted'
+        ? 'text-success'
+        : 'text-warning'
+  return (
+    <span className="flex flex-col text-xs leading-5">
+      <span className={cn('font-medium', tone)}>
+        {SENDING_LABELS[sending.state]}
+        {sending.state === 'retrying' && sending.next_try_at ? ` at ${formatDateTime(sending.next_try_at)}` : ''}
+      </span>
+      {sending.reason && sending.state !== 'posted' && (
+        <span className="truncate text-muted-foreground" title={sending.reason}>
+          {sending.reason}
+        </span>
+      )}
+      {document.external_url && (
+        <a
+          href={document.external_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline"
+          onClick={(event) => event.stopPropagation()}
+        >
+          Open in {system}
+          <ExternalLink className="size-3" aria-hidden />
+        </a>
+      )}
+    </span>
   )
 }
 

@@ -6,7 +6,7 @@ for the Workbench; they are never logged.
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from datetime import date, datetime
 from decimal import Decimal
@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.accounting.registry import PROVIDERS  # links only: no calls to the systems
 from app.adapters.llm import ExtractionClient, get_extraction_client
 from app.adapters.storage import Storage, get_storage
 from app.adapters.storage.base import NotFoundError
@@ -61,6 +62,15 @@ class IssueOut(BaseModel):
     charges: list[ChargeOut] | None = None  # charges outside the lines, to add as lines (4.13)
 
 
+class SendingOut(BaseModel):
+    """Where an approved document is on its way to the accounting system (decision 69)."""
+
+    state: Literal["waiting", "sending", "retrying", "paused", "failed", "posted"]
+    reason: str | None  # why it is retrying, paused or failed
+    next_try_at: datetime | None
+    can_send_back: bool  # failed before the create request was sent
+
+
 class DocumentSummary(BaseModel):
     document_id: uuid.UUID
     client_id: str
@@ -78,6 +88,8 @@ class DocumentSummary(BaseModel):
     errors: int
     warnings: int
     created_at: datetime
+    sending: SendingOut | None  # None: not approved (yet or any more)
+    external_url: str | None  # posted: the document in the accounting system's screens (70)
 
 
 class QueuePageOut(BaseModel):
@@ -87,21 +99,13 @@ class QueuePageOut(BaseModel):
     documents: list[DocumentSummary]
     counts: dict[QueueCategory, int]  # per category for the same filters (task 4.16)
     processing: int  # the client's documents still being processed: not in the list yet
+    sending_counts: dict[review.SendingList, int]  # approved documents per list, same filters
 
 
 class CorrectionOut(BaseModel):
     field: str  # e.g. "total", "lines[0].account_code"
     model_value: Any  # what the model read (or the coding step suggested); None = nothing
     final_value: Any
-
-
-class SendingOut(BaseModel):
-    """Where an approved document is on its way to the accounting system (decision 69)."""
-
-    state: Literal["waiting", "sending", "retrying", "paused", "failed", "posted"]
-    reason: str | None  # why it is retrying, paused or failed
-    next_try_at: datetime | None
-    can_send_back: bool  # failed before the create request was sent
 
 
 class DocumentDetail(DocumentSummary):
@@ -121,7 +125,6 @@ class DocumentDetail(DocumentSummary):
     cleaned_descriptions: int  # item codes / "5 x" removed after extraction (decision 42)
     repaired_unit_prices: int  # unit prices worked out from line totals (decision 44)
     cleared_vat: str | None  # the VAT the model read on a document that is no tax invoice (52)
-    sending: SendingOut | None  # None: not approved (yet or any more)
 
 
 class DocumentUpdate(BaseModel):
@@ -190,21 +193,25 @@ def get_queue(
     run_id: uuid.UUID | None = None,
     search: Annotated[str | None, Query(max_length=100)] = None,
     status_: Annotated[DocumentStatus, Query(alias="status")] = DocumentStatus.IN_REVIEW,
+    sending: review.SendingList | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> QueuePageOut:
-    """Exception first, then Check, then Ready; oldest first inside each."""
+    """Exception first, then Check, then Ready; oldest first inside each. `sending`: a list of
+    approved documents instead (waiting, failed, posted; decision 70), `status` then unused."""
     if get_client(session, client_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     page = review.list_queue(session, client_id=client_id, status=status_, queue=queue,
-                             run_id=run_id, search=search, limit=limit, offset=offset)  # fmt: skip
+                             run_id=run_id, search=search, sending=sending, limit=limit,
+                             offset=offset)  # fmt: skip
     return QueuePageOut(
         total=page.total,
         limit=limit,
         offset=offset,
-        documents=[_summary(document) for document in page.documents],
+        documents=_summaries(session, page.documents),
         counts=page.counts,
         processing=page.processing,
+        sending_counts=page.sending_counts,
     )
 
 
@@ -480,13 +487,24 @@ def _http_error(exc: Exception) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
 
-def _summary(document: Document) -> DocumentSummary:
-    return DocumentSummary(**_summary_fields(document, working_copy(document)))
+def _summaries(session: Session, documents: Sequence[Document]) -> list[DocumentSummary]:
+    """A page of rows: the sending states and links are worked out for all of them at once."""
+    states = posting.sending_states(session, documents)
+    links = posting.document_links(session, PROVIDERS, documents)
+    return [
+        DocumentSummary(**_summary_fields(
+            document, working_copy(document), states.get(document.id), links.get(document.id)))
+        for document in documents
+    ]  # fmt: skip
 
 
-def _summary_fields(document: Document, invoice: Invoice | None) -> dict[str, Any]:
+def _summary_fields(
+    document: Document, invoice: Invoice | None, sent: posting.Sending | None, link: str | None
+) -> dict[str, Any]:
     errors, warnings = review.issue_counts(document)
     return {
+        "sending": SendingOut(**asdict(sent)) if sent else None,
+        "external_url": link,
         "document_id": document.id,
         "client_id": document.client_id,
         "run_id": document.run_id,
@@ -509,8 +527,10 @@ def _summary_fields(document: Document, invoice: Invoice | None) -> dict[str, An
 def _detail(session: Session, document: Document) -> DocumentDetail:
     invoice = working_copy(document)
     latest = _latest_extraction(session, document)
+    sent = posting.sending_of(session, document)
+    link = posting.document_links(session, PROVIDERS, [document]).get(document.id)
     return DocumentDetail(
-        **_summary_fields(document, invoice),
+        **_summary_fields(document, invoice, sent, link),
         source_path=document.source_path,
         mime_type=document.mime_type,
         folder_date=document.folder_date,
@@ -530,9 +550,6 @@ def _detail(session: Session, document: Document) -> DocumentDetail:
         cleaned_descriptions=cleaned_count(latest.raw_output, latest.data) if latest else 0,
         repaired_unit_prices=repaired_count(latest.raw_output, latest.data) if latest else 0,
         cleared_vat=cleared_vat(latest.raw_output, latest.data) if latest else None,
-        sending=SendingOut(**asdict(sent))
-        if (sent := posting.sending_of(session, document))
-        else None,
     )
 
 

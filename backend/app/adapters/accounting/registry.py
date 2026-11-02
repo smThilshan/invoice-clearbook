@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from app.adapters.accounting.base import ConnectedSystem, Connector
 from app.adapters.accounting.xero.auth import XeroAuth
+from app.adapters.accounting.xero.links import bill_url
 from app.adapters.accounting.xero.master_data import XeroAccountingSystem
 from app.core.config import Settings
 from app.domain.enums import AccountingProvider
@@ -23,6 +24,8 @@ class ProviderEntry:
     bills_where: str  # where the accountant finds sent bills in the provider's own screens
     connector: Callable[[Settings], Connector]
     system: Callable[[str, str], ConnectedSystem]  # (access token, organisation id) -> adapter
+    # (organisation ref, external id) -> the posted document in the provider's screens (dec. 70)
+    document_url: Callable[[str | None, str], str | None] = lambda _ref, _id: None
 
 
 Registry = Mapping[AccountingProvider, ProviderEntry]
@@ -35,6 +38,7 @@ PROVIDERS: Registry = {
         bills_where="Bills to pay, Awaiting approval",
         connector=XeroAuth,
         system=XeroAccountingSystem,
+        document_url=bill_url,
     ),
 }
 

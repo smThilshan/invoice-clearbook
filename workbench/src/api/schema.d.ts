@@ -185,7 +185,8 @@ export interface paths {
         };
         /**
          * Get Queue
-         * @description Exception first, then Check, then Ready; oldest first inside each.
+         * @description Exception first, then Check, then Ready; oldest first inside each. `sending`: a list of
+         *     approved documents instead (waiting, failed, posted; decision 70), `status` then unused.
          */
         get: operations["get_queue_documents_get"];
         put?: never;
@@ -829,6 +830,8 @@ export interface components {
             document_type: components["schemas"]["DocumentType"] | null;
             /** Errors */
             errors: number;
+            /** External Url */
+            external_url: string | null;
             /** Failure Reason */
             failure_reason: string | null;
             /** File */
@@ -900,6 +903,8 @@ export interface components {
             document_type: components["schemas"]["DocumentType"] | null;
             /** Errors */
             errors: number;
+            /** External Url */
+            external_url: string | null;
             /** File */
             file: string;
             /** Folder */
@@ -914,6 +919,7 @@ export interface components {
              * Format: uuid
              */
             run_id: string;
+            sending: components["schemas"]["SendingOut"] | null;
             status: components["schemas"]["DocumentStatus"];
             /** Total */
             total: string | null;
@@ -1290,6 +1296,10 @@ export interface components {
             offset: number;
             /** Processing */
             processing: number;
+            /** Sending Counts */
+            sending_counts: {
+                [key: string]: number;
+            };
             /** Total */
             total: number;
         };
@@ -1426,6 +1436,12 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
+        /**
+         * SendingList
+         * @description The queue's lists of approved documents (decision 70).
+         * @enum {string}
+         */
+        SendingList: "waiting" | "failed" | "posted";
         /**
          * SendingOut
          * @description Where an approved document is on its way to the accounting system (decision 69).
@@ -1869,6 +1885,7 @@ export interface operations {
                 run_id?: string | null;
                 search?: string | null;
                 status?: components["schemas"]["DocumentStatus"];
+                sending?: components["schemas"]["SendingList"] | null;
                 limit?: number;
                 offset?: number;
             };

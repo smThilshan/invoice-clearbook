@@ -415,6 +415,17 @@
             "title": "Errors",
             "type": "integer"
           },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          },
           "failure_reason": {
             "anyOf": [
               {
@@ -603,6 +614,8 @@
           "errors",
           "warnings",
           "created_at",
+          "sending",
+          "external_url",
           "source_path",
           "mime_type",
           "folder_date",
@@ -618,8 +631,7 @@
           "timings",
           "cleaned_descriptions",
           "repaired_unit_prices",
-          "cleared_vat",
-          "sending"
+          "cleared_vat"
         ],
         "title": "DocumentDetail",
         "type": "object"
@@ -687,6 +699,17 @@
             "title": "Errors",
             "type": "integer"
           },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          },
           "file": {
             "title": "File",
             "type": "string"
@@ -732,6 +755,16 @@
             "format": "uuid",
             "title": "Run Id",
             "type": "string"
+          },
+          "sending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SendingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/DocumentStatus"
@@ -779,7 +812,9 @@
           "currency",
           "errors",
           "warnings",
-          "created_at"
+          "created_at",
+          "sending",
+          "external_url"
         ],
         "title": "DocumentSummary",
         "type": "object"
@@ -2043,6 +2078,16 @@
             "title": "Processing",
             "type": "integer"
           },
+          "sending_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/SendingList"
+            },
+            "title": "Sending Counts",
+            "type": "object"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -2054,7 +2099,8 @@
           "offset",
           "documents",
           "counts",
-          "processing"
+          "processing",
+          "sending_counts"
         ],
         "title": "QueuePageOut",
         "type": "object"
@@ -2380,6 +2426,16 @@
           "STOPPED"
         ],
         "title": "RunStatus",
+        "type": "string"
+      },
+      "SendingList": {
+        "description": "The queue's lists of approved documents (decision 70).",
+        "enum": [
+          "waiting",
+          "failed",
+          "posted"
+        ],
+        "title": "SendingList",
         "type": "string"
       },
       "SendingOut": {
@@ -3212,7 +3268,7 @@
     },
     "/documents": {
       "get": {
-        "description": "Exception first, then Check, then Ready; oldest first inside each.",
+        "description": "Exception first, then Check, then Ready; oldest first inside each. `sending`: a list of\napproved documents instead (waiting, failed, posted; decision 70), `status` then unused.",
         "operationId": "get_queue_documents_get",
         "parameters": [
           {
@@ -3281,6 +3337,22 @@
             "schema": {
               "$ref": "#/components/schemas/DocumentStatus",
               "default": "IN_REVIEW"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sending",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SendingList"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sending"
             }
           },
           {

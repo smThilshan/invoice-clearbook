@@ -28,11 +28,19 @@ TAX_RATES = [
 ]  # fmt: skip
 
 
-def xero(contacts: list[dict[str, Any]], seen: list[httpx.Request] | None = None) -> httpx.Client:
+def xero(
+    contacts: list[dict[str, Any]],
+    seen: list[httpx.Request] | None = None,
+    organisation: httpx.Response | None = None,
+) -> httpx.Client:
     def answer(request: httpx.Request) -> httpx.Response:
         if seen is not None:
             seen.append(request)
         resource = request.url.path.rsplit("/", 1)[1]
+        if resource == "Organisation":
+            return organisation or httpx.Response(
+                200, json={"Organisations": [{"Name": "Made-up Cafe", "ShortCode": "!aB1cD"}]}
+            )
         if resource == "Contacts":
             page = int(request.url.params["page"])
             batch = contacts[(page - 1) * CONTACTS_PAGE : page * CONTACTS_PAGE]
@@ -72,9 +80,19 @@ def test_every_request_names_the_organisation_and_contacts_are_read_page_by_page
     data = XeroAccountingSystem("token", "tenant-1", xero(many, seen)).fetch_master_data()
 
     assert data.contacts is not None and len(data.contacts) == CONTACTS_PAGE + 1
-    assert [r.url.params.get("page") for r in seen] == [None, None, "1", "2"]
+    assert [r.url.params.get("page") for r in seen] == [None, None, "1", "2", None]
     assert all(r.headers["xero-tenant-id"] == "tenant-1" for r in seen)
     assert all(r.headers["authorization"] == "Bearer token" for r in seen)
+
+
+def test_the_organisation_short_code_is_kept_for_links_and_never_stops_a_sync() -> None:
+    data = XeroAccountingSystem("token", "tenant", xero([])).fetch_master_data()
+    refused = XeroAccountingSystem(
+        "token", "tenant", xero([], organisation=httpx.Response(403, json={"Title": "Forbidden"}))
+    ).fetch_master_data()
+
+    assert data.organisation_ref == "!aB1cD"
+    assert refused.organisation_ref is None and refused.accounts  # the sync still has its data
 
 
 @pytest.mark.parametrize(

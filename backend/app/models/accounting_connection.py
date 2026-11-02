@@ -16,6 +16,7 @@ class AccountingConnection(UuidPk, ClientScoped, Timestamps, Base):
     provider: Mapped[AccountingProvider] = mapped_column(str_enum(AccountingProvider, "provider"))
     tenant_id: Mapped[str] = mapped_column(String(64))  # the organisation in that system
     tenant_name: Mapped[str] = mapped_column(String(255))
+    org_ref: Mapped[str | None] = mapped_column(String(64))  # for links into its screens (70)
     connection_id: Mapped[str | None] = mapped_column(String(64))  # needed to disconnect
     access_token: Mapped[str] = mapped_column(Text)  # encrypted
     refresh_token: Mapped[str] = mapped_column(Text)  # encrypted
