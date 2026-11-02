@@ -52,10 +52,12 @@ describe('sidebar', () => {
     mockReadiness(ALL_OK)
     renderApp('/documents/some-document')
 
+    // Folded: the labels are hidden by CSS on wide screens (kept on phones, where the menu is a
+    // top bar), so the test reads the fold from what the reader can use: the toggle offers to
+    // expand, and each icon keeps its name and a hover title.
     const nav = await screen.findByRole('navigation', { name: 'Main' })
-    expect(nav).not.toHaveTextContent('Review queue') // icons only
+    expect(await screen.findByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Review queue' })).toHaveAttribute('title', 'Review queue')
-    expect(await screen.findByText('All systems ready')).toBeInTheDocument() // compact header
   })
 
   it('remembers the reader opening or closing it', async () => {
@@ -63,9 +65,12 @@ describe('sidebar', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
+    const nav = await screen.findByRole('navigation', { name: 'Main' })
+    expect(within(nav).getByRole('link', { name: 'Run' })).not.toHaveAttribute('title') // open
     await user.click(await screen.findByRole('button', { name: 'Collapse sidebar' }))
 
-    expect(screen.getByRole('navigation', { name: 'Main' })).not.toHaveTextContent('Review queue')
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Run' })).toHaveAttribute('title', 'Run') // icons
     expect(localStorage.getItem('clearbook.sidebar')).toBe('closed')
   })
 })

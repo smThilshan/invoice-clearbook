@@ -113,14 +113,31 @@ describe('review queue', () => {
     const router = renderApp('/queue?client=cafe-al-noor')
 
     await screen.findByRole('table', { name: 'Documents' })
-    await user.click(screen.getByRole('button', { name: /^Exception/ }))
+    const categories = screen.getByRole('group', { name: 'Category' })
+    await user.click(within(categories).getByRole('button', { name: /^Exception/ }))
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&queue=EXCEPTION'))
     await user.click(screen.getByRole('button', { name: 'Parked (not postable)' }))
 
     await waitFor(() =>
       expect(queueCalls(api).at(-1)).toMatchObject({ queue: 'EXCEPTION', status: 'NON_POSTABLE' }),
     )
-    expect(screen.getByRole('button', { name: /^Exception/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(categories).getByRole('button', { name: /^Exception/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('filters by category from the overview cards too, and a second click shows all again', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor')
+
+    const overview = await screen.findByRole('region', { name: 'Queue overview' })
+    const card = within(overview).getByRole('button', { name: /^Exception/ })
+    await user.click(card)
+
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&queue=EXCEPTION'))
+    await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ queue: 'EXCEPTION' }))
+    expect(within(overview).getByRole('button', { name: /^Exception/ })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(within(overview).getByRole('button', { name: /^Exception/ }))
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
   })
 
   it('shows one run when coming from the run screen, and can show all again', async () => {
