@@ -12,6 +12,7 @@ from app.domain.enums import Direction
 from app.main import create_app
 from app.models import Run, RunStatus
 from tests.integration.factories import CLIENT, make_client
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -31,6 +32,7 @@ def client(session: Session, tmp_path: Path, enqueued: list[str]) -> Iterator[Te
     make_client(session, root)
     make_client(session, tmp_path / "Other Restaurant", client_id="other-restaurant")
     app = create_app(Settings(_env_file=None, app_env="test"))
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_enqueue_scan] = lambda: enqueued.append
     with TestClient(app) as test_client:
@@ -152,6 +154,7 @@ def anywhere(session: Session, tmp_path: Path, enqueued: list[str]) -> Iterator[
     make_client(session, tmp_path / "Cafe Al Noor")
     settings = Settings(_env_file=None, app_env="test", folder_places=[tmp_path / "mac"])
     app = create_app(settings)
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_enqueue_scan] = lambda: enqueued.append
     from app.core.config import get_settings

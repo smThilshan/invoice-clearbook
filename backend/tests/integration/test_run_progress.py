@@ -14,6 +14,7 @@ from app.models import AuditLog, Run, RunStatus
 from app.services.runs import QUEUED, RunState, run_progress
 from app.services.timings import StepTimings
 from tests.integration.factories import make_client, make_document, make_run
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -82,6 +83,7 @@ def test_file_processed_in_an_earlier_run_counts_as_settled(session: Session) ->
 def client(session: Session, tmp_path: Path) -> Iterator[TestClient]:
     make_client(session, tmp_path / "Cafe Al Noor")
     app = create_app(Settings(_env_file=None, app_env="test"))
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     with TestClient(app) as test_client:
         yield test_client

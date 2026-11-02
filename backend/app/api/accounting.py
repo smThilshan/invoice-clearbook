@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.registry import PROVIDERS, Registry, by_slug
+from app.api.auth import require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountingProvider, TaxType
@@ -38,6 +39,9 @@ from app.services.master_data import Counts
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["accounting system"])
+# The provider sends the browser back here from its own site: our SameSite cookie does not come
+# along, so this one route is public; the signed `state` proves the sign-in started here.
+callback_router = APIRouter(tags=["accounting system"])
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -110,7 +114,7 @@ class SyncOut(BaseModel):
     tax_mapping: list[TaxMappingOut]
 
 
-@router.get("/{slug}/connect")
+@router.get("/{slug}/connect", dependencies=[Depends(require_admin)])
 def connect(
     slug: str, client_id: str, session: SessionDep, settings: SettingsDep, registry: RegistryDep
 ) -> RedirectResponse:
@@ -133,7 +137,7 @@ def get_enqueue_sweep() -> Callable[[str], object]:
     return lambda client_id: send_posting.delay(None, client_id)
 
 
-@router.get("/{slug}/callback")
+@callback_router.get("/{slug}/callback")
 def callback(
     slug: str,
     session: SessionDep,
@@ -204,7 +208,7 @@ def accounting_status(
     )
 
 
-@router.post("/clients/{client_id}/accounting/disconnect")
+@router.post("/clients/{client_id}/accounting/disconnect", dependencies=[Depends(require_admin)])
 def disconnect_accounting(
     client_id: str, session: SessionDep, settings: SettingsDep, registry: RegistryDep
 ) -> AccountingStatus:
@@ -214,7 +218,7 @@ def disconnect_accounting(
     return accounting_status(client_id, session, settings, registry)
 
 
-@router.post("/clients/{client_id}/accounting/sync")
+@router.post("/clients/{client_id}/accounting/sync", dependencies=[Depends(require_admin)])
 def sync_accounting(
     client_id: str, session: SessionDep, settings: SettingsDep, registry: RegistryDep
 ) -> SyncOut:

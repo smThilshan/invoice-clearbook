@@ -14,6 +14,7 @@ from app.domain.enums import AccountingProvider, DocumentStatus
 from tests.integration.factories import CLIENT, make_client
 from tests.integration.test_posting import FakePosting, approved, send
 from tests.integration.test_xero_connection import SETTINGS, FakeXero, registry
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -34,6 +35,7 @@ def api(session: Session, tmp_path: Path) -> Iterator[tuple[TestClient, FakeXero
     make_client(session, tmp_path / "Cafe Al Noor")
     xero = FakeXero()
     app = create_app(SETTINGS)
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SETTINGS
     app.dependency_overrides[get_registry] = lambda: fakebooks(xero)

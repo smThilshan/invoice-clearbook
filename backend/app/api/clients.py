@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.manual import ManualAccountingSystem
+from app.api.auth import require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountClass, AccountingProvider, TaxType
@@ -160,7 +161,7 @@ def get_folders(
     return FolderListing(path=base, folders=folders)
 
 
-@router.post("/{client_id}/master-data")
+@router.post("/{client_id}/master-data", dependencies=[Depends(require_admin)])
 def upload_master_data(
     client_id: str,
     session: Annotated[Session, Depends(get_session)],

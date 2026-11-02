@@ -32,6 +32,7 @@ from app.services.clients import get_client
 from app.services.review import SendingList
 from tests.integration.factories import CLIENT, make_document
 from tests.integration.test_xero_connection import SETTINGS, FakeXero, connect, registry
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -514,6 +515,7 @@ def test_the_review_screen_tries_again_or_sends_back_through_the_api(
 
     asked: list[str] = []
     app = create_app(SETTINGS)
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SETTINGS
     app.dependency_overrides[get_enqueue_posting] = lambda: asked.append
@@ -586,6 +588,7 @@ def test_posted_rows_link_to_the_bill_in_xero_through_the_api(
     connections.connection_of(session, CLIENT).org_ref = "!aB1cD"  # type: ignore[union-attr]
     session.flush()
     app = create_app(SETTINGS)
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SETTINGS
     with TestClient(app) as api:

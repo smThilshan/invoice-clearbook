@@ -38,6 +38,13 @@ class AccountClass(StrEnum):
     EXPENSE = "EXPENSE"
 
 
+class Role(StrEnum):
+    """What a Missan user may do (decision 71). Every user works on every client."""
+
+    ACCOUNTANT = "ACCOUNTANT"  # documents: run, review, approve, send, reject, delete rejected
+    ADMIN = "ADMIN"  # also the accounting system connection and master data
+
+
 class AccountingProvider(StrEnum):
     """Which adapter a client's master data and postings go through (decision 20)."""
 

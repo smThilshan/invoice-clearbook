@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients
+.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients jwt-secret add-user list-users set-password deactivate-user
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -74,8 +74,26 @@ add-client: ## Register a client with its own folder: make add-client ID=cafe-al
 secret-key: ## Print a new TOKEN_KEY for .env (encrypts stored accounting system tokens)
 	@$(UV) python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
+jwt-secret: ## Print a new JWT_SECRET for .env (signs login sessions)
+	@$(UV) python -c "import secrets; print(secrets.token_urlsafe(48))"
+
 list-clients: ## List registered clients
 	@$(UV) python scripts/manage_clients.py list
+
+add-user: ## Create a Workbench user (asks for the password): make add-user EMAIL=a@b.com NAME="A B" ROLE=admin|accountant
+	@test -n "$(EMAIL)" -a -n "$(NAME)" -a -n "$(ROLE)" || { echo 'usage: make add-user EMAIL=<email> NAME="<name>" ROLE=admin|accountant'; exit 1; }
+	@$(UV) python scripts/manage_users.py add "$(EMAIL)" "$(NAME)" "$(ROLE)"
+
+list-users: ## List Workbench users
+	@$(UV) python scripts/manage_users.py list
+
+set-password: ## Set a user's password and log out their sessions: make set-password EMAIL=a@b.com
+	@test -n "$(EMAIL)" || { echo 'usage: make set-password EMAIL=<email>'; exit 1; }
+	@$(UV) python scripts/manage_users.py password "$(EMAIL)"
+
+deactivate-user: ## Stop a user's access at once: make deactivate-user EMAIL=a@b.com
+	@test -n "$(EMAIL)" || { echo 'usage: make deactivate-user EMAIL=<email>'; exit 1; }
+	@$(UV) python scripts/manage_users.py deactivate "$(EMAIL)"
 
 seed: ## Load the fictional F&B sample master data for the default client
 	@$(UV) python scripts/import_master_data.py $(CURDIR)/infra/samples/master_data

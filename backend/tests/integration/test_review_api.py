@@ -32,6 +32,7 @@ from tests.integration.test_verify import (  # noqa: F401  (fixtures)
     storage,
     verify,
 )
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +49,7 @@ def api(session: Session, storage: LocalStorage, tmp_path: Path) -> Iterator[Tes
     make_client(session, tmp_path / "Cafe Al Noor")
     settings = FixedDay(_env_file=None, app_env="test")
     app = create_app(settings)
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_review_storage] = lambda: storage
     app.dependency_overrides[get_settings] = lambda: settings

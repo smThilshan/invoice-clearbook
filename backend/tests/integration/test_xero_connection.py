@@ -30,6 +30,7 @@ from app.services.accounting_connections import AccountingConnectionError
 from app.services.accounting_sync import sync
 from app.services.clients import get_client
 from tests.integration.factories import CLIENT, make_client
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -172,6 +173,7 @@ def api(session: Session, xero: FakeXero, sweeps: list[str]) -> Iterator[TestCli
     from app.main import create_app
 
     app = create_app(SETTINGS)
+    log_in(app)
     app.dependency_overrides[get_session] = lambda: session
     app.dependency_overrides[get_settings] = lambda: SETTINGS
     app.dependency_overrides[get_registry] = lambda: registry(xero)

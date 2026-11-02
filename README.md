@@ -26,6 +26,19 @@ make worker               # Celery
 make web                  # Workbench
 ```
 
+## Log in (users)
+Everyone logs in to the Workbench (decision 71). Once: put a secret in `.env`, then create users
+(the password is asked for, never typed on the command line):
+```bash
+make jwt-secret                       # paste the output into .env as JWT_SECRET=
+make add-user EMAIL=you@missan.ae NAME="Your Name" ROLE=admin      # or ROLE=accountant
+make list-users
+make set-password EMAIL=you@missan.ae    # also logs out that user's sessions
+make deactivate-user EMAIL=you@missan.ae # stops access at once
+```
+Accountants work on every document of every client; admins also connect and sync the accounting
+system and import master data.
+
 ## Set up a client (once each)
 A client is any business whose books Missan keeps. Create it on the Run screen (**+ New client**:
 just a name), or from the terminal with its own folder (decisions 25, 35):

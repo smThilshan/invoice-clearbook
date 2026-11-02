@@ -132,6 +132,15 @@ class Settings(BaseSettings):
     # Where the browser returns after connecting an accounting system.
     workbench_url: str = "http://127.0.0.1:5173"
 
+    # Login (decision 71): signs the session cookie (`make jwt-secret`). Empty, the placeholder or
+    # too short: nobody can log in, rather than sign with a guessable secret.
+    jwt_secret: SecretStr = SecretStr("")
+    session_hours: int = Field(default=24, ge=1, le=24 * 7)
+    # The cookie only travels over HTTPS. Off for http://127.0.0.1 in development only.
+    cookie_secure: bool = False
+    login_max_failures: int = Field(default=5, ge=1)  # then locked for login_lock_minutes
+    login_lock_minutes: int = Field(default=15, ge=1)
+
     # Accounting system of the (single, for now) client: whose master data is matched against.
     # Moves to a per-client record when there are several clients (decision 20).
     accounting_provider: AccountingProvider = AccountingProvider.MANUAL
