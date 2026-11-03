@@ -13,6 +13,7 @@ export type LoginBody = Schemas['LoginBody']
 export type ModelStatus = Schemas['ModelStatus']
 export type Client = Schemas['ClientOut']
 export type ClientCreate = Schemas['ClientCreate']
+export type LineGrouping = Schemas['LineGrouping']
 export type AccountingStatus = Schemas['AccountingStatus']
 export type SyncResult = Schemas['SyncOut']
 export type PostingSummary = Schemas['PostingOut']
@@ -145,6 +146,9 @@ export const api = {
     sendJson<AccountingStatus>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, {}),
   /** A new client from just a name; its id is made from the name (decision 35). */
   createClient: (body: ClientCreate) => sendJson<Client>('POST', '/clients', body),
+  /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
+  setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
+    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),
   /** Where the Run screen may pick a folder: the client's own folder, this Mac, shared drives. */
   places: (clientId: string) =>
     request<FolderPlace[]>(`/folders/places?${new URLSearchParams({ client_id: clientId })}`),

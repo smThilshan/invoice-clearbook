@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import ForeignKey, Index, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.domain.enums import LineGrouping
 from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
@@ -37,6 +38,12 @@ class Outbox(UuidPk, ClientScoped, Timestamps, Base):
     attempts: Mapped[int] = mapped_column(default=0)
     next_attempt_at: Mapped[datetime] = mapped_column(server_default=func.now())
     last_error: Mapped[str | None] = mapped_column(Text)
+    # The client's setting when approved (decision 73): every retry sends the very same lines.
+    line_grouping: Mapped[LineGrouping] = mapped_column(
+        str_enum(LineGrouping, "line_grouping"),
+        default=LineGrouping.BY_ACCOUNT,
+        server_default=LineGrouping.BY_ACCOUNT.value,
+    )
 
     __table_args__ = (
         # Worker pickup: SELECT ... WHERE status = 'PENDING' AND next_attempt_at <= now()

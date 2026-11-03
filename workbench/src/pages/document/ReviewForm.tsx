@@ -131,6 +131,7 @@ export function ReviewForm({
   onSave,
   onDirtyChange,
   onTarget,
+  linesNote,
   actions,
 }: {
   document: DocumentDetail
@@ -140,6 +141,7 @@ export function ReviewForm({
   onSave: (submit: ReviewSubmit) => void
   onDirtyChange?: (dirty: boolean) => void
   onTarget?: (target: FieldTarget | null) => void
+  linesNote?: string  // how the lines are sent to the accounting system (decision 73)
   actions?: ReactNode
 }) {
   const { register, control, handleSubmit, setValue, getValues, formState } = useForm<FormValues>({
@@ -306,6 +308,7 @@ export function ReviewForm({
           corrected={corrected}
           editable={editable}
           onFocusField={setActive}
+          note={linesNote}
         />
 
         {renderSection(AMOUNTS)}
@@ -658,6 +661,7 @@ function Lines({
   onFocusField,
   charges,
   onChargesAdded,
+  note,
 }: {
   control: Control<FormValues>
   register: UseFormRegister<FormValues>
@@ -672,6 +676,7 @@ function Lines({
   corrected: Map<string, Correction>
   editable: boolean
   onFocusField: (field: ActiveField) => void
+  note?: string
 }) {
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
   const [chargesAdded, setChargesAdded] = useState(false)
@@ -697,6 +702,7 @@ function Lines({
   return (
     <section className="space-y-3" aria-label="Lines" data-field="lines">
       <h3 className="text-sm font-semibold text-muted-foreground">Lines</h3>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
       {cleaned > 0 && (
         // Decision 42: item codes and "5 x" prefixes are removed after reading; never hidden.
         <p className="text-xs text-muted-foreground">

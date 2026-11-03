@@ -12,13 +12,14 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
-import type { Client, PostingSummary, SyncResult } from '@/api/client'
+import type { Client, LineGrouping, PostingSummary, SyncResult } from '@/api/client'
 import {
   useAccounting,
   useClients,
   useMe,
   useDisconnectAccounting,
   useSendWaiting,
+  useSetLineGrouping,
   useSyncAccounting,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
@@ -26,8 +27,9 @@ import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDateTime } from '@/lib/labels'
+import { formatDateTime, LINE_GROUPING_LABELS } from '@/lib/labels'
 import { TAX_TYPE_LABELS } from '@/pages/document/formModel'
 import { usePageTitle } from '@/lib/usePageTitle'
 
@@ -133,6 +135,7 @@ function ClientRow({ client }: { client: Client }) {
                   ? `${system}: ${status.data.organisation}${status.data.connected_at ? ` · since ${formatDateTime(status.data.connected_at)}` : ''}${synced ? ` · coding uses ${system} accounts` : ' · not synced yet'}`
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
+          <LinesSent client={client} system={system} admin={admin} />
           {summary && (
             <PostingLines
               summary={summary}
@@ -247,6 +250,41 @@ function ClientRow({ client }: { client: Client }) {
       )}
       {sync.data && <SyncSummary result={sync.data} />}
     </li>
+  )
+}
+
+/** Decision 73: how approved lines are sent. Documents approved from now on are sent this way;
+ * ones already approved keep the way they were approved with. */
+function LinesSent({ client, system, admin }: { client: Client; system: string; admin: boolean }) {
+  const change = useSetLineGrouping()
+  const label = `Lines sent to ${system}`
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">{label}:</span>
+      {admin ? (
+        <Select
+          value={client.line_grouping}
+          disabled={change.isPending}
+          onValueChange={(value) =>
+            change.mutate({ clientId: client.client_id, lineGrouping: value as LineGrouping })
+          }
+        >
+          <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(LINE_GROUPING_LABELS).map(([value, text]) => (
+              <SelectItem key={value} value={value}>
+                {text}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span>{LINE_GROUPING_LABELS[client.line_grouping]}</span>
+      )}
+      {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
+    </div>
   )
 }
 

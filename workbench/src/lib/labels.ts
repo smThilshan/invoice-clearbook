@@ -1,5 +1,5 @@
 /** Words the accountants see for backend codes. One place, so every screen says the same. */
-import type { DocumentStatus, DocumentType, QueueCategory } from '@/api/client'
+import type { DocumentStatus, DocumentType, LineGrouping, QueueCategory } from '@/api/client'
 
 /** QUEUED: found by the folder scan, not taken in yet (run progress only). */
 export type FileStatusCode = DocumentStatus | 'QUEUED'
@@ -77,4 +77,10 @@ export function formatAmount(amount: string): string {
   if (!match) return amount
   const [, sign = '', whole = '', fraction = ''] = match
   return `${sign}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction}`
+}
+
+/** How approved lines are sent to the accounting system (decision 73). */
+export const LINE_GROUPING_LABELS: Record<LineGrouping, string> = {
+  BY_ACCOUNT: 'By account: one line per account and VAT',
+  BY_ITEM: 'By item: identical items combined, quantity added',
 }

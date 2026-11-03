@@ -457,6 +457,19 @@ describe('review screen', () => {
     expect(await screen.findByText('Sent back after it could not be sent: made-up error')).toBeInTheDocument()
   })
 
+  it('says how the lines will be sent to the connected accounting system', async () => {
+    await open(mockApi({
+      '/health/ready': READY, '/clients/cafe/coding-options': OPTIONS, [`/documents/${ID}`]: detail(),
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM' }],
+      '/clients/cafe/accounting': { connected: true, provider_name: 'Xero' },
+    }))  // prettier-ignore
+
+    const lines = screen.getByRole('region', { name: 'Lines' })
+    expect(await within(lines).findByText(
+      'Sent to Xero item by item: identical items as one line, their quantity added.',
+    )).toBeInTheDocument()  // prettier-ignore
+  })
+
   it('links a posted document to the bill in the accounting system', async () => {
     const api = mockApi({
       '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,

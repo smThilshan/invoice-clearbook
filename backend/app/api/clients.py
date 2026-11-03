@@ -1,8 +1,9 @@
 """Clients (any business, decision 35): their folders for the Run screen's pickers, their
 master data (CSV import, task 4.2) and the code options for the review form.
 
-Clients are added on the Run screen (decision 35) or with `make add-client`. No login yet: the
-API listens on localhost only; login comes before it listens anywhere else (Phase 6).
+Clients are added on the Run screen (decision 35) or with `make add-client`. Every route needs
+a login (decision 71); importing master data and changing how a client's lines are sent
+(decision 73) need an admin.
 """
 
 import uuid
@@ -18,7 +19,7 @@ from app.adapters.accounting.manual import ManualAccountingSystem
 from app.api.auth import require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.domain.enums import AccountClass, AccountingProvider, TaxType
+from app.domain.enums import AccountClass, AccountingProvider, LineGrouping, TaxType
 from app.models import Client
 from app.pipeline import coding
 from app.pipeline.folders import InboxError, folder_date_from_path
@@ -41,6 +42,11 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 class ClientOut(BaseModel):
     client_id: str
     name: str
+    line_grouping: LineGrouping  # how approved lines are sent (decision 73)
+
+
+class ClientSettings(BaseModel):
+    line_grouping: LineGrouping
 
 
 class ClientCreate(BaseModel):
@@ -101,7 +107,18 @@ class CodingOptions(BaseModel):
 
 @router.get("")
 def get_clients(session: Annotated[Session, Depends(get_session)]) -> list[ClientOut]:
-    return [ClientOut(client_id=c.client_id, name=c.name) for c in list_clients(session)]
+    return [_out(c) for c in list_clients(session)]
+
+
+@router.patch("/{client_id}", dependencies=[Depends(require_admin)])
+def update_client(
+    client_id: str, body: ClientSettings, session: Annotated[Session, Depends(get_session)]
+) -> ClientOut:
+    """Documents approved from now on are sent this way; ones already approved keep theirs."""
+    client = _found(session, client_id)
+    client.line_grouping = body.line_grouping
+    session.commit()
+    return _out(client)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -116,7 +133,7 @@ def create_client(
     except ClientError as exc:
         session.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    return ClientOut(client_id=client.client_id, name=client.name)
+    return _out(client)
 
 
 @router.get("/{client_id}/runs")
@@ -213,6 +230,12 @@ def get_coding_options(
             for a in chart.purchase_accounts()
         ],
         tax_types=[TaxOption(tax_type=t, code=c) for t, c in chart.tax_codes.items()],
+    )
+
+
+def _out(client: Client) -> ClientOut:
+    return ClientOut(
+        client_id=client.client_id, name=client.name, line_grouping=client.line_grouping
     )
 
 

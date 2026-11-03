@@ -7,8 +7,8 @@ import { mockApi, renderApp } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
 const CLIENTS = [
-  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' },
-  { client_id: 'spice-route', name: 'Spice Route' },
+  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT' },
+  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT' },
 ]
 const NOTHING: PostingSummary = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
@@ -63,6 +63,36 @@ function backend() {
 }
 
 describe('clients', () => {
+  it('lets an admin choose how lines are sent', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      'PATCH /clients/cafe-al-noor': { ...CLIENTS[0], line_grouping: 'BY_ITEM' },
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const setting = await screen.findByRole('combobox', { name: 'Lines sent to Xero' })
+    expect(setting).toHaveTextContent('By account: one line per account and VAT')
+    await user.click(setting)
+    await user.click(await screen.findByRole('option', { name: /^By item/ }))
+
+    await waitFor(() =>
+      expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({ line_grouping: 'BY_ITEM' }),
+    )
+  })
+
+  it('shows an accountant how lines are sent, without letting them change it', async () => {
+    mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT' },
+    })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(await within(row).findByText('By account: one line per account and VAT')).toBeInTheDocument()
+    expect(within(row).queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
   it('shows each client\'s accounting connection, and connects through Xero', async () => {
     backend()
     renderApp('/clients')

@@ -4,6 +4,7 @@ import {
   api,
   ApiError,
   type ClientCreate,
+  type LineGrouping,
   type LoginBody,
   type Me,
   type DocumentDetail,
@@ -98,12 +99,22 @@ export function useCreateClient() {
   })
 }
 
+export function useSetLineGrouping() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ clientId, lineGrouping }: { clientId: string; lineGrouping: LineGrouping }) =>
+      api.setLineGrouping(clientId, lineGrouping),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
 /** `refreshMs`: poll while something is under way (sending bills). */
 export function useAccounting(clientId: string, refreshMs: number | false = false) {
   return useQuery({
     queryKey: ['accounting', clientId],
     queryFn: () => api.accounting(clientId),
     refetchInterval: refreshMs,
+    enabled: clientId !== '',
   })
 }
 

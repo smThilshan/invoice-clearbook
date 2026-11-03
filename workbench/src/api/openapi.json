@@ -274,6 +274,9 @@
             "title": "Client Id",
             "type": "string"
           },
+          "line_grouping": {
+            "$ref": "#/components/schemas/LineGrouping"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -281,9 +284,22 @@
         },
         "required": [
           "client_id",
-          "name"
+          "name",
+          "line_grouping"
         ],
         "title": "ClientOut",
+        "type": "object"
+      },
+      "ClientSettings": {
+        "properties": {
+          "line_grouping": {
+            "$ref": "#/components/schemas/LineGrouping"
+          }
+        },
+        "required": [
+          "line_grouping"
+        ],
+        "title": "ClientSettings",
         "type": "object"
       },
       "CodingOptions": {
@@ -1687,6 +1703,15 @@
         "title": "Line",
         "type": "object"
       },
+      "LineGrouping": {
+        "description": "How a client's approved lines are sent to its accounting system (decisions 51, 73).",
+        "enum": [
+          "BY_ACCOUNT",
+          "BY_ITEM"
+        ],
+        "title": "LineGrouping",
+        "type": "string"
+      },
       "Liveness": {
         "properties": {
           "status": {
@@ -3030,6 +3055,59 @@
           }
         },
         "summary": "Create Client",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}": {
+      "patch": {
+        "description": "Documents approved from now on are sent this way; ones already approved keep theirs.",
+        "operationId": "update_client_clients__client_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Client",
         "tags": [
           "clients"
         ]

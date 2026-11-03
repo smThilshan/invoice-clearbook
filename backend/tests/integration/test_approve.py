@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus as S
-from app.domain.enums import TaxType
+from app.domain.enums import LineGrouping, Role, TaxType
 from app.models import AuditLog, Document, Outbox, OutboxStatus, VendorMapping
 from tests.integration.factories import CLIENT
 from tests.integration.test_review_api import (  # noqa: F401  (fixtures)
@@ -20,6 +20,7 @@ from tests.integration.test_review_api import (  # noqa: F401  (fixtures)
     patch,
 )
 from tests.integration.test_verify import TRN, master_data, storage  # noqa: F401
+from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -167,3 +168,28 @@ def test_a_suppliers_first_approval_starts_its_memory(
     assert (learned.account_code, learned.tax_type, learned.consistent_approvals) == (
         "5000", TaxType.STANDARD_5, 1
     )  # fmt: skip
+
+
+def test_approval_keeps_the_clients_way_of_sending_lines_on_the_outbox_row(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    ok(api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ITEM"}))
+    doc = in_review(session, storage)
+
+    ok(approve(api, doc))
+
+    [row] = outbox_rows(session, doc)
+    assert row.line_grouping is LineGrouping.BY_ITEM
+
+
+def test_only_an_admin_changes_how_lines_are_sent(api: TestClient) -> None:  # noqa: F811
+    clients = ok(api.get("/clients"))
+    assert [c["line_grouping"] for c in clients] == ["BY_ACCOUNT"]  # the default
+    log_in(api.app, Role.ACCOUNTANT)  # type: ignore[arg-type]
+
+    refused = api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ITEM"})
+
+    assert refused.status_code == 403
+    assert api.patch("/clients/nobody", json={"line_grouping": "BY_ITEM"}).status_code == 403

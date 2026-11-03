@@ -1,7 +1,10 @@
 from decimal import Decimal
 
+import pytest
+
 from app.adapters.accounting.base import PostingLine
-from app.services.posting import MAX_DESCRIPTION, group_lines
+from app.domain.enums import AmountType
+from app.services.posting import MAX_DESCRIPTION, combine_items, group_lines
 
 
 def line(description: str | None, amount: str, account: str = "310", tax: str = "NONE",
@@ -62,3 +65,61 @@ def test_lines_without_descriptions_still_group() -> None:
     [grouped] = group_lines([line(None, "1.00"), line(None, "2.00")])
 
     assert (grouped.description, grouped.unit_amount) == (None, Decimal("3.00"))
+
+
+# --- item by item (decision 73) ------------------------------------------------------------
+
+RATES = {"INPUT": Decimal("0.05"), "NONE": Decimal(0)}
+
+
+def items(lines: list[PostingLine], amount_type: AmountType = AmountType.INCLUSIVE) -> list[str]:
+    combined = combine_items(lines, RATES, amount_type)
+    return [f"{x.description} {x.quantity} x {x.unit_amount}" for x in combined]
+
+
+def test_identical_items_become_one_line_with_their_quantity_added() -> None:
+    """The Marketplace bill: Garam Masala 1 x 8.80 three times, yogurt 1 x 6.95 twice."""
+    masala, yogurt = (
+        ("Bayara Whole Garam Masala", "8.80"),
+        ("Almarai Full Fat Fresh Yogurt", "6.95"),
+    )
+    bill = [line(*masala, tax="INPUT")] * 3 + [line(*yogurt, tax="INPUT")] * 2
+
+    assert items(bill) == [
+        "Bayara Whole Garam Masala 3 x 8.80", "Almarai Full Fat Fresh Yogurt 2 x 6.95"]  # fmt: skip
+
+
+def test_the_same_name_in_another_case_or_spacing_is_the_same_item() -> None:
+    assert items([line("Milk  1L", "5.00", qty="2"), line("milk 1l", "5.00")]) == [
+        "Milk  1L 3 x 5.00"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("other", "why"),
+    [
+        (line("Milk", "4.50"), "another price"),
+        (line("Milk", "5.00", account="408"), "another account"),
+        (line("Milk", "5.00", tax="INPUT"), "another VAT code"),
+        (line("Cheese", "5.00"), "another item"),
+    ],
+)
+def test_items_that_differ_in_anything_stay_apart(other: PostingLine, why: str) -> None:
+    assert len(items([line("Milk", "5.00"), other])) == 2, why
+
+
+def test_lines_without_a_name_are_never_combined() -> None:
+    assert items([line(None, "5.00"), line(None, "5.00")]) == ["None 1 x 5.00", "None 1 x 5.00"]
+
+
+def test_a_group_whose_vat_would_round_differently_is_sent_line_by_line() -> None:
+    """VAT included in 0.31 is 0.01 a line, 0.03 for three; on one line of 0.93 it is 0.04, so
+    the three stay apart. In 1.05 it is 0.05 a line and 0.10 on 2.10: combined."""
+    assert items([line("Gum", "0.31", tax="INPUT")] * 3) == ["Gum 1 x 0.31"] * 3
+    assert items([line("Gum", "1.05", tax="INPUT")] * 2) == ["Gum 2 x 1.05"]
+
+
+def test_vat_added_on_top_is_checked_the_same_way() -> None:
+    """5% of 0.30 is 0.015 -> 0.02 per line (0.04); 5% of 0.60 is 0.03: kept apart."""
+    assert items([line("Clip", "0.30", tax="INPUT")] * 2, AmountType.EXCLUSIVE) == [
+        "Clip 1 x 0.30", "Clip 1 x 0.30"]  # fmt: skip

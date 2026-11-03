@@ -21,10 +21,10 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
 from app.core.config import Settings
-from app.domain.enums import DocumentStatus, TaxType
+from app.domain.enums import DocumentStatus, LineGrouping, TaxType
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
-from app.models import Document, Outbox, VendorMapping
+from app.models import Client, Document, Outbox, VendorMapping
 from app.pipeline.verify.step import recheck_document, working_copy
 from app.services.corrections import sync_corrections
 from app.services.review import NotEditableError, ReviewError
@@ -62,7 +62,11 @@ def approve_document(
     summary = {"queue": assessment.queue.value, "warnings": assessment.warnings}
     transition(session, document, DocumentStatus.APPROVED, actor=actor, details=summary)
     document.failure_reason = None  # an earlier "not sent" reason is now answered
-    outbox = Outbox(client_id=document.client_id, document_id=document.id)
+    grouping = (
+        session.scalar(select(Client.line_grouping).where(Client.client_id == document.client_id))
+        or LineGrouping.BY_ACCOUNT
+    )
+    outbox = Outbox(client_id=document.client_id, document_id=document.id, line_grouping=grouping)
     session.add(outbox)
     _learn_supplier_coding(session, document, invoice)
     session.flush()

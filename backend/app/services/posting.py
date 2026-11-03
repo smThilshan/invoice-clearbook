@@ -27,11 +27,11 @@ it back to review, which is refused once the create request may have reached the
 
 import logging
 import uuid
-from collections.abc import Callable, MutableMapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -51,7 +51,14 @@ from app.adapters.accounting.registry import Registry
 from app.adapters.storage import Storage
 from app.adapters.storage.base import NotFoundError
 from app.core.config import Settings
-from app.domain.enums import AccountingProvider, DocumentStatus, DocumentType
+from app.domain.enums import (
+    AccountingProvider,
+    AmountType,
+    DocumentStatus,
+    DocumentType,
+    LineGrouping,
+    TaxType,
+)
 from app.domain.invoice import Invoice, Line
 from app.domain.state_machine import transition
 from app.models import AccountingConnection, Client, Contact, Document, Outbox
@@ -460,7 +467,7 @@ def _claim(
 
     invoice = working_copy(document)
     chart = load_chart(session, client_id=outbox.client_id, provider=provider)
-    bill, refusal = _bill(session, document, invoice, chart, provider, name)
+    bill, refusal = _bill(session, document, invoice, chart, provider, name, outbox.line_grouping)
     if bill is not None:
         bill = replace(bill, attachment=_original(storage, document))
     token = tenant_id = unavailable = paused = None
@@ -501,6 +508,7 @@ def _bill(
     chart: ChartOfAccounts,
     provider: AccountingProvider,
     name: str,
+    grouping: LineGrouping,
 ) -> tuple[PostingBill | None, str | None]:
     """The bill to send, or why it cannot be sent (checked here, before the accounting system
     sees anything)."""
@@ -532,6 +540,13 @@ def _bill(
             )
     if problems or invoice.amount_type is None or not invoice.vendor_name:
         return None, "; ".join(problems)
+    if grouping is LineGrouping.BY_ITEM:
+        rates = {
+            code: VAT_RATES.get(tax_type, Decimal(0)) for tax_type, code in chart.tax_codes.items()
+        }
+        sent = combine_items(lines, rates, invoice.amount_type)
+    else:
+        sent = group_lines(lines)
     return (
         PostingBill(
             supplier_name=invoice.vendor_name,
@@ -544,7 +559,7 @@ def _bill(
             or (invoice.invoice_date if invoice.document_type is DocumentType.RECEIPT else None),
             currency=invoice.currency,
             amount_type=invoice.amount_type,
-            lines=group_lines(lines),
+            lines=sent,
             note=NOTE,
         ),
         None,
@@ -570,6 +585,47 @@ def group_lines(lines: Sequence[PostingLine]) -> list[PostingLine]:
             names = names[: MAX_DESCRIPTION - 1] + "…"
         grouped.append(PostingLine(names or None, Decimal(1), amount, account_code, tax_code))
     return grouped
+
+
+# The VAT the accounting system works out on a line, by our VAT type (UAE: 5% or none).
+VAT_RATES = {TaxType.STANDARD_5: Decimal("0.05"), TaxType.REVERSE_CHARGE: Decimal("0.05")}
+
+
+def combine_items(
+    lines: Sequence[PostingLine], rates: Mapping[str, Decimal], amount_type: AmountType
+) -> list[PostingLine]:
+    """Item by item (decision 73): identical items, the same name (any case and spacing), unit
+    price, account and VAT code, are one line with their quantities added ("Garam Masala
+    1 x 8.80" three times: 3 x 8.80), in the order they first appear. A line without a name
+    stays as it is. The accounting system works out the VAT per line, rounded to the fils: a
+    group whose VAT that way would differ from its lines' VAT is sent line by line, so the
+    posted total is always the approved one."""
+    groups: dict[tuple[str, Decimal, str, str], list[PostingLine]] = {}
+    for n, line in enumerate(lines):
+        name = " ".join((line.description or "").split()).casefold()
+        key = (name or f"#{n}", line.unit_amount, line.account_code, line.tax_code)
+        groups.setdefault(key, []).append(line)
+    combined = []
+    for members in groups.values():
+        rate = rates.get(members[0].tax_code, Decimal(0))
+        quantity = sum((m.quantity for m in members), Decimal(0))
+        one = replace(members[0], quantity=quantity)
+        same_vat = _line_vat(one, rate, amount_type) == sum(
+            (_line_vat(m, rate, amount_type) for m in members), Decimal(0)
+        )
+        combined += [one] if len(members) == 1 or same_vat else members
+    return combined
+
+
+def _line_vat(line: PostingLine, rate: Decimal, amount_type: AmountType) -> Decimal:
+    amount = line.quantity * line.unit_amount
+    if amount_type is AmountType.INCLUSIVE:
+        vat = amount * rate / (1 + rate)
+    elif amount_type is AmountType.EXCLUSIVE:
+        vat = amount * rate
+    else:
+        vat = Decimal(0)
+    return vat.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _original(storage: Storage, document: Document) -> Attachment | None:

@@ -21,6 +21,7 @@ import {
   useAccounting,
   useAnswerKey,
   useApproveDocument,
+  useClients,
   useCodingOptions,
   useDeleteDocument,
   useDocument,
@@ -56,6 +57,7 @@ export function DocumentPage() {
   const { documentId = '' } = useParams()
   const document = useDocument(documentId)
   const options = useCodingOptions(document.data?.client_id)
+  const linesNote = useLinesNote(document.data?.client_id ?? '')
   const save = useUpdateDocument()
   const approve = useApproveDocument()
   const reextract = useReextractDocument()
@@ -193,6 +195,7 @@ export function DocumentPage() {
           onSave={onSave}
           onDirtyChange={onDirtyChange}
           onTarget={onTarget}
+          linesNote={editable ? linesNote : undefined}
           actions={
             editable && (
               <>
@@ -238,6 +241,18 @@ export function DocumentPage() {
       </div>
     </PageContainer>
   )
+}
+
+/** Decision 73: how this client's lines will be sent, said where the lines are; none until a
+ * system is connected. */
+function useLinesNote(clientId: string): string | undefined {
+  const accounting = useAccounting(clientId, false).data
+  const client = useClients().data?.find((c) => c.client_id === clientId)
+  if (!accounting?.connected || !client) return undefined
+  const system = accounting.provider_name ?? 'the accounting system'
+  return client.line_grouping === 'BY_ITEM'
+    ? `Sent to ${system} item by item: identical items as one line, their quantity added.`
+    : `Sent to ${system} as one line per account and VAT.`
 }
 
 /** Where an approved document is on its way (decision 70); the posted one links to it there. */

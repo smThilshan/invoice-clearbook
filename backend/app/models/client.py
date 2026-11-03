@@ -1,7 +1,7 @@
 from sqlalchemy import String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.enums import AccountingProvider
+from app.domain.enums import AccountingProvider, LineGrouping
 from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
@@ -21,5 +21,11 @@ class Client(UuidPk, ClientScoped, Timestamps, Base):
         str_enum(AccountingProvider, "accounting_provider"), default=AccountingProvider.MANUAL
     )
     is_active: Mapped[bool] = mapped_column(default=True)
+    # How approved lines are sent (decision 73); copied onto each outbox row at approval.
+    line_grouping: Mapped[LineGrouping] = mapped_column(
+        str_enum(LineGrouping, "line_grouping"),
+        default=LineGrouping.BY_ACCOUNT,
+        server_default=LineGrouping.BY_ACCOUNT.value,
+    )
 
     __table_args__ = (UniqueConstraint("client_id"),)

@@ -52,6 +52,13 @@ class AccountingProvider(StrEnum):
     XERO = "XERO"
 
 
+class LineGrouping(StrEnum):
+    """How a client's approved lines are sent to its accounting system (decisions 51, 73)."""
+
+    BY_ACCOUNT = "BY_ACCOUNT"  # one line per account and VAT code: a clean ledger
+    BY_ITEM = "BY_ITEM"  # item by item; identical items one line with their quantity added
+
+
 class AmountType(StrEnum):
     """Whether line amounts include VAT."""
 
