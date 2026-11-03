@@ -607,5 +607,24 @@ def test_queue_counts_every_category_searches_and_says_what_is_still_processing(
 
     assert only_ready["counts"] == {"READY": 1, "EXCEPTION": 1}  # all categories, one shown
     assert only_ready["processing"] == 1
+    assert (only_ready["stopped"], only_ready["stopped_run_id"]) == (0, None)
     assert [d["invoice_number"] for d in found["documents"]] == ["INV-00303"]
     assert nothing["total"] == 0  # "%" is plain text, not a wildcard
+
+
+def test_files_of_a_stopped_run_are_waiting_for_resume_not_processing(
+    api: TestClient, session: Session
+) -> None:
+    from app.models import RunStatus
+    from tests.integration.factories import make_document, make_run
+
+    stopped = make_run(session)
+    stopped.status = RunStatus.STOPPED
+    make_document(session, status=S.READ, run_id=stopped.id)
+    make_document(session, status=S.CAPTURED, run_id=stopped.id)
+    make_document(session, status=S.READ)  # its run still going
+
+    body = ok(api.get("/documents", params={"client_id": CLIENT}))
+
+    assert (body["processing"], body["stopped"]) == (1, 2)
+    assert body["stopped_run_id"] == str(stopped.id)

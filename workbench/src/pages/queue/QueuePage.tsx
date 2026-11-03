@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, PauseCircle, Search } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 
@@ -225,6 +225,19 @@ export function QueuePage() {
           {runId && (
             <Link to={`/run/${runId}`} className="font-medium underline-offset-4 hover:underline">
               See progress
+            </Link>
+          )}
+        </p>
+      )}
+
+      {clientId && queue.data && queue.data.stopped > 0 && (
+        <p role="note" aria-label="Run stopped" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm">
+          <PauseCircle className="size-4 text-warning" aria-hidden />
+          {queue.data.stopped} document{queue.data.stopped === 1 ? ' was' : 's were'} not finished
+          because the run was stopped.
+          {queue.data.stopped_run_id && (
+            <Link to={`/run/${queue.data.stopped_run_id}`} className="font-medium underline-offset-4 hover:underline">
+              Open the run to resume
             </Link>
           )}
         </p>

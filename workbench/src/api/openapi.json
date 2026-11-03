@@ -2130,6 +2130,22 @@
             "title": "Sending Counts",
             "type": "object"
           },
+          "stopped": {
+            "title": "Stopped",
+            "type": "integer"
+          },
+          "stopped_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped Run Id"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -2142,6 +2158,8 @@
           "documents",
           "counts",
           "processing",
+          "stopped",
+          "stopped_run_id",
           "sending_counts"
         ],
         "title": "QueuePageOut",

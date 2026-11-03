@@ -33,7 +33,7 @@ from app.core.config import Settings
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
-from app.models import Document, Outbox, OutboxStatus
+from app.models import Document, Outbox, OutboxStatus, Run, RunStatus
 from app.pipeline.verify.issues import Severity
 from app.pipeline.verify.step import (
     Assessment,
@@ -90,6 +90,9 @@ class QueuePage:
     counts: dict[QueueCategory, int]
     processing: int
     sending_counts: dict["SendingList", int] = field(default_factory=dict)  # same filters
+    # Not finished because their run was stopped (task 4.19): waiting for Resume, not processing.
+    stopped: int = 0
+    stopped_run_id: uuid.UUID | None = None  # the latest such run, to open and resume
 
 
 def list_queue(
@@ -135,12 +138,26 @@ def list_queue(
         order = (_QUEUE_ORDER, Document.created_at, Document.id)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
     documents = session.scalars(query.order_by(*order).limit(limit).offset(offset)).all()
-    still = select(func.count()).where(
-        Document.client_id == client_id, Document.status.in_(PROCESSING)
+    unfinished = (
+        select(Run.id, Run.status, Run.created_at, func.count().label("documents"))
+        .join(Document, Document.run_id == Run.id)
+        .where(Document.client_id == client_id, Document.status.in_(PROCESSING))
+        .group_by(Run.id)
+        .order_by(Run.created_at.desc())
     )
     if run_id is not None:
-        still = still.where(Document.run_id == run_id)
-    return QueuePage(list(documents), total, counts, session.scalar(still) or 0, sending_counts)
+        unfinished = unfinished.where(Document.run_id == run_id)
+    runs = session.execute(unfinished).all()
+    stopped = [row for row in runs if row.status is RunStatus.STOPPED]
+    return QueuePage(
+        list(documents),
+        total,
+        counts,
+        processing=sum(row.documents for row in runs if row.status is not RunStatus.STOPPED),
+        sending_counts=sending_counts,
+        stopped=sum(row.documents for row in stopped),
+        stopped_run_id=stopped[0].id if stopped else None,
+    )
 
 
 def _sending(name: SendingList) -> Any:

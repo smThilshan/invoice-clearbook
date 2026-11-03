@@ -1369,6 +1369,10 @@ export interface components {
             sending_counts: {
                 [key: string]: number;
             };
+            /** Stopped */
+            stopped: number;
+            /** Stopped Run Id */
+            stopped_run_id: string | null;
             /** Total */
             total: number;
         };

@@ -100,6 +100,8 @@ class QueuePageOut(BaseModel):
     documents: list[DocumentSummary]
     counts: dict[QueueCategory, int]  # per category for the same filters (task 4.16)
     processing: int  # the client's documents still being processed: not in the list yet
+    stopped: int  # not finished because their run was stopped: waiting for Resume
+    stopped_run_id: uuid.UUID | None  # the latest such run
     sending_counts: dict[review.SendingList, int]  # approved documents per list, same filters
 
 
@@ -213,6 +215,8 @@ def get_queue(
         counts=page.counts,
         processing=page.processing,
         sending_counts=page.sending_counts,
+        stopped=page.stopped,
+        stopped_run_id=page.stopped_run_id,
     )
 
 

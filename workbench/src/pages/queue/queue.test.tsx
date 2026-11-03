@@ -42,6 +42,8 @@ const PAGE: QueuePage = {
   offset: 0,
   counts: { EXCEPTION: 1, CHECK: 1, READY: 1 },
   processing: 0,
+  stopped: 0,
+  stopped_run_id: null,
   sending_counts: { waiting: 1, failed: 2, posted: 5 },
   documents: [
     doc('d1', { queue: 'EXCEPTION', errors: 2, warnings: 1, total: '1234567.5' }),
@@ -267,6 +269,17 @@ describe('review queue', () => {
     expect(screen.getByRole('link', { name: 'See progress' })).toHaveAttribute('href', `/run/${RUN_ID}`)
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
+  })
+
+  it('says which documents wait for a stopped run, with no spinner', async () => {
+    backend({ ...PAGE, processing: 0, stopped: 2, stopped_run_id: RUN_ID })
+    renderApp('/queue?client=cafe-al-noor')
+
+    expect(await screen.findByRole('note', { name: 'Run stopped' })).toHaveTextContent(
+      '2 documents were not finished because the run was stopped',
+    )
+    expect(screen.getByRole('link', { name: 'Open the run to resume' })).toHaveAttribute('href', `/run/${RUN_ID}`)
+    expect(screen.queryByRole('note', { name: 'Still processing' })).not.toBeInTheDocument()
   })
 
   it('says why the queue could not be loaded', async () => {
