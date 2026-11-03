@@ -212,3 +212,58 @@ def test_a_labelled_payment_proves_a_receipt(payment: str, expected: DocumentTyp
 
     assert receipt_when_paid(receipt("18.37", total=Decimal("18.25")), [page(text)]).document_type \
         is expected  # fmt: skip
+
+
+# Gifts Village: "Bill Amount" is the total; the cash handed over was read as an item and as
+# the total, and the scan spaced the total's decimals ("98. 82").
+GIFTS_VILLAGE = """6 9010000048699 10 3.99 39.90
+*** CASH 100.00
+Qty: 18.00
+Taxable Amount : 94.11
+Tax Amount : 4.71
+Bill Amount : 98. 82
+Paid Amount : 100.00
+Bal. Amount : 1.18
+01 5% 94.11 4.71"""
+GIFTS_ITEMS = ("10.99", "6.99", "26.97", "7.98", "5.99", "39.90")
+
+
+@pytest.mark.parametrize(
+    ("paid", "change"), [("100.00", "1.18"), ("1000.00", "901.18"), ("98.82", "0.00")]
+)
+def test_the_bill_amount_is_the_total_whatever_cash_was_handed_over(paid: str, change: str) -> None:
+    text = GIFTS_VILLAGE.replace("100.00", paid).replace("1.18", change)
+    model = receipt(*GIFTS_ITEMS, paid, total=Decimal(paid))  # the cash read as an item
+
+    assert summary(apply_totals_block(model, [page(text)])) == (
+        list(GIFTS_ITEMS), "94.11", "4.71", "98.82", AmountType.INCLUSIVE)  # fmt: skip
+
+
+def test_cash_less_change_is_the_total_when_no_label_names_it() -> None:
+    text = GIFTS_VILLAGE.replace("Bill Amount", "Invoice Value")
+    model = receipt(*GIFTS_ITEMS, "100.00", total=Decimal("100.00"))
+
+    assert summary(apply_totals_block(model, [page(text)]))[1:4] == ("94.11", "4.71", "98.82")
+
+
+def test_cash_less_change_needs_the_items_to_add_up_to_it() -> None:
+    """The change misread (1.18 as 1.15): 98.85 passes the rate slack, but no items fit it."""
+    text = GIFTS_VILLAGE.replace("Bill Amount", "Invoice Value").replace("1.18", "1.15")
+    model = receipt(*GIFTS_ITEMS, total=Decimal("100.00"))
+
+    assert apply_totals_block(model, [page(text)]) == model
+
+
+def test_a_printed_total_wins_over_a_misread_change() -> None:
+    """Viva: Cash 85.00, change misread 2.25 (82.75); the labelled total 82.64 decides."""
+    text = "Total incl. VAT 82.64\nTotal VAT @ 5% 3.94\nCash 85.00\nChange back (Cash) 2.25"
+    block = read_totals_block([page(text)])
+
+    assert block is not None and (block.total, block.from_cash) == (Decimal("82.64"), False)
+
+
+def test_a_tax_invoice_number_is_not_a_vat_amount() -> None:
+    text = "Tax Invoice No: 1234\nItem 10.50\nTotal 10.50\nVAT 0.50"
+
+    block = read_totals_block([page(text)])
+    assert block is not None and (block.total, block.vat) == (Decimal("10.50"), Decimal("0.50"))

@@ -44,6 +44,7 @@ def _paid_by_label(total: Decimal, pages: Sequence[PageText]) -> bool:
     block = read_totals_block(pages)
     return (
         block is not None
+        and not block.from_cash  # cash less change made that total: no proof of a payment
         and block.total == total
         and any(given == total or given - total in block.change for given in block.paid)
     )

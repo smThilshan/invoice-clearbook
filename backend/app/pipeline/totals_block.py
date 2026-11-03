@@ -5,9 +5,14 @@ copies these rows as items, or copies an item twice. Right after extraction, Pyt
 block and, when it proves the answer, the totals and the items are taken from it.
 
 Labels name candidates only; the arithmetic decides, because words differ between tills
-("Total Amount" is before VAT on one, "Sub Total" includes VAT on another):
+("Total Amount" is before VAT on one, "Sub Total" includes VAT on another, "Bill Amount" is the
+total on a third). The block starts at the first row labelled as a total or as VAT:
 - A total T from a row labelled as a total, a VAT V > 0 from a row labelled VAT or tax, and the
-  printed rounding r (0 when none) with 5% of (T - r - V) = V (within per-line rounding).
+  printed rounding r (0 when none) with 5% of (T - r - V) = V (within per-line rounding). Cash
+  handed over (100, 1000) never passes: the VAT follows the bill, not the cash.
+- Only when no labelled total passes, whatever the total is called: the cash given less the
+  change (Paid 100.00, Bal. 1.18: 98.82). OCR misreads a change more often than a total
+  (1.18 as 1.15), so this one also needs the items to add up to it exactly.
 - Exactly one such answer (T, V, r); when the slack fits two (small amounts), the one whose
   amount before VAT is printed too.
 
@@ -49,11 +54,14 @@ _NUMBER = re.compile(r"(?<![\w.,])-?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?![\w%.,])")
 _ROUNDING = re.compile(r"round", re.IGNORECASE)
 _VAT = re.compile(r"\b(?:vat|tax)\b", re.IGNORECASE)
 # "incl" may come out "inc1" (OCR digit folding reads l as 1 next to a dot)
-_NOT_VAT = re.compile(r"inc[l1i]|exc[l1i]|taxable|before|\btrn\b|\breg", re.IGNORECASE)
-_TOTAL = re.compile(r"total|net\s*amount|amount\s*due|\btot\b|grand|payable", re.IGNORECASE)
+_NOT_VAT = re.compile(r"inc[l1i]|exc[l1i]|taxable|before|\btrn\b|\breg|invoice", re.IGNORECASE)
+_TOTAL = re.compile(
+    r"total|net\s*amount|amount\s*due|\btot\b|grand|payable|bill\s*amount", re.IGNORECASE
+)
 _NOT_TOTAL = re.compile(r"\bqty\b|quantity|items?\b|\bunits?\b", re.IGNORECASE)
 _PAID = re.compile(r"tender|\bcash\b|\bcard\b|\bpaid\b|visa|master", re.IGNORECASE)
-_CHANGE = re.compile(r"balance|\bchange\b", re.IGNORECASE)
+_CHANGE = re.compile(r"balance|\bba[l1i]\b|\bchange\b", re.IGNORECASE)  # "Ba1." folded
+_SPLIT_DECIMAL = re.compile(r"(\d)\. (\d{2})(?![\d.])")  # OCR spaced "98. 82": one amount
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +72,7 @@ class TotalsBlock:
     printed: frozenset[Decimal]  # every amount printed from the block down, unsigned
     paid: frozenset[Decimal] = frozenset()  # labelled as money given (Tendered, Cash, Card)
     change: frozenset[Decimal] = frozenset()  # labelled as change given back (Balance)
+    from_cash: bool = False  # the total is the cash given less the change: items must confirm
 
     @property
     def items(self) -> Decimal:
@@ -80,18 +89,32 @@ def read_totals_block(pages: Sequence[PageText]) -> TotalsBlock | None:
     printed: set[Decimal] = set()
     for page in pages:
         for pairs in _labelled_lines(page):
-            if not rows and not any(_is_total(label) for label, _ in pairs):
+            if not rows and not any(_is_total(label) or _is_vat(label) for label, _ in pairs):
                 continue  # still above the block: items and header
             rows += pairs
             printed.update(abs(amount) for _, amount in pairs)
     if not rows:
         return None
-    totals = {amount for label, amount in rows if _is_total(label) and amount > 0}
+    paid = frozenset(amount for label, amount in rows if _PAID.search(label) and amount > 0)
+    change = frozenset(amount for label, amount in rows if _CHANGE.search(label) and amount >= 0)
     vats = {amount for label, amount in rows if _is_vat(label) and amount > 0}
     roundings = {amount for label, amount in rows if _ROUNDING.search(label)}
     if len(roundings) > 1 or any(abs(r) > MAX_ROUNDING for r in roundings):
         return None
     rounding = roundings.pop() if roundings else Decimal(0)
+    labelled = {amount for label, amount in rows if _is_total(label) and amount > 0}
+    from_cash = {given - back for given in paid for back in change if given > back}
+    for totals, cash in ((labelled, False), (from_cash, True)):
+        answer = _answer(totals, vats, rounding, printed)
+        if answer is not None:
+            total, vat = answer
+            return TotalsBlock(total, vat, rounding, frozenset(printed), paid, change, cash)
+    return None
+
+
+def _answer(
+    totals: set[Decimal], vats: set[Decimal], rounding: Decimal, printed: set[Decimal]
+) -> tuple[Decimal, Decimal] | None:
     answers = {
         (total, vat)
         for total in totals
@@ -101,12 +124,7 @@ def read_totals_block(pages: Sequence[PageText]) -> TotalsBlock | None:
     }
     if len(answers) > 1:  # small amounts: the slack fits more than one; printed decides
         answers = {(t, v) for t, v in answers if abs(t - rounding - v) in printed}
-    if len(answers) != 1:
-        return None  # nothing proven, or two answers: never guess
-    total, vat = answers.pop()
-    paid = frozenset(amount for label, amount in rows if _PAID.search(label) and amount > 0)
-    change = frozenset(amount for label, amount in rows if _CHANGE.search(label) and amount >= 0)
-    return TotalsBlock(total, vat, rounding, frozenset(printed), paid, change)
+    return answers.pop() if len(answers) == 1 else None  # two answers: never guess
 
 
 def apply_totals_block(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
@@ -118,7 +136,7 @@ def apply_totals_block(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
         return invoice
     items = _items(invoice.lines, block)
     if items is None:
-        if not _totals_alone_proven(block):
+        if block.from_cash or not _totals_alone_proven(block):
             return invoice
         # The totals are proven, the items are not: they stay as read, flagged by the rules.
         return invoice.model_copy(update={
@@ -187,7 +205,8 @@ def _labelled_lines(page: PageText) -> list[list[tuple[str, Decimal]]]:
     result: list[list[tuple[str, Decimal]]] = []
     words: tuple[str, float, float, float] | None = None  # text, centre, height, right edge
     for line in page_lines(page):
-        pairs = _pairs(fold_ocr_digits(line.text) if line.ocr else line.text)
+        text = _SPLIT_DECIMAL.sub(r"\1.\2", fold_ocr_digits(line.text)) if line.ocr else line.text
+        pairs = _pairs(text)
         if words and pairs and not pairs[0][0]:
             text, y, height, right = words
             first = next((s for s in line.spans if _NUMBER.search(s.text)), None)
