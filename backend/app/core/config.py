@@ -116,7 +116,12 @@ class Settings(BaseSettings):
     llm_model: str = "qwen/qwen3-vl-4b"
     # Image + OCR text + schema must fit, or the server silently truncates the input.
     llm_context_tokens: int = Field(default=16384, ge=2048)
-    llm_timeout_seconds: float = Field(default=600, gt=0)  # CPU inference on dev is slow
+    # Decision 80: one file never holds the queue for long. On the M4 a read takes 15 s (slowest
+    # 39 s, longest answer 994 tokens); a model stuck repeating itself is stopped at the cap,
+    # which marks the answer cut off (flagged in review, not retried), and anything else that
+    # hangs ends at the deadline. Raise both for a slow CPU-only model server.
+    llm_timeout_seconds: float = Field(default=180, gt=0)
+    llm_max_output_tokens: int = Field(default=3000, ge=256)
     # Page images sent per document (~1.5-2k tokens each); text is sent for every page.
     extract_max_images: int = Field(default=3, ge=1)
 

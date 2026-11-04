@@ -31,6 +31,7 @@ def make_client(
         model="qwen/qwen3-vl-4b",
         context_tokens=16384,
         timeout_seconds=600,
+        max_output_tokens=3000,
         http_client=http,
     )
 
@@ -65,6 +66,7 @@ def test_request_sends_images_prompt_schema_and_zero_temperature() -> None:
         "json_schema": {"name": "extraction", "strict": True, "schema": SCHEMA},
     }
     assert (payload["temperature"], payload["stream"]) == (0, False)
+    assert payload["max_tokens"] == 3000  # decision 80: a stuck model stops here
     assert payload["messages"][0] == {"role": "system", "content": "Rules."}
     png, jpeg, text = payload["messages"][1]["content"]
     assert (

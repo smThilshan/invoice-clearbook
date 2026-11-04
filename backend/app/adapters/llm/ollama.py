@@ -4,6 +4,9 @@ Native rather than the OpenAI-compatible /v1 endpoint because only the native AP
 the context window per request (`num_ctx`); with the small default, a page image + OCR text +
 schema is silently truncated. `format` makes Ollama enforce the JSON schema while decoding.
 
+The answer is capped at `max_output_tokens` (decision 80): a model stuck repeating itself stops
+there, and the answer comes back marked cut off instead of running until the timeout.
+
 Force stop (task 4.20): with `should_stop`, the same request is sent on a connection of its
 own from a background thread, while this thread asks `should_stop` every few seconds (also
 during the minutes the model reads, when nothing arrives yet). On stop the connection is
@@ -44,12 +47,14 @@ class OllamaExtractionClient:
         model: str,
         context_tokens: int,
         timeout_seconds: float,
+        max_output_tokens: int,
         http_client: httpx.Client | None = None,
         client_factory: Callable[[], httpx.Client] | None = None,
     ) -> None:
         self._model = model
         self._context_tokens = context_tokens
         self._timeout_seconds = timeout_seconds
+        self._max_output_tokens = max_output_tokens
         # A stoppable call gets a connection of its own, so closing it stops only that call.
         self._new_client = client_factory or (
             lambda: httpx.Client(
@@ -187,7 +192,11 @@ class OllamaExtractionClient:
             "messages": messages,
             "format": dict(request.json_schema),
             "stream": False,
-            "options": {"temperature": 0, "num_ctx": self._context_tokens},
+            "options": {
+                "temperature": 0,
+                "num_ctx": self._context_tokens,
+                "num_predict": self._max_output_tokens,
+            },
         }
 
     def close(self) -> None:

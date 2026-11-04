@@ -41,4 +41,5 @@ def get_extraction_client(settings: Settings | None = None) -> ExtractionClient:
         model=settings.llm_model,
         context_tokens=settings.llm_context_tokens,
         timeout_seconds=settings.llm_timeout_seconds,
+        max_output_tokens=settings.llm_max_output_tokens,
     )

@@ -75,6 +75,7 @@ class LMStudioExtractionClient(OllamaExtractionClient):
                 },
             },
             "temperature": 0,
+            "max_tokens": self._max_output_tokens,  # decision 80: a stuck model stops here
             "stream": False,
         }
 

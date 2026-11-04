@@ -152,6 +152,25 @@ def test_unreachable_folder_fails_the_run_with_a_reason(
     assert run.failure_reason is not None and "folder not found" in run.failure_reason
 
 
+def test_a_stuck_answer_reaches_review_after_one_ai_call_and_the_next_file_goes_on(
+    session: Session, tmp_path: Path, pipeline: Fakes
+) -> None:
+    """Decision 80: an answer stopped at the cap is asked for once, never again (the same file
+    gives the same answer), and the document reaches review flagged: nothing waits behind it."""
+    from tests.integration.test_extract import STUCK
+
+    pipeline["llm"] = FakeClient(STUCK, cut_off=True)
+    run = drop_invoice(session, tmp_path)
+    (tmp_path / "inbox/October 2026/20/next.pdf").write_bytes(digital_pdf(pages=2))
+
+    tasks.scan_run.delay(str(run.id))
+
+    stuck, after = session.scalars(select(Document).order_by(Document.source_path)).all()
+    assert len(pipeline["llm"].requests) == 2  # one call per file: no retries
+    assert (stuck.status, after.status) == (S.IN_REVIEW, S.IN_REVIEW)
+    assert stuck.invoice is None  # nothing invented: the accountant enters it
+
+
 def test_a_stopped_run_takes_no_further_step(
     session: Session, tmp_path: Path, pipeline: Fakes
 ) -> None:

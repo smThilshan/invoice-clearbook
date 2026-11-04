@@ -44,8 +44,8 @@ VALID = json.dumps(
 class FakeClient:
     model = "fake-model:1b"
 
-    def __init__(self, raw: str = VALID, *, fail: bool = False) -> None:
-        self.raw, self.fail = raw, fail
+    def __init__(self, raw: str = VALID, *, fail: bool = False, cut_off: bool = False) -> None:
+        self.raw, self.fail, self.cut_off = raw, fail, cut_off
         self.requests: list[ExtractionRequest] = []
 
     def extract(
@@ -54,7 +54,7 @@ class FakeClient:
         self.requests.append(request)
         if self.fail:
             raise ExtractionError("model timed out after 600s")
-        return ExtractionResult(self.model, self.raw, False, 1234, 2000, 150, 1000, 200)
+        return ExtractionResult(self.model, self.raw, self.cut_off, 1234, 2000, 150, 1000, 200)
 
     def check(self) -> ModelStatus:
         return ModelStatus.OK
@@ -112,6 +112,24 @@ def test_invalid_answer_is_kept_and_flagged(session: Session, storage: LocalStor
     ).one()
     assert entry.reason == row.error
     assert entry.details["valid"] is False and entry.details["writing_ms"] == 200
+
+
+# A model stuck repeating itself, stopped at the output cap (decision 80).
+STUCK = '{"document_type": "RECEIPT", "lines": [' + '{"description": "Water", "amount": 1},' * 200
+
+
+def test_an_answer_stopped_at_the_cap_is_kept_and_flagged_not_retried(
+    session: Session, storage: LocalStorage
+) -> None:
+    doc = read_doc(session, storage)
+
+    result = extract_document(session, storage, FakeClient(STUCK, cut_off=True), doc, max_images=3)
+
+    assert result.outcome is ExtractOutcome.INVALID  # no ExtractionError: the task does not retry
+    assert doc.status is DocumentStatus.EXTRACTED  # moves on to review, flagged
+    [row] = extractions(session, doc)
+    assert row.error == "answer cut off at the output token limit"
+    assert row.raw_output == STUCK  # kept as the model wrote it
 
 
 def test_model_failure_writes_nothing(session: Session, storage: LocalStorage) -> None:

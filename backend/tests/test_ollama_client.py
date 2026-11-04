@@ -30,6 +30,7 @@ def make_client(
         model="qwen3-vl:4b-instruct",
         context_tokens=16384,
         timeout_seconds=600,
+        max_output_tokens=3000,
         http_client=http,
     )
 
@@ -58,7 +59,7 @@ def test_request_uses_native_chat_with_schema_context_and_zero_temperature() -> 
     assert payload["model"] == "qwen3-vl:4b-instruct"
     assert payload["format"] == SCHEMA
     assert payload["stream"] is False
-    assert payload["options"] == {"temperature": 0, "num_ctx": 16384}
+    assert payload["options"] == {"temperature": 0, "num_ctx": 16384, "num_predict": 3000}
     assert payload["messages"][0] == {"role": "system", "content": "Rules."}
     user = payload["messages"][1]
     assert user["content"] == "Extract."
@@ -139,6 +140,18 @@ def test_factory_takes_model_and_url_from_settings() -> None:
     client.close()
 
 
+def test_the_answer_cap_and_deadline_come_from_settings() -> None:
+    """Decision 80: a model stuck repeating itself stops at the cap, anything else at 180 s."""
+    defaults = Settings(_env_file=None)
+    client = get_extraction_client(Settings(_env_file=None, llm_provider="ollama",
+                                            llm_max_output_tokens=1234))  # fmt: skip
+
+    assert (defaults.llm_max_output_tokens, defaults.llm_timeout_seconds) == (3000, 180)
+    assert isinstance(client, OllamaExtractionClient)
+    assert client._max_output_tokens == 1234
+    client.close()
+
+
 # --- check(): is the configured model ready? ------------------------------------------------
 
 
@@ -195,7 +208,7 @@ def stoppable(handler: Callable[[httpx.Request], httpx.Response]) -> OllamaExtra
 
     return OllamaExtractionClient(
         base_url="http://ollama.test", model="qwen3-vl:4b-instruct", context_tokens=16384,
-        timeout_seconds=600, client_factory=factory,
+        timeout_seconds=600, max_output_tokens=3000, client_factory=factory,
     )  # fmt: skip
 
 
