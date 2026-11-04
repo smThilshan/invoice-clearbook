@@ -20,6 +20,9 @@ A connection whose access is gone for good (decision 68: withdrawn, a permission
 the client's rows: nothing is sent, no attempt is counted, until someone connects again. An
 access token refused once (401) is renewed and the row tried again.
 
+A posted document deleted or voided in the accounting system comes back to review only when
+that system confirms it is gone (decision 76): approved again, it is a new row with a new key.
+
 A row that gives up (DEAD: unknown error, or every attempt used) stays visible as "could not
 send" (decision 69): the accountant tries it again with the same key and saved progress, or sends
 it back to review, which is refused once the create request may have reached the system.
@@ -281,6 +284,40 @@ def send_back(session: Session, document: Document, *, actor: str) -> None:
     transition(session, document, DocumentStatus.POST_ERROR, actor=actor, reason=reason)
     transition(session, document, DocumentStatus.IN_REVIEW, actor=actor)
     session.flush()
+
+
+def reopen_deleted(
+    session: Session, settings: Settings, registry: Registry, document: Document, *, actor: str
+) -> str:
+    """A posted document the accountant deleted (or voided) in the accounting system goes back
+    to review, to change and approve again: a new outbox row, a new key (decision 76). Only when
+    the system itself says the document is gone there, so it can never be sent twice. Returns
+    the system's name. The caller commits."""
+    if document.status is not DocumentStatus.POSTED or not document.external_id:
+        raise SendError("only a document sent to the accounting system can be sent again")
+    connection = session.scalars(
+        select(AccountingConnection).where(AccountingConnection.client_id == document.client_id)
+    ).first()
+    if connection is None:
+        raise SendError("this client is not connected to an accounting system: connect it first")
+    entry = registry[connection.provider]
+    try:
+        token = access_token(session, settings, registry, document.client_id)
+        system = entry.system(token, connection.tenant_id, connection.region)
+        gone = system.is_deleted(document.external_id)
+    except (AccountingConnectionError, PostingUnavailable) as exc:
+        raise SendError(f"{entry.name} could not be asked if it is still there ({exc})") from exc
+    if not gone:
+        raise SendError(
+            f"it is still in {entry.name}: delete or void it there first, then send it again"
+        )
+    deleted = document.external_id
+    document.external_id = None
+    document.failure_reason = f"Deleted in {entry.name}: change it if needed and approve again."
+    transition(session, document, DocumentStatus.IN_REVIEW, actor=actor,
+               reason=f"deleted in {entry.name}", details={"external_id": deleted})  # fmt: skip
+    session.flush()
+    return entry.name
 
 
 def _failed_row(session: Session, document: Document) -> Outbox:

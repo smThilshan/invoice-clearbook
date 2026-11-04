@@ -32,8 +32,10 @@ class XeroApiError(Exception):
         messages: list[str] | None = None,
         retry_after: int | None = None,
         access: int | None = None,
+        status: int | None = None,
     ) -> None:
         super().__init__(message)
+        self.status = status  # the HTTP status Xero answered, when it answered
         self.temporary = temporary
         self.messages = messages or []
         self.retry_after = retry_after
@@ -114,6 +116,7 @@ def _error(resource: str, response: httpx.Response) -> XeroApiError:
         f"Xero refused {resource} (HTTP {code}): {'; '.join(messages) or 'no reason given'}",
         temporary=False,
         messages=messages,
+        status=code,
     )
 
 

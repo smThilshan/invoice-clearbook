@@ -252,3 +252,19 @@ def _note(bill: PostingBill, progress: MutableMapping[str, Any]) -> str:
     if bill.attachment and not progress["attached"]:
         note += " The original file could not be attached: it is in Missan's folders."
     return note
+
+
+NOT_FOUND = 1002  # Zoho: "Bill does not exist." (deleted)
+
+
+def is_deleted(zoho: ZohoClient, bill_id: str) -> bool:
+    """Zoho removes a deleted bill (404, code 1002) and keeps a voided one as "void"."""
+    try:
+        bill = zoho.get(f"bills/{bill_id}").get("bill") or {}
+    except ZohoApiError as exc:
+        if exc.status == 404 or exc.code == NOT_FOUND:
+            return True
+        if exc.access:
+            raise PostingAccessDenied(str(exc), reconnect=exc.access == 403) from exc
+        raise PostingUnavailable(str(exc), exc.retry_after) from exc
+    return bill.get("status") == "void"

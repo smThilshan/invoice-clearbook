@@ -24,7 +24,7 @@ from app.adapters.accounting.base import (
     PostingBill,
     TaxRateRecord,
 )
-from app.adapters.accounting.xero.bills import post_bill
+from app.adapters.accounting.xero.bills import is_deleted, post_bill
 from app.adapters.accounting.xero.client import XeroApiError, XeroClient
 from app.domain.enums import AccountClass, AccountingProvider, TaxType
 
@@ -73,6 +73,9 @@ class XeroAccountingSystem:
         save: Callable[[str], None],
     ) -> Posted:
         return post_bill(self._xero, bill, key=key, progress=progress, save=save)
+
+    def is_deleted(self, external_id: str) -> bool:
+        return is_deleted(self._xero, external_id)
 
     def _contacts(self) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []

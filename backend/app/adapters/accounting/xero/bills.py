@@ -227,3 +227,19 @@ def _bill(bill: PostingBill, contact_id: str, due_date: str) -> dict[str, Any]:
     }
     body |= {name: value for name, value in optional.items() if value}  # null, never invented
     return body
+
+
+GONE_STATUSES = frozenset({"DELETED", "VOIDED"})
+
+
+def is_deleted(xero: XeroClient, bill_id: str) -> bool:
+    """Xero keeps a deleted or voided bill with that status; an unknown ID is gone too."""
+    try:
+        found = xero.get(f"Invoices/{quote(bill_id)}").get("Invoices") or []
+    except XeroApiError as exc:
+        if exc.status == 404:
+            return True
+        if exc.access:
+            raise PostingAccessDenied(str(exc), reconnect=exc.access == 403) from exc
+        raise PostingUnavailable(str(exc), exc.retry_after) from exc
+    return not found or found[0].get("Status") in GONE_STATUSES

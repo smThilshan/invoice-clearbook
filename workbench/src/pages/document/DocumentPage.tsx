@@ -12,11 +12,21 @@ import {
   Trash2,
   TriangleAlert,
   Undo2,
-} from 'lucide-react'
-import { type ReactNode, useCallback, useEffect, useState } from 'react'
-import { Link, useBlocker, useLocation, useNavigate, useParams } from 'react-router'
+} from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  Link,
+  useBlocker,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router";
 
-import { type DocumentDetail, type DocumentStatus, type Sending } from '@/api/client'
+import {
+  type DocumentDetail,
+  type DocumentStatus,
+  type Sending,
+} from "@/api/client";
 import {
   useAccounting,
   useAnswerKey,
@@ -29,91 +39,118 @@ import {
   useMarkCorrect,
   useReextractDocument,
   useRestoreDocument,
+  useReopenDeleted,
   useSendAgain,
   useSendBack,
   useUpdateDocument,
-} from '@/api/queries'
-import { ErrorAlert } from '@/components/ErrorAlert'
-import { PageContainer } from '@/components/PageHeader'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { formatDate, formatDateTime, QUEUE_LABELS, statusLabel, TYPE_LABELS, WORKING } from '@/lib/labels'
-import { neighbours, type ReviewContext, reviewContext } from '@/lib/reviewList'
-import { formatDuration, workMs } from '@/lib/timings'
-import { usePageTitle } from '@/lib/usePageTitle'
+} from "@/api/queries";
+import { ErrorAlert } from "@/components/ErrorAlert";
+import { PageContainer } from "@/components/PageHeader";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  formatDate,
+  formatDateTime,
+  QUEUE_LABELS,
+  statusLabel,
+  TYPE_LABELS,
+  WORKING,
+} from "@/lib/labels";
+import {
+  neighbours,
+  type ReviewContext,
+  reviewContext,
+} from "@/lib/reviewList";
+import { formatDuration, workMs } from "@/lib/timings";
+import { usePageTitle } from "@/lib/usePageTitle";
 
-import { toInvoiceInput } from './formModel'
-import { type Highlight, PageViewer } from './PageViewer'
-import { RejectDialog } from './RejectDialog'
-import { type FieldTarget, ReviewForm, type ReviewSubmit } from './ReviewForm'
+import { toInvoiceInput } from "./formModel";
+import { type Highlight, PageViewer } from "./PageViewer";
+import { RejectDialog } from "./RejectDialog";
+import { type FieldTarget, ReviewForm, type ReviewSubmit } from "./ReviewForm";
 
 /** Documents the accountant may still change (the backend enforces the same). */
-const EDITABLE: ReadonlySet<DocumentStatus> = new Set(['IN_REVIEW', 'NON_POSTABLE'])
+const EDITABLE: ReadonlySet<DocumentStatus> = new Set([
+  "IN_REVIEW",
+  "NON_POSTABLE",
+]);
 
 /** One document: its pages on the left, the review form on the right (task 4.5). */
 export function DocumentPage() {
-  const { documentId = '' } = useParams()
-  const document = useDocument(documentId)
-  const options = useCodingOptions(document.data?.client_id)
-  const linesNote = useLinesNote(document.data?.client_id ?? '')
-  const save = useUpdateDocument()
-  const approve = useApproveDocument()
-  const reextract = useReextractDocument()
-  const navigate = useNavigate()
-  const [dirty, setDirty] = useState(false)
-  const onDirtyChange = useCallback((next: boolean) => setDirty(next), [])
-  useUnsavedChangesGuard(dirty)
-  const [target, setTarget] = useState<FieldTarget | null>(null)
-  const onTarget = useCallback((next: FieldTarget | null) => setTarget(next), [])
-  const located = useLocate(documentId, target)
-  const context = reviewContext(useLocation().state)
-  const { previous, next, position, total } = neighbours(context, documentId)
-  usePageTitle(document.data ? `Review · ${document.data.file}` : 'Review')
+  const { documentId = "" } = useParams();
+  const document = useDocument(documentId);
+  const options = useCodingOptions(document.data?.client_id);
+  const linesNote = useLinesNote(document.data?.client_id ?? "");
+  const save = useUpdateDocument();
+  const approve = useApproveDocument();
+  const reextract = useReextractDocument();
+  const navigate = useNavigate();
+  const [dirty, setDirty] = useState(false);
+  const onDirtyChange = useCallback((next: boolean) => setDirty(next), []);
+  useUnsavedChangesGuard(dirty);
+  const [target, setTarget] = useState<FieldTarget | null>(null);
+  const onTarget = useCallback(
+    (next: FieldTarget | null) => setTarget(next),
+    [],
+  );
+  const located = useLocate(documentId, target);
+  const context = reviewContext(useLocation().state);
+  const { previous, next, position, total } = neighbours(context, documentId);
+  usePageTitle(document.data ? `Review · ${document.data.file}` : "Review");
 
   // Back returns to the list this review was opened from; a direct link goes to the client's
   // queue instead of leaving the Workbench (task 4.15).
   const listAddress = (clientId?: string) =>
-    context?.from ?? (clientId ? `/queue?client=${encodeURIComponent(clientId)}` : '/queue')
+    context?.from ??
+    (clientId ? `/queue?client=${encodeURIComponent(clientId)}` : "/queue");
   const open = (id: string, flash?: string) =>
-    void navigate(`/documents/${id}`, { state: { ...(context as ReviewContext), flash } })
+    void navigate(`/documents/${id}`, {
+      state: { ...(context as ReviewContext), flash },
+    });
 
   if (document.isPending) {
     return (
       <PageContainer>
         <Skeleton className="h-96 w-full" />
       </PageContainer>
-    )
+    );
   }
   if (document.isError) {
     return (
       <PageContainer className="space-y-4">
-        <ErrorAlert title="This document could not be loaded" error={document.error} />
+        <ErrorAlert
+          title="This document could not be loaded"
+          error={document.error}
+        />
         <BackButton onBack={() => void navigate(listAddress())} />
       </PageContainer>
-    )
+    );
   }
 
-  const doc = document.data
-  const editable = EDITABLE.has(doc.status)
-  const reading = WORKING.has(doc.status)
+  const doc = document.data;
+  const editable = EDITABLE.has(doc.status);
+  const reading = WORKING.has(doc.status);
 
   function approveAndContinue() {
     approve.mutate(
       { id: doc.document_id, body: null },
       {
         onSuccess: () => {
-          const flash = `Approved: ${doc.file}`
-          if (next) open(next, flash)
-          else void navigate(listAddress(doc.client_id), { state: { flash } })
+          const flash = `Approved: ${doc.file}`;
+          if (next) open(next, flash);
+          else void navigate(listAddress(doc.client_id), { state: { flash } });
         },
       },
-    )
+    );
   }
 
   function onSave({ values, confirmed }: ReviewSubmit) {
-    save.mutate({ id: doc.document_id, body: { invoice: toInvoiceInput(values), confirmed } })
+    save.mutate({
+      id: doc.document_id,
+      body: { invoice: toInvoiceInput(values), confirmed },
+    });
   }
 
   return (
@@ -126,12 +163,16 @@ export function DocumentPage() {
         position={position && total ? `${position} of ${total}` : null}
       />
       {context?.flash && (
-        <p role="status" aria-label="Done" className="flex items-center gap-2 text-sm font-medium text-success">
+        <p
+          role="status"
+          aria-label="Done"
+          className="flex items-center gap-2 text-sm font-medium text-success"
+        >
           <CircleCheck className="size-4" aria-hidden />
           {context.flash}
         </p>
       )}
-      {doc.status === 'REJECTED' ? (
+      {doc.status === "REJECTED" ? (
         <RejectedActions
           document={doc}
           onDeleted={() =>
@@ -141,23 +182,31 @@ export function DocumentPage() {
           }
         />
       ) : reading ? (
-        <p role="status" aria-label="Reading again" className="flex items-center gap-2 text-sm font-medium">
+        <p
+          role="status"
+          aria-label="Reading again"
+          className="flex items-center gap-2 text-sm font-medium"
+        >
           <LoaderCircle className="size-4 animate-spin" aria-hidden />
-          The AI is reading this document again. The new results show here by themselves (about
-          half a minute).
+          The AI is reading this document again. The new results show here by
+          themselves (about half a minute).
         </p>
       ) : (
         !editable && (
           <p className="text-sm text-muted-foreground">
-            This document is {statusLabel(doc.status).toLowerCase()}: it can no longer be changed
-            here.
+            This document is {statusLabel(doc.status).toLowerCase()}: it can no
+            longer be changed here.
           </p>
         )
       )}
       {save.isError && <ErrorAlert title="Not saved" error={save.error} />}
-      {approve.isError && <ErrorAlert title="Not approved" error={approve.error} />}
-      {reextract.isError && <ErrorAlert title="Not read again" error={reextract.error} />}
-      {doc.status === 'IN_REVIEW' && doc.failure_reason && (
+      {approve.isError && (
+        <ErrorAlert title="Not approved" error={approve.error} />
+      )}
+      {reextract.isError && (
+        <ErrorAlert title="Not read again" error={reextract.error} />
+      )}
+      {doc.status === "IN_REVIEW" && doc.failure_reason && (
         // Sent back by posting (task 5.1): the reason says what to change before approving again.
         <Alert variant="destructive">
           <Undo2 aria-hidden />
@@ -165,12 +214,14 @@ export function DocumentPage() {
           <AlertDescription>{doc.failure_reason}</AlertDescription>
         </Alert>
       )}
-      {doc.sending?.state === 'failed' && <SendFailed document={doc} />}
-      {doc.sending && doc.sending.state !== 'failed' && <SendingStatus document={doc} />}
+      {doc.sending?.state === "failed" && <SendFailed document={doc} />}
+      {doc.sending && doc.sending.state !== "failed" && (
+        <SendingStatus document={doc} />
+      )}
       {save.isSuccess && !save.isPending && (
         <p role="status" className="text-sm text-muted-foreground">
           Saved and checked again
-          {doc.queue ? `: now ${QUEUE_LABELS[doc.queue]}` : ''}.
+          {doc.queue ? `: now ${QUEUE_LABELS[doc.queue]}` : ""}.
         </p>
       )}
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
@@ -182,7 +233,11 @@ export function DocumentPage() {
           <PageViewer
             documentId={doc.document_id}
             pageCount={doc.page_count ?? 0}
-            highlight={highlightFor(target, located.data?.places, located.isFetching)}
+            highlight={highlightFor(
+              target,
+              located.data?.places,
+              located.isFetching,
+            )}
           />
         </section>
         {/* A new server version (after saving) starts a fresh form with its values. */}
@@ -199,14 +254,18 @@ export function DocumentPage() {
           actions={
             editable && (
               <>
-                {doc.status === 'IN_REVIEW' && (
+                {doc.status === "IN_REVIEW" && (
                   <>
                     <ApproveButton
                       blockedBy={
-                        dirty ? 'Save your changes first' : doc.errors > 0 ? 'Fix the errors first' : null
+                        dirty
+                          ? "Save your changes first"
+                          : doc.errors > 0
+                            ? "Fix the errors first"
+                            : null
                       }
                       pending={approve.isPending}
-                      label={next ? 'Approve & next' : 'Approve'}
+                      label={next ? "Approve & next" : "Approve"}
                       onApprove={approveAndContinue}
                     />
                     <RejectDialog documentId={doc.document_id} />
@@ -219,20 +278,20 @@ export function DocumentPage() {
                   onClick={() => {
                     const sure = window.confirm(
                       `Read "${doc.file}" again with the AI?\n\nThe AI reads it again from the start. Your changes on this document will be replaced.`,
-                    )
+                    );
                     if (sure) {
-                      setDirty(false) // the edits are being replaced on purpose
-                      reextract.mutate({ id: doc.document_id, body: null })
+                      setDirty(false); // the edits are being replaced on purpose
+                      reextract.mutate({ id: doc.document_id, body: null });
                     }
                   }}
                 >
                   <RefreshCw aria-hidden />
-                  {reextract.isPending ? 'Sending…' : 'Read again with AI'}
+                  {reextract.isPending ? "Sending…" : "Read again with AI"}
                 </Button>
                 <AnswerKeyButton
                   documentId={doc.document_id}
                   updatedAt={doc.updated_at}
-                  blockedBy={dirty ? 'Save your changes first' : null}
+                  blockedBy={dirty ? "Save your changes first" : null}
                 />
               </>
             )
@@ -240,65 +299,102 @@ export function DocumentPage() {
         />
       </div>
     </PageContainer>
-  )
+  );
 }
 
 /** Decision 73: how this client's lines will be sent, said where the lines are; none until a
  * system is connected. */
 function useLinesNote(clientId: string): string | undefined {
-  const accounting = useAccounting(clientId, false).data
-  const client = useClients().data?.find((c) => c.client_id === clientId)
-  if (!accounting?.connected || !client) return undefined
-  const system = accounting.provider_name ?? 'the accounting system'
-  return client.line_grouping === 'BY_ITEM'
+  const accounting = useAccounting(clientId, false).data;
+  const client = useClients().data?.find((c) => c.client_id === clientId);
+  if (!accounting?.connected || !client) return undefined;
+  const system = accounting.provider_name ?? "the accounting system";
+  return client.line_grouping === "BY_ITEM"
     ? `Sent to ${system} item by item: identical items as one line, their quantity added.`
-    : `Sent to ${system} as one line per account and VAT.`
+    : `Sent to ${system} as one line per account and VAT.`;
 }
 
-/** Where an approved document is on its way (decision 70); the posted one links to it there. */
+/**
+ * Where an approved document is on its way (decision 70); the posted one links to it there, and
+ * comes back to review once the accounting system confirms it was deleted there (decision 76).
+ */
 function SendingStatus({ document }: { document: DocumentDetail }) {
-  const system = useAccounting(document.client_id, false).data?.provider_name ?? 'the accounting system'
-  if (!document.sending) return null
-  const [tone, text] = sendingText(document.sending, system)
+  const system =
+    useAccounting(document.client_id, false).data?.provider_name ??
+    "the accounting system";
+  const reopen = useReopenDeleted();
+  if (!document.sending) return null;
+  const [tone, text] = sendingText(document.sending, system);
   return (
-    <p role="status" aria-label="Sending" className={`flex flex-wrap items-center gap-2 text-sm font-medium ${tone}`}>
-      <CircleCheck className="size-4" aria-hidden />
-      <span>{text}</span>
-      {document.external_url && (
-        <a
-          href={document.external_url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
-        >
-          Open in {system}
-          <ExternalLink className="size-3.5" aria-hidden />
-        </a>
+    <div className="space-y-2">
+      <p
+        role="status"
+        aria-label="Sending"
+        className={`flex flex-wrap items-center gap-2 text-sm font-medium ${tone}`}
+      >
+        <CircleCheck className="size-4" aria-hidden />
+        <span>{text}</span>
+        {document.external_url && (
+          <a
+            href={document.external_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline"
+          >
+            Open in {system}
+            <ExternalLink className="size-3.5" aria-hidden />
+          </a>
+        )}
+        {document.sending.state === "posted" && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            disabled={reopen.isPending}
+            onClick={() =>
+              reopen.mutate({ id: document.document_id, body: null })
+            }
+          >
+            <Undo2 aria-hidden />
+            {reopen.isPending
+              ? `Asking ${system}…`
+              : `Deleted in ${system}? Send again`}
+          </Button>
+        )}
+      </p>
+      {reopen.isError && (
+        <ErrorAlert title="Not sent again" error={reopen.error} />
       )}
-    </p>
-  )
+    </div>
+  );
 }
 
 function sendingText(sending: Sending, system: string): [string, ReactNode] {
-  if (sending.state === 'posted') return ['text-success', `Posted to ${system}, waiting for approval there.`]
-  if (sending.state === 'paused') {
+  if (sending.state === "posted")
+    return ["text-success", `Posted to ${system}, waiting for approval there.`];
+  if (sending.state === "paused") {
     return [
-      'text-destructive',
+      "text-destructive",
       <>
-        Paused: {sending.reason}.{' '}
+        Paused: {sending.reason}.{" "}
         <Link to="/clients" className="underline underline-offset-2">
           Connect again on the Clients page
         </Link>
         .
       </>,
-    ]
+    ];
   }
-  if (sending.state === 'retrying') {
-    const when = sending.next_try_at ? ` at ${formatDateTime(sending.next_try_at)}` : ''
-    const why = sending.reason ? ` (${sending.reason})` : ''
-    return ['text-warning', `Approved: ${system} will be tried again${when}${why}.`]
+  if (sending.state === "retrying") {
+    const when = sending.next_try_at
+      ? ` at ${formatDateTime(sending.next_try_at)}`
+      : "";
+    const why = sending.reason ? ` (${sending.reason})` : "";
+    return [
+      "text-warning",
+      `Approved: ${system} will be tried again${when}${why}.`,
+    ];
   }
-  return ['text-success', `Approved: being sent to ${system}.`]
+  return ["text-success", `Approved: being sent to ${system}.`];
 }
 
 /**
@@ -306,43 +402,55 @@ function sendingText(sending: Sending, system: string): [string, ReactNode] {
  * to review while the create request was never sent.
  */
 function SendFailed({ document }: { document: DocumentDetail }) {
-  const again = useSendAgain()
-  const back = useSendBack()
-  const sending = document.sending
-  const busy = again.isPending || back.isPending
+  const again = useSendAgain();
+  const back = useSendBack();
+  const sending = document.sending;
+  const busy = again.isPending || back.isPending;
   return (
     <Alert variant="destructive" aria-label="Could not send">
       <TriangleAlert aria-hidden />
       <AlertTitle>Could not send to the accounting system</AlertTitle>
       <AlertDescription className="space-y-2">
-        <p>{sending?.reason ?? 'The reason was not recorded.'}</p>
+        <p>{sending?.reason ?? "The reason was not recorded."}</p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" disabled={busy} onClick={() => again.mutate({ id: document.document_id, body: null })}>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              again.mutate({ id: document.document_id, body: null })
+            }
+          >
             <RotateCcw aria-hidden />
-            {again.isPending ? 'Sending…' : 'Try again'}
+            {again.isPending ? "Sending…" : "Try again"}
           </Button>
           {sending?.can_send_back ? (
             <Button
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => back.mutate({ id: document.document_id, body: null })}
+              onClick={() =>
+                back.mutate({ id: document.document_id, body: null })
+              }
             >
               <Undo2 aria-hidden />
               Send back to review
             </Button>
           ) : (
             <span className="self-center text-xs">
-              It may already be in the accounting system, so it cannot be sent back: Try again
-              never creates it twice.
+              It may already be in the accounting system, so it cannot be sent
+              back: Try again never creates it twice.
             </span>
           )}
         </div>
-        {again.isError && <ErrorAlert title="Not tried again" error={again.error} />}
-        {back.isError && <ErrorAlert title="Not sent back" error={back.error} />}
+        {again.isError && (
+          <ErrorAlert title="Not tried again" error={again.error} />
+        )}
+        {back.isError && (
+          <ErrorAlert title="Not sent back" error={back.error} />
+        )}
       </AlertDescription>
     </Alert>
-  )
+  );
 }
 
 /**
@@ -355,26 +463,37 @@ function AnswerKeyButton({
   updatedAt,
   blockedBy,
 }: {
-  documentId: string
-  updatedAt: string
-  blockedBy: string | null
+  documentId: string;
+  updatedAt: string;
+  blockedBy: string | null;
 }) {
-  const answer = useAnswerKey(documentId)
-  const mark = useMarkCorrect(documentId)
-  const savedAt = answer.data?.saved_at ?? null
-  const outdated = savedAt !== null && new Date(updatedAt) > new Date(savedAt)
-  const error = mark.error && <span className="text-sm text-destructive">{mark.error.message}</span>
+  const answer = useAnswerKey(documentId);
+  const mark = useMarkCorrect(documentId);
+  const savedAt = answer.data?.saved_at ?? null;
+  const outdated = savedAt !== null && new Date(updatedAt) > new Date(savedAt);
+  const error = mark.error && (
+    <span className="text-sm text-destructive">{mark.error.message}</span>
+  );
   if (savedAt !== null && !outdated) {
     return (
-      <span role="status" className="flex items-center gap-1 text-sm font-medium text-success">
+      <span
+        role="status"
+        className="flex items-center gap-1 text-sm font-medium text-success"
+      >
         <BookmarkCheck className="size-4" aria-hidden />
         In answer key
-        <Button type="button" variant="ghost" size="xs" disabled={mark.isPending} onClick={() => mark.mutate(false)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled={mark.isPending}
+          onClick={() => mark.mutate(false)}
+        >
           Remove
         </Button>
         {error}
       </span>
-    )
+    );
   }
   return (
     <>
@@ -382,26 +501,34 @@ function AnswerKeyButton({
         type="button"
         variant="outline"
         disabled={blockedBy !== null || mark.isPending || answer.isLoading}
-        title={blockedBy ?? 'Keep this document, as saved, as a correct answer for testing. Nothing is approved or sent.'}
+        title={
+          blockedBy ??
+          "Keep this document, as saved, as a correct answer for testing. Nothing is approved or sent."
+        }
         onClick={() => mark.mutate(true)}
       >
         <BookmarkPlus aria-hidden />
-        {outdated ? 'Update answer key' : 'Correct: add to answer key'}
+        {outdated ? "Update answer key" : "Correct: add to answer key"}
       </Button>
       {error}
     </>
-  )
+  );
 }
 
 /** What the viewer shows for the field being looked at; nothing for an empty field. */
 function highlightFor(
   target: FieldTarget | null,
-  places: Highlight['places'] | undefined,
+  places: Highlight["places"] | undefined,
   fetching: boolean,
 ): Highlight | null {
-  if (!target || target.value.trim() === '') return null
-  if (fetching || places === undefined) return { label: target.label, state: 'searching', places: [] }
-  return { label: target.label, state: places.length ? 'found' : 'not-found', places }
+  if (!target || target.value.trim() === "") return null;
+  if (fetching || places === undefined)
+    return { label: target.label, state: "searching", places: [] };
+  return {
+    label: target.label,
+    state: places.length ? "found" : "not-found",
+    places,
+  };
 }
 
 function Header({
@@ -411,11 +538,11 @@ function Header({
   onNext,
   position,
 }: {
-  document: DocumentDetail
-  onBack: () => void
-  onPrevious?: () => void
-  onNext?: () => void
-  position: string | null
+  document: DocumentDetail;
+  onBack: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  position: string | null;
 }) {
   return (
     // Sticky: Back, previous / next and the document's status stay in view while scrolling. It
@@ -425,47 +552,77 @@ function Header({
       <BackButton onBack={onBack} />
       <h2 className="text-lg font-semibold">{doc.file}</h2>
       <Badge variant="outline">{statusLabel(doc.status)}</Badge>
-      {doc.queue && <Badge variant="secondary">{QUEUE_LABELS[doc.queue]}</Badge>}
+      {doc.queue && (
+        <Badge variant="secondary">{QUEUE_LABELS[doc.queue]}</Badge>
+      )}
       {doc.document_type && (
-        <span className="text-sm text-muted-foreground">{TYPE_LABELS[doc.document_type]}</span>
+        <span className="text-sm text-muted-foreground">
+          {TYPE_LABELS[doc.document_type]}
+        </span>
       )}
       <span className="text-sm text-muted-foreground">
-        {doc.errors} error{doc.errors === 1 ? '' : 's'} · {doc.warnings} warning
-        {doc.warnings === 1 ? '' : 's'}
+        {doc.errors} error{doc.errors === 1 ? "" : "s"} · {doc.warnings} warning
+        {doc.warnings === 1 ? "" : "s"}
       </span>
       {doc.timings?.extract_ms != null && (
         <span className="text-sm text-muted-foreground">
-          {doc.timings.total_ms !== null && `Processed in ${formatDuration(workMs(doc.timings))} · `}
+          {doc.timings.total_ms !== null &&
+            `Processed in ${formatDuration(workMs(doc.timings))} · `}
           model {formatDuration(doc.timings.extract_ms)}
         </span>
       )}
       <FolderLine document={doc} />
       {position && (
-        <nav aria-label="Documents in this list" className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" aria-label="Previous document" disabled={!onPrevious} onClick={onPrevious}>
+        <nav
+          aria-label="Documents in this list"
+          className="ml-auto flex items-center gap-1"
+        >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Previous document"
+            disabled={!onPrevious}
+            onClick={onPrevious}
+          >
             <ChevronLeft />
           </Button>
-          <span className="text-sm tabular-nums text-muted-foreground">{position}</span>
-          <Button variant="ghost" size="icon-sm" aria-label="Next document" disabled={!onNext} onClick={onNext}>
+          <span className="text-sm tabular-nums text-muted-foreground">
+            {position}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Next document"
+            disabled={!onNext}
+            onClick={onNext}
+          >
             <ChevronRight />
           </Button>
         </nav>
       )}
     </div>
-  )
+  );
 }
 
 /** Where the file came from: folder names often carry the date or the supplier, which helps
  * when the document itself shows no date (an app's order screen). On its own row, last. */
 function FolderLine({ document: doc }: { document: DocumentDetail }) {
-  const folder = doc.source_path.split('/').slice(0, -1).join(' / ')
+  const folder = doc.source_path.split("/").slice(0, -1).join(" / ");
   return (
-    <p className="order-last basis-full text-sm text-muted-foreground" aria-label="Folder">
-      Folder: <span className="font-medium text-foreground">{folder || 'the top folder'}</span>
-      {' · '}
-      {doc.folder_date ? `Folder date ${formatDate(doc.folder_date)}` : 'No folder date'}
+    <p
+      className="order-last basis-full text-sm text-muted-foreground"
+      aria-label="Folder"
+    >
+      Folder:{" "}
+      <span className="font-medium text-foreground">
+        {folder || "the top folder"}
+      </span>
+      {" · "}
+      {doc.folder_date
+        ? `Folder date ${formatDate(doc.folder_date)}`
+        : "No folder date"}
     </p>
-  )
+  );
 }
 
 /** Approve takes the document as last saved and checked: never with unsaved edits or errors.
@@ -476,10 +633,10 @@ function ApproveButton({
   label,
   onApprove,
 }: {
-  blockedBy: string | null
-  pending: boolean
-  label: string
-  onApprove: () => void
+  blockedBy: string | null;
+  pending: boolean;
+  label: string;
+  onApprove: () => void;
 }) {
   return (
     <>
@@ -490,30 +647,44 @@ function ApproveButton({
         onClick={onApprove}
       >
         <CircleCheck aria-hidden />
-        {pending ? 'Approving…' : label}
+        {pending ? "Approving…" : label}
       </Button>
-      {blockedBy && <span className="text-sm text-muted-foreground">{blockedBy}</span>}
+      {blockedBy && (
+        <span className="text-sm text-muted-foreground">{blockedBy}</span>
+      )}
     </>
-  )
+  );
 }
 
 /** A rejected document (decision 45): bring it back to review, or delete it permanently. The
  * delete asks first: it removes the record and the stored files, and cannot be undone. */
-function RejectedActions({ document, onDeleted }: { document: DocumentDetail; onDeleted: () => void }) {
-  const restore = useRestoreDocument()
-  const remove = useDeleteDocument()
+function RejectedActions({
+  document,
+  onDeleted,
+}: {
+  document: DocumentDetail;
+  onDeleted: () => void;
+}) {
+  const restore = useRestoreDocument();
+  const remove = useDeleteDocument();
   return (
-    <div role="region" aria-label="Rejected document" className="space-y-2 rounded-lg border p-3 text-sm">
+    <div
+      role="region"
+      aria-label="Rejected document"
+      className="space-y-2 rounded-lg border p-3 text-sm"
+    >
       <p>
-        <span className="font-medium">Rejected.</span> It is not in the review queue and will not
-        be sent anywhere.
+        <span className="font-medium">Rejected.</span> It is not in the review
+        queue and will not be sent anywhere.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
           variant="outline"
           disabled={restore.isPending || remove.isPending}
-          onClick={() => restore.mutate({ id: document.document_id, body: null })}
+          onClick={() =>
+            restore.mutate({ id: document.document_id, body: null })
+          }
         >
           <RotateCcw aria-hidden />
           Bring back to review
@@ -525,18 +696,23 @@ function RejectedActions({ document, onDeleted }: { document: DocumentDetail; on
           onClick={() => {
             const sure = window.confirm(
               `Delete "${document.file}" permanently?\n\nIts data, history and stored copy are removed. This cannot be undone.`,
-            )
-            if (sure) remove.mutate(document.document_id, { onSuccess: onDeleted })
+            );
+            if (sure)
+              remove.mutate(document.document_id, { onSuccess: onDeleted });
           }}
         >
           <Trash2 aria-hidden />
           Delete permanently
         </Button>
       </div>
-      {restore.isError && <ErrorAlert title="Not brought back" error={restore.error} />}
-      {remove.isError && <ErrorAlert title="Not deleted" error={remove.error} />}
+      {restore.isError && (
+        <ErrorAlert title="Not brought back" error={restore.error} />
+      )}
+      {remove.isError && (
+        <ErrorAlert title="Not deleted" error={remove.error} />
+      )}
     </div>
-  )
+  );
 }
 
 function BackButton({ onBack }: { onBack: () => void }) {
@@ -545,23 +721,23 @@ function BackButton({ onBack }: { onBack: () => void }) {
       <ArrowLeft aria-hidden />
       Back
     </Button>
-  )
+  );
 }
 
-const LEAVE_WARNING = 'You have unsaved changes. Leave without saving?'
+const LEAVE_WARNING = "You have unsaved changes. Leave without saving?";
 
 /** Ask before leaving the page (in the app or closing the tab) with unsaved edits. */
 function useUnsavedChangesGuard(dirty: boolean) {
-  const blocker = useBlocker(dirty)
+  const blocker = useBlocker(dirty);
   useEffect(() => {
-    if (blocker.state !== 'blocked') return
-    if (window.confirm(LEAVE_WARNING)) blocker.proceed()
-    else blocker.reset()
-  }, [blocker])
+    if (blocker.state !== "blocked") return;
+    if (window.confirm(LEAVE_WARNING)) blocker.proceed();
+    else blocker.reset();
+  }, [blocker]);
   useEffect(() => {
-    if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 }

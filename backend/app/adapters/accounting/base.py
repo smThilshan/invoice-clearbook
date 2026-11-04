@@ -177,6 +177,11 @@ class PostingSystem(Protocol):
         save: Callable[[str], None],
     ) -> Posted: ...
 
+    def is_deleted(self, external_id: str) -> bool:
+        """The posted document is gone there: deleted or voided (decision 76). Raises
+        PostingUnavailable or PostingAccessDenied when the system cannot be asked now."""
+        ...
+
 
 class ConnectedSystem(AccountingSystem, PostingSystem, Protocol):
     """One connected organisation of a provider: master data in, documents out."""

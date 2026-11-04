@@ -123,6 +123,23 @@ def test_the_same_supplier_coding_counts_one_more_consistent_approval(
     assert learned.last_approved_at is not None
 
 
+def test_a_document_approved_again_does_not_count_twice_for_its_supplier(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    """Decision 76: sent back, or deleted in the accounting system and sent again, it is still
+    one document: its first approval taught the supplier's coding already."""
+    doc = in_review(session, storage)
+    session.add(Outbox(client_id=CLIENT, document_id=doc.id, status=OutboxStatus.DONE))
+    session.flush()
+
+    ok(approve(api, doc))
+
+    assert mapping(session).consistent_approvals == 3  # unchanged
+    assert len(outbox_rows(session, doc)) == 2  # a new row, a new key
+
+
 def test_a_different_supplier_coding_starts_over(
     api: TestClient,  # noqa: F811
     session: Session,

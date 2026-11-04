@@ -63,8 +63,10 @@ def test_a_rejected_document_can_only_come_back_to_review() -> None:
     assert ALLOWED_TRANSITIONS[S.REJECTED] == {S.IN_REVIEW}  # decision 45
 
 
-def test_posted_cannot_be_reopened_for_review() -> None:
-    assert not can_transition(S.POSTED, S.IN_REVIEW)
+def test_only_a_posted_document_deleted_there_comes_back_to_review() -> None:
+    """Decision 76: POSTED -> IN_REVIEW, done only by posting.reopen_deleted once the accounting
+    system confirms the document is gone; a synced one never comes back."""
+    assert can_transition(S.POSTED, S.IN_REVIEW)
     assert not can_transition(S.SYNCED, S.IN_REVIEW)
 
 

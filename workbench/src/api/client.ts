@@ -188,6 +188,8 @@ export const api = {
   sendAgain: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/send-again`, {}),
   /** A send that gave up goes back to review with the reason (decision 69). */
   sendBack: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/send-back`, {}),
+  /** A posted document deleted in the accounting system back to review, once it confirms (76). */
+  reopenDeleted: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/reopen-deleted`, {}),
   /** A rejected document back to review, checked again (decision 45). */
   restoreDocument: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/restore`, {}),
   /** Delete a rejected document permanently, files included (decision 45). */

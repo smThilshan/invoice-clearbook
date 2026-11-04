@@ -32,7 +32,7 @@ from app.domain.enums import (
 )
 from app.domain.enums import DocumentStatus as S
 from app.domain.invoice import Invoice, Line
-from app.models import Contact, Document, LedgerAccount, Outbox, OutboxStatus, TaxRate
+from app.models import AuditLog, Contact, Document, LedgerAccount, Outbox, OutboxStatus, TaxRate
 from app.services import accounting_connections as connections
 from app.services import posting, review
 from app.services.clients import get_client
@@ -51,6 +51,8 @@ class FakePosting:
         self.bills: list[PostingBill] = []
         self.started_with: list[dict[str, Any]] = []
         self.outcome: Exception | None = None
+        self.gone: bool | Exception = True  # what is_deleted answers
+        self.asked: list[str] = []
 
     def system(self, token: str, tenant_id: str) -> "FakePosting":
         assert (token, tenant_id) == ("access-1", "t2")
@@ -71,6 +73,12 @@ class FakePosting:
         if self.outcome:
             raise self.outcome
         return Posted("xero-bill-1", Decimal("1050.00"), progress["contact_id"], True)
+
+    def is_deleted(self, external_id: str) -> bool:
+        self.asked.append(external_id)
+        if isinstance(self.gone, Exception):
+            raise self.gone
+        return self.gone
 
 
 class FakeStorage:
@@ -642,3 +650,69 @@ def test_item_by_item_sends_identical_items_as_one_line_with_their_quantity(
     assert [(x.quantity, x.unit_amount) for x in xero.bills[1].lines] == [
         (Decimal(1), Decimal("40.30"))
     ]  # by account, as when it was approved
+
+
+def posted_doc(session: Session, xero: FakePosting) -> Document:
+    doc, _ = approved(session)
+    send(session, xero)
+    session.refresh(doc)
+    assert (doc.status, doc.external_id) == (S.POSTED, "xero-bill-1")
+    return doc
+
+
+def reopen(session: Session, xero: FakePosting, doc: Document) -> str:
+    fake_xero = FakeXero()
+    fake_xero.organisation = xero  # type: ignore[assignment]
+    return posting.reopen_deleted(session, SETTINGS, registry(fake_xero), doc,
+                                  actor="tester@missan.test")  # fmt: skip
+
+
+def test_a_bill_deleted_in_the_accounting_system_comes_back_to_review(
+    session: Session, xero: FakePosting
+) -> None:
+    doc = posted_doc(session, xero)
+
+    name = reopen(session, xero, doc)
+
+    assert (name, xero.asked) == ("Xero", ["xero-bill-1"])
+    assert (doc.status, doc.external_id) == (S.IN_REVIEW, None)
+    assert doc.failure_reason == "Deleted in Xero: change it if needed and approve again."
+    [audit] = session.scalars(
+        select(AuditLog).where(AuditLog.document_id == doc.id, AuditLog.to_status == S.IN_REVIEW)
+    ).all()
+    assert (audit.actor, audit.reason, audit.details) == (
+        "tester@missan.test", "deleted in Xero", {"external_id": "xero-bill-1"})  # fmt: skip
+    assert posting.sending_of(session, doc) is None
+
+
+def test_a_bill_still_in_the_accounting_system_is_never_sent_again(
+    session: Session, xero: FakePosting
+) -> None:
+    doc = posted_doc(session, xero)
+    xero.gone = False
+
+    with pytest.raises(posting.SendError, match="still in Xero: delete or void it there first"):
+        reopen(session, xero, doc)
+
+    assert (doc.status, doc.external_id) == (S.POSTED, "xero-bill-1")
+
+
+def test_when_the_accounting_system_cannot_be_asked_nothing_changes(
+    session: Session, xero: FakePosting
+) -> None:
+    doc = posted_doc(session, xero)
+    xero.gone = PostingUnavailable("cannot reach Xero (ConnectTimeout)")
+
+    with pytest.raises(posting.SendError, match="could not be asked"):
+        reopen(session, xero, doc)
+
+    assert doc.status is S.POSTED
+
+
+def test_only_a_posted_document_can_be_sent_again(session: Session, xero: FakePosting) -> None:
+    doc, _ = approved(session)
+
+    with pytest.raises(posting.SendError, match="only a document sent"):
+        reopen(session, xero, doc)
+
+    assert xero.asked == []

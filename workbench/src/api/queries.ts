@@ -272,6 +272,10 @@ export function useSendBack() {
   return useDocumentChange<null>((id) => api.sendBack(id))
 }
 
+export function useReopenDeleted() {
+  return useDocumentChange<null>((id) => api.reopenDeleted(id))
+}
+
 export function useRestoreDocument() {
   return useDocumentChange<null>((id) => api.restoreDocument(id))
 }

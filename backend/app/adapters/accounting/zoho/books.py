@@ -48,3 +48,6 @@ class ZohoBooks:
         save: Callable[[str], None],
     ) -> Posted:
         return bills.post_bill(self._zoho, bill, key=key, progress=progress, save=save)
+
+    def is_deleted(self, external_id: str) -> bool:
+        return bills.is_deleted(self._zoho, external_id)

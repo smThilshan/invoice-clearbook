@@ -303,3 +303,26 @@ def test_a_sent_bill_links_to_its_organisation_in_its_data_centre() -> None:
     assert bill_url("ae:905001", "4700") == "https://books.zoho.ae/app/905001#/bills/4700"
     assert bill_url(None, "4700") is None
     assert bill_url("evil.com:905001", "4700") is None
+
+
+@pytest.mark.parametrize(
+    ("answer", "gone"),
+    [
+        (httpx.Response(404, json={"code": 1002, "message": "Bill does not exist."}), True),
+        (ok(bill={"bill_id": "4700", "status": "void"}), True),
+        (ok(bill={"bill_id": "4700", "status": "pending_approval"}), False),
+    ],
+)
+def test_a_deleted_or_voided_bill_is_gone(answer: httpx.Response, gone: bool) -> None:
+    zoho = FakeZoho()
+    zoho.override = lambda _: answer
+
+    assert zoho.books().is_deleted("4700") is gone
+
+
+def test_asking_a_busy_zoho_if_a_bill_is_gone_means_try_later() -> None:
+    zoho = FakeZoho()
+    zoho.override = lambda _: httpx.Response(429, json={"code": 44, "message": "busy"})
+
+    with pytest.raises(PostingUnavailable):
+        zoho.books().is_deleted("4700")

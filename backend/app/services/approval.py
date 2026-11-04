@@ -11,12 +11,13 @@ accountant has seen them.
 Supplier mapping (architecture §9, source 1): a document whose lines all use one account (and one
 VAT type) teaches that the supplier is coded so. The same choice again counts one more consistent
 approval; a different one starts over at one. Coding trusts a mapping after
-`coding_min_consistent_approvals` (default 3). Documents with mixed accounts teach nothing.
+`coding_min_consistent_approvals` (default 3). Documents with mixed accounts teach nothing, and a
+document approved again (sent back, or deleted there and sent again) does not count twice.
 """
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
@@ -66,9 +67,13 @@ def approve_document(
         session.scalar(select(Client.line_grouping).where(Client.client_id == document.client_id))
         or LineGrouping.BY_ITEM
     )
+    approved_before = session.scalar(
+        select(exists().where(Outbox.document_id == document.id))
+    )  # sent back, or deleted in the accounting system and sent again (decision 76)
     outbox = Outbox(client_id=document.client_id, document_id=document.id, line_grouping=grouping)
     session.add(outbox)
-    _learn_supplier_coding(session, document, invoice)
+    if not approved_before:  # one document is one approval for the supplier's coding
+        _learn_supplier_coding(session, document, invoice)
     session.flush()
     return outbox
 

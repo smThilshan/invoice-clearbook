@@ -283,3 +283,20 @@ def test_money_goes_to_json_as_exact_numbers() -> None:
     assert to_json({"a": Decimal("0.10"), "b": [Decimal("-1234567.8901")], "c": "x"}) == (
         '{"a": 0.10, "b": [-1234567.8901], "c": "x"}'
     )
+
+
+@pytest.mark.parametrize(
+    ("answer", "gone"),
+    [
+        (httpx.Response(200, json={"Invoices": [{"Status": "DELETED"}]}), True),
+        (httpx.Response(200, json={"Invoices": [{"Status": "VOIDED"}]}), True),
+        (httpx.Response(404, json={"Message": "not found"}), True),
+        (httpx.Response(200, json={"Invoices": [{"Status": "SUBMITTED"}]}), False),
+    ],
+)
+def test_a_deleted_or_voided_bill_is_gone(answer: httpx.Response, gone: bool) -> None:
+    """Decision 76: Xero keeps a deleted bill with its status."""
+    xero = FakeXero()
+    xero.override = lambda _: answer
+
+    assert XeroAccountingSystem("token", "tenant", xero.client()).is_deleted("bill-1") is gone

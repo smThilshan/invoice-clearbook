@@ -37,8 +37,10 @@ class ZohoApiError(Exception):
         code: int | None = None,
         retry_after: int | None = None,
         access: int | None = None,
+        status: int | None = None,
     ) -> None:
         super().__init__(message)
+        self.status = status  # the HTTP status Zoho answered, when it answered
         self.temporary = temporary
         self.code = code
         self.retry_after = retry_after
@@ -129,7 +131,10 @@ def _error(resource: str, response: httpx.Response, body: dict[str, Any]) -> Zoh
     if status >= httpx.codes.INTERNAL_SERVER_ERROR:
         return ZohoApiError(f"Zoho answered HTTP {status} for {resource}", temporary=True)
     return ZohoApiError(
-        f"Zoho refused {resource} (HTTP {status}): {message}", temporary=False, code=code
+        f"Zoho refused {resource} (HTTP {status}): {message}",
+        temporary=False,
+        code=code,
+        status=status,
     )
 
 

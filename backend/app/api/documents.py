@@ -18,11 +18,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.registry import PROVIDERS  # links only: no calls to the systems
+from app.adapters.accounting.registry import PROVIDERS, Registry
 from app.adapters.llm import ExtractionClient, get_extraction_client
 from app.adapters.storage import Storage, get_storage
 from app.adapters.storage.base import NotFoundError
 from app.adapters.storage.keys import ocr_key, page_image_key
+from app.api.accounting import get_registry
 from app.api.auth import UserDep
 from app.api.runs import StepTimingsOut
 from app.core.config import Settings, get_settings
@@ -454,6 +455,26 @@ def send_back(document_id: uuid.UUID, session: SessionDep, user: UserDep) -> Doc
     try:
         with session.begin_nested():
             posting.send_back(session, document, actor=user.email)
+    except (posting.SendError, StaleStatusError) as exc:
+        raise _http_error(exc) from exc
+    session.commit()
+    return _detail(session, document)
+
+
+@router.post("/{document_id}/reopen-deleted")
+def reopen_deleted(
+    document_id: uuid.UUID,
+    session: SessionDep,
+    settings: SettingsDep,
+    registry: Annotated[Registry, Depends(get_registry)],
+    user: UserDep,
+) -> DocumentDetail:
+    """A posted document deleted or voided in the accounting system goes back to review, to be
+    sent again (decision 76). 409 while it is still there, or when the system cannot be asked."""
+    document = _found(session, document_id, for_update=True)
+    try:
+        with session.begin_nested():
+            posting.reopen_deleted(session, settings, registry, document, actor=user.email)
     except (posting.SendError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()

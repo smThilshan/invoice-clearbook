@@ -44,7 +44,9 @@ ALLOWED_TRANSITIONS: Final[Mapping[S, frozenset[S]]] = MappingProxyType(
         S.APPROVED: frozenset({S.POSTING}),
         S.POSTING: frozenset({S.POSTED, S.POST_ERROR}),  # retries stay in POSTING
         S.POST_ERROR: frozenset({S.IN_REVIEW}),
-        S.POSTED: frozenset({S.SYNCED, S.VOIDED}),
+        # IN_REVIEW: the accounting system confirmed the posted document was deleted there, so it
+        # can be changed and sent again (decision 76); only `posting.reopen_deleted` does it
+        S.POSTED: frozenset({S.SYNCED, S.VOIDED, S.IN_REVIEW}),
         S.SYNCED: frozenset({S.VOIDED}),
         S.NON_POSTABLE: frozenset({S.IN_REVIEW, S.READ}),  # un-parked, or read again (55)
         S.FAILED: frozenset({S.CAPTURED}),  # re-run the pipeline

@@ -503,6 +503,24 @@ describe('review screen', () => {
     )  // prettier-ignore
   })
 
+  it('sends a posted bill again once the accounting system says it was deleted (decision 76)', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      '/clients/cafe/accounting': { provider_name: 'Zoho Books' },
+      [`/documents/${ID}`]: detail({
+        status: 'POSTED',
+        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false },
+      }),
+      [`POST /documents/${ID}/reopen-deleted`]: detail({ status: 'IN_REVIEW', sending: null }),
+    })  // prettier-ignore
+    await open(api)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Deleted in Zoho Books? Send again' }))
+
+    await waitFor(() => expect(api.bodies[`POST /documents/${ID}/reopen-deleted`]).toEqual({}))
+  })
+
   it('says a paused document waits for a new sign-in, and where to give it', async () => {
     await open(backend(detail({
       status: 'POSTING',
