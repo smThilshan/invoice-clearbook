@@ -84,6 +84,8 @@ make web-types # regenerate the Workbench's API types after any backend API chan
 make lint      # ruff + mypy
 make test      # pytest
 make check     # backend + Workbench lint and tests (run before every commit)
+make deploy    # put committed main live on this Mac (docs/deploy.md; REF=<commit> to go back)
+make live-status
 ```
 The model runs in LM Studio, natively (not in Docker): `make llm-load` starts its server and loads
 `qwen/qwen3-vl-4b` (Qwen3-VL-4B-Instruct MLX 4bit) with `LLM_CONTEXT_TOKENS` (decision 46). Never a Thinking variant (decision 2).

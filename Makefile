@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients jwt-secret add-user list-users set-password deactivate-user
+.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients jwt-secret add-user list-users set-password deactivate-user live-install deploy live-status live-backup live-restore-test
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -94,6 +94,24 @@ set-password: ## Set a user's password and log out their sessions: make set-pass
 deactivate-user: ## Stop a user's access at once: make deactivate-user EMAIL=a@b.com
 	@test -n "$(EMAIL)" || { echo 'usage: make deactivate-user EMAIL=<email>'; exit 1; }
 	@$(UV) python scripts/manage_users.py deactivate "$(EMAIL)"
+
+# --- Live copy on this Mac (decision 77, docs/deploy.md) ----------------------------------
+
+live-install: ## One-time live setup: make live-install URL=https://<mac>.<tailnet>.ts.net [BACKUP=/Volumes/<disk>/clearbook-backup]
+	@test -n "$(URL)" || { echo 'usage: make live-install URL=https://<address> [BACKUP=<folder>]'; exit 1; }
+	@infra/live/install.sh "$(URL)" $(BACKUP)
+
+deploy: ## Put the latest committed main live (REF=<commit> to go back to an earlier one)
+	@infra/live/deploy.sh $(REF)
+
+live-status: ## Live services, health, version, last backup, free disk
+	@infra/live/status.sh
+
+live-backup: ## Back up the live database and invoice files now (also runs nightly at 02:30)
+	@infra/live/backup.sh
+
+live-restore-test: ## Restore the latest backup into a spare database and count what came back
+	@infra/live/restore.sh
 
 seed: ## Load the fictional F&B sample master data for the default client
 	@$(UV) python scripts/import_master_data.py $(CURDIR)/infra/samples/master_data
