@@ -14,6 +14,7 @@ from app.adapters.accounting.xero.links import bill_url
 from app.adapters.accounting.xero.master_data import XeroAccountingSystem
 from app.adapters.accounting.zoho.auth import ZohoAuth
 from app.adapters.accounting.zoho.books import ZohoBooks
+from app.adapters.accounting.zoho.links import bill_url as zoho_bill_url
 from app.core.config import Settings
 from app.domain.enums import AccountingProvider
 
@@ -29,6 +30,9 @@ class ProviderEntry:
     system: Callable[[str, str, str | None], ConnectedSystem]
     # (organisation ref, external id) -> the posted document in the provider's screens (dec. 70)
     document_url: Callable[[str | None, str], str | None] = lambda _ref, _id: None
+    # Every bill must carry a number (Zoho): a receipt printed without one is an error in review,
+    # so the accountant types it before approving (option B, decision 74).
+    number_required: bool = False
 
 
 Registry = Mapping[AccountingProvider, ProviderEntry]
@@ -50,6 +54,8 @@ PROVIDERS: Registry = {
         bills_where="Purchases, Bills, Pending Approval",
         connector=ZohoAuth,
         system=ZohoBooks,
+        document_url=zoho_bill_url,
+        number_required=True,
     ),
 }
 

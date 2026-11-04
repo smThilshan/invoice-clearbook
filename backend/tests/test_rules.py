@@ -7,11 +7,12 @@ from typing import Any
 import pytest
 
 from app.core.config import Settings
-from app.domain.enums import AmountType, DocumentType, TaxType
+from app.domain.enums import AccountingProvider, AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import DIRHAM_SIGN
 from app.pipeline.verify.rules import RuleContext, run_rules
+from app.pipeline.verify.step import require_number
 
 FOLDER_DATE = date(2026, 10, 20)
 TODAY = date(2026, 10, 21)
@@ -90,6 +91,19 @@ def test_receipt_without_number_is_only_a_warning() -> None:
 
     assert issue.severity is Severity.WARNING
     assert "required_missing" not in codes(receipt)
+
+
+def test_receipt_without_number_is_an_error_where_every_bill_needs_one() -> None:
+    receipt = invoice(document_type=DocumentType.RECEIPT, invoice_number=None, due_date=None)
+
+    zoho = require_number(issues(receipt), AccountingProvider.ZOHO)
+    xero = require_number(issues(receipt), AccountingProvider.XERO)
+
+    [needed] = [i for i in zoho if i.code == "receipt_number_needed"]
+    assert (needed.severity, needed.field) == (Severity.ERROR, "invoice_number")
+    assert "Zoho Books needs one" in needed.message
+    assert "receipt_number_missing" not in {i.code for i in zoho}
+    assert {i.code for i in xero} == codes(receipt)  # Xero takes a bill without a number
 
 
 def test_receipt_still_needs_total() -> None:

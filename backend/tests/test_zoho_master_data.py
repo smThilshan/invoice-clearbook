@@ -71,7 +71,7 @@ def test_master_data_comes_in_as_neutral_records() -> None:
         (NO_VAT, TaxType.NONE),
     ]  # fmt: skip
     assert [(c.name, c.is_supplier) for c in data.contacts] == [("Al Shahama Supermarket", True)]
-    assert data.organisation_ref == "905001"
+    assert data.organisation_ref == "ae:905001"  # data centre and organisation, for links
 
 
 def test_every_call_names_the_organisation_and_goes_to_its_data_centre() -> None:

@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.accounting.registry import PROVIDERS
 from app.adapters.llm import ExtractionClient
 from app.adapters.ocr import OcrEngine
 from app.adapters.storage import Storage
@@ -222,7 +223,7 @@ def assess(
     )
 
     error = _last_extraction_error(session, document) if invoice is None else None
-    issues = run_rules(invoice, context, extraction_error=error)
+    issues = require_number(run_rules(invoice, context, extraction_error=error), provider)
     issues += quality_issues([(page.page, page.quality) for page in pages])
     park = False
     if invoice is not None:
@@ -283,6 +284,27 @@ def assess(
 
 
 TOTAL_GAP_CODES = frozenset({"totals_mismatch", "lines_sum_mismatch"})
+
+
+def require_number(issues: list[Issue], provider: AccountingProvider) -> list[Issue]:
+    """A receipt without a number may be posted (a warning), unless the client's accounting
+    system takes no bill without one (Zoho Books): then it is an error, so the accountant types
+    the number before approving rather than having the bill sent back (option B, decision 74)."""
+    entry = PROVIDERS.get(provider)
+    if entry is None or not entry.number_required:
+        return issues
+    return [
+        Issue(
+            "receipt_number_needed",
+            Severity.ERROR,
+            issue.field,
+            f"No receipt number found. {entry.name} needs one: type the number printed on the "
+            "receipt (for example a booking or trip number).",
+        )
+        if issue.code == "receipt_number_missing"
+        else issue
+        for issue in issues
+    ]
 
 
 def _explain_total(

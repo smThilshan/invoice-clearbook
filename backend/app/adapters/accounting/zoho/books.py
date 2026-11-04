@@ -1,8 +1,5 @@
-"""The ConnectedSystem port for one Zoho Books organisation (decision 74).
-
-Master data comes in; posting follows in the next change. Until then it says so in words for the
-accountant, and a bill approved for a Zoho client goes back to review.
-"""
+"""The ConnectedSystem port for one Zoho Books organisation (decision 74): master data in
+(`master_data.py`), bills out (`bills.py`)."""
 
 from collections.abc import Callable, MutableMapping
 from typing import Any
@@ -14,13 +11,11 @@ from app.adapters.accounting.base import (
     MasterData,
     Posted,
     PostingBill,
-    PostingRefused,
 )
+from app.adapters.accounting.zoho import bills, links
 from app.adapters.accounting.zoho.client import ZohoApiError, ZohoClient
 from app.adapters.accounting.zoho.master_data import fetch_master_data
 from app.domain.enums import AccountingProvider
-
-NOT_YET = "is not available for Zoho Books yet"
 
 
 class ZohoBooks:
@@ -31,7 +26,7 @@ class ZohoBooks:
         region: str | None,
         http: httpx.Client | None = None,
     ) -> None:
-        self._organisation_id = organisation_id
+        self._reference = links.organisation_ref(region, organisation_id)
         self._zoho = ZohoClient(access_token, organisation_id, region, http)
 
     @property
@@ -40,7 +35,7 @@ class ZohoBooks:
 
     def fetch_master_data(self) -> MasterData:
         try:
-            return fetch_master_data(self._zoho, self._organisation_id)
+            return fetch_master_data(self._zoho, self._reference)
         except ZohoApiError as exc:
             raise AccountingSystemError(str(exc)) from exc
 
@@ -52,4 +47,4 @@ class ZohoBooks:
         progress: MutableMapping[str, Any],
         save: Callable[[str], None],
     ) -> Posted:
-        raise PostingRefused(f"sending bills {NOT_YET}")
+        return bills.post_bill(self._zoho, bill, key=key, progress=progress, save=save)

@@ -36,7 +36,7 @@ _CLASSES = {
 }  # fmt: skip
 
 
-def fetch_master_data(zoho: ZohoClient, organisation_id: str) -> MasterData:
+def fetch_master_data(zoho: ZohoClient, organisation_ref: str) -> MasterData:
     accounts = zoho.pages("chartofaccounts", "chartofaccounts", filter_by="AccountType.All")
     taxes = zoho.get("settings/taxes").get("taxes") or []
     vendors = zoho.pages("contacts", "contacts", contact_type="vendor")
@@ -44,7 +44,7 @@ def fetch_master_data(zoho: ZohoClient, organisation_id: str) -> MasterData:
         accounts=[_account(a) for a in accounts],
         tax_rates=[_tax_rate(t) for t in taxes] + [_no_vat()],
         contacts=[_contact(c) for c in vendors],
-        organisation_ref=organisation_id,
+        organisation_ref=organisation_ref,
     )
 
 
