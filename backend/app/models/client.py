@@ -24,8 +24,8 @@ class Client(UuidPk, ClientScoped, Timestamps, Base):
     # How approved lines are sent (decision 73); copied onto each outbox row at approval.
     line_grouping: Mapped[LineGrouping] = mapped_column(
         str_enum(LineGrouping, "line_grouping"),
-        default=LineGrouping.BY_ACCOUNT,
-        server_default=LineGrouping.BY_ACCOUNT.value,
+        default=LineGrouping.BY_ITEM,
+        server_default=LineGrouping.BY_ITEM.value,
     )
 
     __table_args__ = (UniqueConstraint("client_id"),)

@@ -1238,10 +1238,10 @@ export interface components {
         };
         /**
          * LineGrouping
-         * @description How a client's approved lines are sent to its accounting system (decisions 51, 73).
+         * @description How a client's approved lines are sent to its accounting system (decisions 51, 73, 75).
          * @enum {string}
          */
-        LineGrouping: "BY_ACCOUNT" | "BY_ITEM";
+        LineGrouping: "BY_ITEM" | "BY_ACCOUNT";
         /** Liveness */
         Liveness: {
             /**

@@ -175,18 +175,18 @@ def test_approval_keeps_the_clients_way_of_sending_lines_on_the_outbox_row(
     session: Session,
     storage: LocalStorage,  # noqa: F811
 ) -> None:
-    ok(api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ITEM"}))
+    ok(api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ACCOUNT"}))
     doc = in_review(session, storage)
 
     ok(approve(api, doc))
 
     [row] = outbox_rows(session, doc)
-    assert row.line_grouping is LineGrouping.BY_ITEM
+    assert row.line_grouping is LineGrouping.BY_ACCOUNT
 
 
 def test_only_an_admin_changes_how_lines_are_sent(api: TestClient) -> None:  # noqa: F811
     clients = ok(api.get("/clients"))
-    assert [c["line_grouping"] for c in clients] == ["BY_ACCOUNT"]  # the default
+    assert [c["line_grouping"] for c in clients] == ["BY_ITEM"]  # the default (decision 75)
     log_in(api.app, Role.ACCOUNTANT)  # type: ignore[arg-type]
 
     refused = api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ITEM"})

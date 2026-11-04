@@ -72,7 +72,7 @@ describe('clients', () => {
     renderApp('/clients')
 
     const setting = await screen.findByRole('combobox', { name: 'Lines sent to Xero' })
-    expect(setting).toHaveTextContent('By account: one line per account and VAT')
+    expect(setting).toHaveTextContent('By account: all products with the same account and VAT in one line')
     await user.click(setting)
     await user.click(await screen.findByRole('option', { name: /^By item/ }))
 
@@ -89,7 +89,7 @@ describe('clients', () => {
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByText('By account: one line per account and VAT')).toBeInTheDocument()
+    expect(await within(row).findByText('By account: all products with the same account and VAT in one line')).toBeInTheDocument()
     expect(within(row).queryByRole('combobox')).not.toBeInTheDocument()
   })
 

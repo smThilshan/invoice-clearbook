@@ -81,6 +81,6 @@ export function formatAmount(amount: string): string {
 
 /** How approved lines are sent to the accounting system (decision 73). */
 export const LINE_GROUPING_LABELS: Record<LineGrouping, string> = {
-  BY_ACCOUNT: 'By account: one line per account and VAT',
-  BY_ITEM: 'By item: identical items combined, quantity added',
+  BY_ITEM: 'By item: each product on its own line, the same product once with its quantity',
+  BY_ACCOUNT: 'By account: all products with the same account and VAT in one line',
 }

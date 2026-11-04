@@ -41,8 +41,8 @@ class Outbox(UuidPk, ClientScoped, Timestamps, Base):
     # The client's setting when approved (decision 73): every retry sends the very same lines.
     line_grouping: Mapped[LineGrouping] = mapped_column(
         str_enum(LineGrouping, "line_grouping"),
-        default=LineGrouping.BY_ACCOUNT,
-        server_default=LineGrouping.BY_ACCOUNT.value,
+        default=LineGrouping.BY_ITEM,
+        server_default=LineGrouping.BY_ITEM.value,
     )
 
     __table_args__ = (

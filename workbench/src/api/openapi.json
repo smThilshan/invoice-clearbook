@@ -1710,10 +1710,10 @@
         "type": "object"
       },
       "LineGrouping": {
-        "description": "How a client's approved lines are sent to its accounting system (decisions 51, 73).",
+        "description": "How a client's approved lines are sent to its accounting system (decisions 51, 73, 75).",
         "enum": [
-          "BY_ACCOUNT",
-          "BY_ITEM"
+          "BY_ITEM",
+          "BY_ACCOUNT"
         ],
         "title": "LineGrouping",
         "type": "string"

@@ -146,7 +146,8 @@ def test_an_approved_bill_is_posted_and_its_supplier_remembered(
     (bill,) = xero.bills
     assert [(line.description, line.quantity, line.unit_amount, line.account_code, line.tax_code)
             for line in bill.lines] == [
-        ("Rice 5kg; Cooking oil", Decimal("1"), Decimal("1000.00"), "429", "INPUT"),  # grouped (51)
+        ("Rice 5kg", Decimal("2"), Decimal("300.00"), "429", "INPUT"),  # by item (decision 75)
+        ("Cooking oil", Decimal("1"), Decimal("400.00"), "429", "INPUT"),
     ]  # fmt: skip
     assert (bill.supplier_name, bill.amount_type, bill.due_date) == (
         "Made-up Foods LLC", AmountType.EXCLUSIVE, None)  # fmt: skip
@@ -616,7 +617,8 @@ def test_posted_rows_link_to_the_bill_in_xero_through_the_api(
 def test_item_by_item_sends_identical_items_as_one_line_with_their_quantity(
     session: Session, xero: FakePosting
 ) -> None:
-    """Decision 73: the setting copied at approval decides, not the client's setting now."""
+    """Decisions 73, 75: by item, the default; the setting copied on the outbox row at approval
+    decides how its lines go."""
     coded: dict[str, Any] = {"account_code": "429", "tax_type": TaxType.STANDARD_5}
     masala = Line(description="Garam Masala", qty=Decimal(1), unit_price=Decimal("8.80"),
                   amount=Decimal("8.80"), **coded)  # fmt: skip
@@ -625,21 +627,18 @@ def test_item_by_item_sends_identical_items_as_one_line_with_their_quantity(
     changes: dict[str, Any] = {"lines": [masala] * 3 + [yogurt] * 2,
                                "amount_type": AmountType.INCLUSIVE, "subtotal": Decimal("38.38"),
                                "vat": Decimal("1.92"), "total": Decimal("40.30")}  # fmt: skip
-    _, by_item = approved(session, **changes)
-    by_item.line_grouping = LineGrouping.BY_ITEM
+    approved(session, **changes)  # by item: the default
+    _, by_account = approved(session, **changes, invoice_number="INV-8")
+    by_account.line_grouping = LineGrouping.BY_ACCOUNT  # as copied at its approval
     session.flush()
 
+    send(session, xero)
     send(session, xero)
 
     assert [(x.description, x.quantity, x.unit_amount) for x in xero.bills[0].lines] == [
         ("Garam Masala", Decimal(3), Decimal("8.80")),
         ("Yogurt", Decimal(2), Decimal("6.95")),
     ]
-    client = get_client(session, CLIENT)
-    assert client is not None
-    client.line_grouping = LineGrouping.BY_ITEM  # switched after the next one was approved
-    approved(session, **changes, invoice_number="INV-8")
-    send(session, xero)
     assert [(x.quantity, x.unit_amount) for x in xero.bills[1].lines] == [
         (Decimal(1), Decimal("40.30"))
     ]  # by account, as when it was approved

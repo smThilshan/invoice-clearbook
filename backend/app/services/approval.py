@@ -64,7 +64,7 @@ def approve_document(
     document.failure_reason = None  # an earlier "not sent" reason is now answered
     grouping = (
         session.scalar(select(Client.line_grouping).where(Client.client_id == document.client_id))
-        or LineGrouping.BY_ACCOUNT
+        or LineGrouping.BY_ITEM
     )
     outbox = Outbox(client_id=document.client_id, document_id=document.id, line_grouping=grouping)
     session.add(outbox)
