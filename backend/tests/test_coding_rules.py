@@ -15,6 +15,7 @@ from app.pipeline.coding import (
     check_codes,
     decide_tax_type,
 )
+from app.pipeline.verify.issues import Severity
 
 TRN = "100999000000001"
 CHART = ChartOfAccounts(
@@ -89,6 +90,19 @@ def test_an_account_without_a_number_is_named_without_its_reference() -> None:
 
     assert (sales.label, CHART.accounts["5000"].label) == ("Sales", "5000 Food Cost")
     assert issue.message.startswith("Account Sales is a REVENUE account")
+
+
+def test_an_account_no_bill_line_may_use_is_never_offered_and_is_an_error() -> None:
+    petty = Account("4601", "Petty Cash", AccountClass.ASSET, shows_code=False, for_lines=False)
+    chart = ChartOfAccounts({**CHART.accounts, "4601": petty}, CHART.tax_codes)
+
+    [issue] = check_codes(invoice(lines=[line("4601")]), chart)
+
+    assert "4601" not in {a.code for a in chart.purchase_accounts()}
+    assert (chart.usable("4601"), chart.usable("5000"), chart.usable("4000")) == (
+        False, True, False)  # fmt: skip
+    assert (issue.code, issue.severity) == ("account_not_for_lines", Severity.ERROR)
+    assert issue.message.startswith("Account Petty Cash holds money")
 
 
 def test_non_postables_need_no_codes() -> None:

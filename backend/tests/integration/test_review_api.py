@@ -388,6 +388,25 @@ def test_coding_after_a_type_change_keeps_what_the_accountant_chose(
     assert [c["account_source"] for c in body["coding"]] == ["none", "model"]
 
 
+def test_an_account_the_system_no_longer_takes_is_picked_again_on_save(
+    api: TestClient,
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    """Zoho refused bills coded to Petty Cash: such an account (gone from the master data, or
+    one no bill line may use) is coded again; a usable one the accountant chose stays."""
+    doc = in_review(session, storage, vendor_trn=None)  # no supplier history: the model
+    api.app.state.coder = FakeCoder({"accounts": ["5040", "5040"]})  # type: ignore[attr-defined]
+    lines = ok(api.get(f"/documents/{doc.id}"))["invoice"]["lines"]
+    lines[0]["account_code"], lines[1]["account_code"] = "9999", "5000"
+
+    body = ok(patch(api, doc, lines=lines))
+
+    assert [line["account_code"] for line in body["invoice"]["lines"]] == ["5040", "5000"]
+    assert [c["account_source"] for c in body["coding"]] == ["model", "none"]
+    assert "account_unknown" not in issue_codes(body)
+
+
 def test_other_edits_never_ask_the_model(
     api: TestClient,
     session: Session,

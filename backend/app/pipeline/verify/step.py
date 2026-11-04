@@ -167,13 +167,22 @@ def code_empty_lines(
     *,
     settings: Settings,
 ) -> Invoice:
-    """Coding for a document the accountant took out of non-postable in review: verify skipped
-    it then. Fills only the account and tax code nobody chose yet; the rest stays theirs."""
+    """Coding in review: for a document taken out of non-postable (verify skipped it then), or
+    one whose accounts the accounting system no longer takes on a bill line. Fills the tax code
+    nobody chose yet and every account that is empty or unusable; the rest stays theirs."""
     chart = coding.load_chart(session, client_id=document.client_id,
                               provider=_provider(session, document, settings))  # fmt: skip
+    # Coding reads a tax type already on a line as one the page gave (a rounding, decision 58)
+    # and gives that line the goods' account. Once every line was coded, every line has one:
+    # coded afresh, and the tax types chosen stay below.
+    fresh = invoice
+    if all(line.tax_type is not None for line in invoice.lines):
+        fresh = invoice.model_copy(
+            update={"lines": [line.model_copy(update={"tax_type": None}) for line in invoice.lines]}
+        )
     coded = coding.code_document(
         session,
-        invoice,
+        fresh,
         chart,
         client,
         client_id=document.client_id,
@@ -182,9 +191,11 @@ def code_empty_lines(
     )
     if not coded.lines:
         return invoice
+    pickable = bool(chart.purchase_accounts())
     lines, suggestions = [], []
     for line, suggested in zip(invoice.lines, coded.lines, strict=True):
-        if line.account_code is not None:  # chosen by the accountant: not a suggestion
+        kept = chart.usable(line.account_code) or (line.account_code and not pickable)
+        if kept:  # chosen by the accountant: not a suggestion
             suggested = replace(suggested, account_code=line.account_code,
                                 account_source=coding.Source.NONE,
                                 account_confidence=coding.Confidence.NONE)  # fmt: skip
@@ -197,6 +208,19 @@ def code_empty_lines(
         suggestions.append(suggested.to_json())
     document.coding = suggestions
     return invoice.model_copy(update={"lines": lines})
+
+
+def has_unusable_accounts(
+    session: Session, document: Document, invoice: Invoice, *, settings: Settings
+) -> bool:
+    """A line holds an account the client's accounting system will not take on a bill line
+    (removed there, or a cash or bank account): coding picks again (decision 74)."""
+    chart = coding.load_chart(session, client_id=document.client_id,
+                              provider=_provider(session, document, settings))  # fmt: skip
+    if not chart.purchase_accounts():
+        return False  # nothing to pick from (no master data yet): the choices stay
+    chosen = [line.account_code for line in invoice.lines if line.account_code is not None]
+    return any(not chart.usable(code) for code in chosen)
 
 
 def assess(

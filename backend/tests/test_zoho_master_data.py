@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.adapters.accounting.base import CODE_IS_REFERENCE, AccountingSystemError
+from app.adapters.accounting.base import CODE_IS_REFERENCE, NOT_FOR_LINES, AccountingSystemError
 from app.adapters.accounting.zoho.books import ZohoBooks
 from app.adapters.accounting.zoho.client import ZohoApiError, ZohoClient
 from app.adapters.accounting.zoho.master_data import NO_VAT, account_class, map_tax
@@ -19,6 +19,8 @@ ACCOUNTS = [
      "account_type": "cost_of_goods_sold", "account_code": "5000", "is_active": True},
     {"account_id": "4600000000000402", "account_name": "Old Rent",
      "account_type": "expense", "account_code": None, "is_active": False},
+    {"account_id": "4600000000000361", "account_name": "Petty Cash",
+     "account_type": "cash", "account_code": "", "is_active": True},
 ]  # fmt: skip
 TAXES = [
     {"tax_id": "46001", "tax_name": "Standard Rate", "tax_percentage": 5, "tax_type": "tax"},
@@ -61,11 +63,12 @@ def test_master_data_comes_in_as_neutral_records() -> None:
     data = books(zoho).fetch_master_data()
 
     assert data.accounts is not None and data.tax_rates is not None and data.contacts is not None
-    office, cogs, rent = data.accounts
+    office, cogs, rent, petty = data.accounts
     assert (office.code, office.raw[CODE_IS_REFERENCE]) == ("4600000000000400", True)
     assert (cogs.code, cogs.raw[CODE_IS_REFERENCE]) == ("5000", False)
     assert (office.account_class, cogs.account_class) == (AccountClass.EXPENSE,) * 2
     assert rent.is_active is False
+    assert (office.raw[NOT_FOR_LINES], petty.raw[NOT_FOR_LINES]) == (False, True)
     assert [(t.code, t.tax_type) for t in data.tax_rates] == [
         ("46001", TaxType.STANDARD_5), ("46002", TaxType.ZERO), ("46003", None),
         (NO_VAT, TaxType.NONE),

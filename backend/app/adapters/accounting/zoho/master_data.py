@@ -2,6 +2,8 @@
 
 - Accounts: Zoho's account code is optional (none in a new organisation); an account without one
   is referenced by its Zoho ID, which is never shown (`CODE_IS_REFERENCE`).
+- Bill lines take only expense and asset accounts: cash, bank, receivable, payable and tax
+  accounts are marked `NOT_FOR_LINES` (Zoho: "Involved account types are not applicable").
 - Taxes: one per rate, mapped by name and percentage. Zoho has no "no tax" rate: a line without
   VAT is sent without a tax, so a fixed `NO_VAT` code stands for it.
 - Vendors: the list carries no TRN (only each vendor's own record does, one call each); the
@@ -13,6 +15,7 @@ from typing import Any
 
 from app.adapters.accounting.base import (
     CODE_IS_REFERENCE,
+    NOT_FOR_LINES,
     ContactRecord,
     LedgerAccountRecord,
     MasterData,
@@ -34,6 +37,11 @@ _CLASSES = {
         "non_current_liability", "loans_and_borrowing",
     },
 }  # fmt: skip
+# The account types a bill line may use; asset types Zoho refuses there are left out.
+BILL_LINE_TYPES = frozenset({
+    "expense", "cost_of_goods_sold", "other_expense", "fixed_asset", "other_asset",
+    "other_current_asset", "intangible_asset", "non_current_asset", "stock",
+})  # fmt: skip
 
 
 def fetch_master_data(zoho: ZohoClient, organisation_ref: str) -> MasterData:
@@ -75,7 +83,11 @@ def _account(a: dict[str, Any]) -> LedgerAccountRecord:
         name=a.get("account_name") or "",
         account_class=account_class(a.get("account_type") or ""),
         is_active=bool(a.get("is_active", True)),
-        raw={"account_type": a.get("account_type"), CODE_IS_REFERENCE: not code},
+        raw={
+            "account_type": a.get("account_type"),
+            CODE_IS_REFERENCE: not code,
+            NOT_FOR_LINES: a.get("account_type") not in BILL_LINE_TYPES,
+        },
     )
 
 

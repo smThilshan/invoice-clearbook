@@ -38,6 +38,7 @@ from app.pipeline.verify.issues import Severity
 from app.pipeline.verify.step import (
     Assessment,
     code_empty_lines,
+    has_unusable_accounts,
     recheck_document,
     working_copy,
 )
@@ -224,7 +225,10 @@ def update_document(
     invoice = invoice.model_copy(update={"evidence": before.evidence if before else {}})
     verified = set(document.verified_fields or ()) | changed_fields(before, invoice)
     document.verified_fields = sorted(verified | set(confirmed))
-    if llm is not None and _made_postable(before, invoice):
+    if llm is not None and (
+        _made_postable(before, invoice)
+        or has_unusable_accounts(session, document, invoice, settings=settings)
+    ):
         with closing(llm()) as client:
             invoice = code_empty_lines(session, document, invoice, client, settings=settings)
     document.invoice = json.loads(invoice.model_dump_json())

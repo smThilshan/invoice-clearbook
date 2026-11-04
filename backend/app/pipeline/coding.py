@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.base import CODE_IS_REFERENCE
+from app.adapters.accounting.base import CODE_IS_REFERENCE, NOT_FOR_LINES
 from app.adapters.llm import ExtractionClient, ExtractionError, ExtractionRequest
 from app.domain.enums import (
     AccountClass,
@@ -67,6 +67,7 @@ class Account:
     name: str
     account_class: AccountClass
     shows_code: bool = True  # False: the code is the provider's ID, not a number to show
+    for_lines: bool = True  # False: the provider refuses it on a bill line (cash, bank, tax)
 
     @property
     def label(self) -> str:
@@ -82,7 +83,13 @@ class ChartOfAccounts:
     tax_codes: dict[TaxType, str]  # canonical tax type -> the client's tax rate code
 
     def purchase_accounts(self) -> list[Account]:
-        return [a for a in self.accounts.values() if a.account_class in PURCHASE_ACCOUNT_CLASSES]
+        return [a for a in self.accounts.values() if self.usable(a.code)]
+
+    def usable(self, code: str | None) -> bool:
+        """An active expense or asset account the accounting system takes on a bill line."""
+        account = self.accounts.get(code or "")
+        return bool(account and account.for_lines
+                    and account.account_class in PURCHASE_ACCOUNT_CLASSES)  # fmt: skip
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +133,7 @@ def load_chart(
             account.name,
             account.account_class,
             shows_code=not (account.raw or {}).get(CODE_IS_REFERENCE),
+            for_lines=not (account.raw or {}).get(NOT_FOR_LINES),
         )
         for account in session.scalars(
             select(LedgerAccount).where(
@@ -275,6 +283,16 @@ def check_codes(invoice: Invoice, chart: ChartOfAccounts) -> list[Issue]:
                     "account; supplier documents use expense or asset accounts.",
                 )
             )
+        elif not account.for_lines:
+            issues.append(
+                Issue(
+                    "account_not_for_lines",
+                    Severity.ERROR,
+                    f"{field}.account_code",
+                    f"Account {account.label} holds money (cash, bank or tax) and cannot be used "
+                    "on a bill line: choose an expense or asset account.",
+                )
+            )
         if line.tax_type is None:
             issues.append(
                 Issue(
@@ -312,10 +330,9 @@ def _learned_account(
     ).first()
     if mapping is None or mapping.consistent_approvals < min_consistent_approvals:
         return None
-    account = chart.accounts.get(mapping.account_code or "")
-    if account is None or account.account_class not in PURCHASE_ACCOUNT_CLASSES:
+    if not chart.usable(mapping.account_code):
         return None  # learned account archived or no longer suitable: ask the model
-    return account.code
+    return mapping.account_code
 
 
 def _model_accounts(

@@ -17,6 +17,9 @@ from app.domain.enums import AccountClass, AccountingProvider, AmountType, TaxTy
 # In `LedgerAccountRecord.raw`: the provider gives this account no code (Zoho's are optional), so
 # `code` holds its ID instead: still what lines reference and what is sent, never shown.
 CODE_IS_REFERENCE = "code_is_reference"
+# In `LedgerAccountRecord.raw`: the provider refuses this account on a bill line (cash, bank,
+# receivables, payables, tax accounts), so it is never offered for coding.
+NOT_FOR_LINES = "not_for_lines"
 
 
 @dataclass(frozen=True, slots=True)
