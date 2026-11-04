@@ -185,6 +185,9 @@ class Tokens:
     expires_at: datetime
     scopes: str
     approval_id: str | None  # which sign-in approval these tokens came from, if the provider says
+    # Where the organisation's data lives, for providers with several data centres (Zoho: "com",
+    # "eu", "ae", ...); None = one place only (Xero). Kept with the connection, passed back below.
+    region: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,10 +216,20 @@ class Connector(Protocol):
 
     def authorize_url(self, state: str) -> str: ...
 
-    def exchange(self, code: str) -> Tokens: ...
+    # `returned`: every parameter the provider sent back with the code (Zoho names its data
+    # centre there); a provider that needs none ignores it.
+    def exchange(self, code: str, returned: Mapping[str, str] | None = None) -> Tokens: ...
 
-    def refresh(self, refresh_token: str) -> Tokens: ...
+    def refresh(self, refresh_token: str, region: str | None = None) -> Tokens: ...
 
-    def organisations(self, access_token: str) -> list[Organisation]: ...
+    def organisations(self, access_token: str, region: str | None = None) -> list[Organisation]: ...
 
-    def disconnect(self, access_token: str, connection_id: str) -> None: ...
+    # The provider removes the access: by its connection (Xero) or by revoking the refresh token.
+    def disconnect(
+        self,
+        access_token: str,
+        connection_id: str | None,
+        *,
+        refresh_token: str = "",
+        region: str | None = None,
+    ) -> None: ...

@@ -18,6 +18,8 @@ class AccountingConnection(UuidPk, ClientScoped, Timestamps, Base):
     tenant_name: Mapped[str] = mapped_column(String(255))
     org_ref: Mapped[str | None] = mapped_column(String(64))  # for links into its screens (70)
     connection_id: Mapped[str | None] = mapped_column(String(64))  # needed to disconnect
+    # The provider's data centre for this organisation (Zoho: "com", "ae", ...); None = one only.
+    region: Mapped[str | None] = mapped_column(String(16))
     access_token: Mapped[str] = mapped_column(Text)  # encrypted
     refresh_token: Mapped[str] = mapped_column(Text)  # encrypted
     expires_at: Mapped[datetime]  # when the access token stops working

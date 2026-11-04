@@ -127,6 +127,15 @@ class Settings(BaseSettings):
         "offline_access accounting.settings accounting.contacts accounting.invoices "
         "accounting.payments accounting.banktransactions accounting.attachments"
     )
+    # Zoho Books (decision 74): a server-based client in the Zoho API console, Multi-DC on with
+    # the same credentials for every data centre. Secrets only in .env.
+    zoho_client_id: str = ""
+    zoho_client_secret: SecretStr = SecretStr("")
+    zoho_redirect_uri: str = "http://localhost:8000/zoho/callback"
+    zoho_scopes: str = (
+        "ZohoBooks.bills.ALL,ZohoBooks.contacts.ALL,ZohoBooks.settings.READ,"
+        "ZohoBooks.accountants.READ"
+    )
     # Encrypts the accounting system tokens stored in the database (`make secret-key`).
     token_key: SecretStr = SecretStr("")
     # Where the browser returns after connecting an accounting system.

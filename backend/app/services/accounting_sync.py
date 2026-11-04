@@ -48,7 +48,11 @@ def sync(session: Session, settings: Settings, registry: Registry, client: Clien
     provider = connection.provider
     token = access_token(session, settings, registry, client.client_id)
     try:
-        data = registry[provider].system(token, connection.tenant_id).fetch_master_data()
+        data = (
+            registry[provider]
+            .system(token, connection.tenant_id, connection.region)
+            .fetch_master_data()
+        )
     except AccountingSystemError as exc:
         raise AccountingConnectionError(str(exc)) from exc
 

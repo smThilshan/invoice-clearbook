@@ -783,7 +783,7 @@ export interface components {
          * @description Which adapter a client's master data and postings go through (decision 20).
          * @enum {string}
          */
-        AccountingProvider: "MANUAL" | "XERO";
+        AccountingProvider: "MANUAL" | "XERO" | "ZOHO";
         /** AccountingStatus */
         AccountingStatus: {
             /** Bills Where */

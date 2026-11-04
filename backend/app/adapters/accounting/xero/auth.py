@@ -8,6 +8,7 @@ logged; they are returned to the caller, which stores them encrypted.
 
 import base64
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -53,7 +54,7 @@ class XeroAuth:
         }
         return f"{AUTHORIZE_URL}?{urlencode(query)}"
 
-    def exchange(self, code: str) -> Tokens:
+    def exchange(self, code: str, returned: Mapping[str, str] | None = None) -> Tokens:
         return self._token(
             {
                 "grant_type": "authorization_code",
@@ -62,10 +63,10 @@ class XeroAuth:
             }
         )
 
-    def refresh(self, refresh_token: str) -> Tokens:
+    def refresh(self, refresh_token: str, region: str | None = None) -> Tokens:
         return self._token({"grant_type": "refresh_token", "refresh_token": refresh_token})
 
-    def organisations(self, access_token: str) -> list[Organisation]:
+    def organisations(self, access_token: str, region: str | None = None) -> list[Organisation]:
         """Xero calls them tenants: the organisations this connection may use."""
         body = self._call("GET", CONNECTIONS_URL, access_token)
         return [
@@ -74,7 +75,16 @@ class XeroAuth:
             if t.get("tenantType", "ORGANISATION") == "ORGANISATION"
         ]
 
-    def disconnect(self, access_token: str, connection_id: str) -> None:
+    def disconnect(
+        self,
+        access_token: str,
+        connection_id: str | None,
+        *,
+        refresh_token: str = "",
+        region: str | None = None,
+    ) -> None:
+        if connection_id is None:  # Xero always names the connection; nothing to remove there
+            return
         self._call("DELETE", f"{CONNECTIONS_URL}/{connection_id}", access_token)
 
     def _token(self, form: dict[str, str]) -> Tokens:

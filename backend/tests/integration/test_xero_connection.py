@@ -1,7 +1,7 @@
 """Connecting a client to Xero (task 5.3) through the neutral services and API (decision 43):
 state, encrypted tokens, renewal, disconnect, sync, send."""
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -58,21 +58,29 @@ class FakeXero:
     def authorize_url(self, state: str) -> str:
         return f"https://login.xero.com/identity/connect/authorize?state={state}"
 
-    def exchange(self, code: str) -> Tokens:
+    def exchange(self, code: str, returned: Mapping[str, str] | None = None) -> Tokens:
         assert code == "code-1"
         return Tokens(
             "access-1", "refresh-1", datetime.now(UTC) + timedelta(minutes=30), "s", "event-2"
         )
 
-    def refresh(self, refresh_token: str) -> Tokens:
+    def refresh(self, refresh_token: str, region: str | None = None) -> Tokens:
         self.refreshed.append(refresh_token)
         return Tokens("access-2", "refresh-2", datetime.now(UTC) + LATER, "s", None)
 
-    def organisations(self, access_token: str) -> list[Organisation]:
+    def organisations(self, access_token: str, region: str | None = None) -> list[Organisation]:
         return [Organisation("c1", "t1", "Other company", "event-1"),
                 Organisation("c2", "t2", "Demo Company (Global)", "event-2")]  # fmt: skip
 
-    def disconnect(self, access_token: str, connection_id: str) -> None:
+    def disconnect(
+        self,
+        access_token: str,
+        connection_id: str | None,
+        *,
+        refresh_token: str = "",
+        region: str | None = None,
+    ) -> None:
+        assert connection_id is not None
         self.disconnected.append(connection_id)
 
 
@@ -84,7 +92,7 @@ def registry(xero: FakeXero) -> Registry:
         slug="xero",
         bills_where="Bills to pay, Awaiting approval",
         connector=lambda _settings: xero,  # type: ignore[arg-type,return-value]
-        system=lambda token, org: xero.organisation.system(token, org),  # type: ignore[return-value]
+        system=lambda token, org, _region: xero.organisation.system(token, org),  # type: ignore[return-value]
     )
     return {AccountingProvider.XERO: entry}
 

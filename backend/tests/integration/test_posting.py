@@ -328,7 +328,7 @@ def test_a_withdrawn_access_pauses_the_clients_bills_until_it_is_connected_again
     _, outbox = approved(session)
     expiring(session)
 
-    def withdrawn(self: FakeXero, refresh_token: str) -> None:
+    def withdrawn(self: FakeXero, refresh_token: str, region: str | None = None) -> None:
         raise AccessRevoked("Xero refused the sign-in (HTTP 400): invalid_grant")
 
     monkeypatch.setattr(FakeXero, "refresh", withdrawn)
@@ -362,7 +362,7 @@ def test_xero_unreachable_while_renewing_is_tried_again_not_paused(
     approved(session)
     expiring(session)
 
-    def unreachable(self: FakeXero, refresh_token: str) -> None:
+    def unreachable(self: FakeXero, refresh_token: str, region: str | None = None) -> None:
         raise ConnectorError("cannot reach Xero (ConnectTimeout)")
 
     monkeypatch.setattr(FakeXero, "refresh", unreachable)

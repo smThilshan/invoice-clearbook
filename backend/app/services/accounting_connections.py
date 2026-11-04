@@ -13,6 +13,7 @@ import hmac
 import logging
 import secrets
 import time
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -57,10 +58,15 @@ def start(settings: Settings, entry: ProviderEntry, client: Client) -> str:
 
 
 def finish(
-    session: Session, settings: Settings, registry: Registry, state: str, code: str
+    session: Session,
+    settings: Settings,
+    registry: Registry,
+    state: str,
+    code: str,
+    returned: Mapping[str, str] | None = None,
 ) -> Connected:
-    """The provider sent the user back: exchange the code, pick the organisation they approved
-    and store the connection. The caller commits."""
+    """The provider sent the user back (`returned`: everything it sent): exchange the code, pick
+    the organisation they approved and store the connection. The caller commits."""
     client_id, slug = _from_state(settings, state)
     entry = by_slug(registry, slug)
     if entry is None:
@@ -70,19 +76,23 @@ def finish(
         raise AccountingConnectionError("this client no longer exists")
     connector = entry.connector(settings)
     try:
-        tokens = connector.exchange(code)
-        organisations = connector.organisations(tokens.access_token)
+        tokens = connector.exchange(code, returned)
+        organisations = connector.organisations(tokens.access_token, tokens.region)
     except ConnectorError as exc:
         raise AccountingConnectionError(str(exc)) from exc
     approved = [
         o for o in organisations if tokens.approval_id and o.approval_id == tokens.approval_id
     ]
-    choice = (approved or organisations)[:1]
-    if not choice:
+    if not (approved or organisations):
         raise AccountingConnectionError(
             f"no {entry.name} organisation was approved: choose one when signing in"
         )
-    organisation = choice[0]
+    if not approved and len(organisations) > 1:  # never guess which company this client is
+        raise AccountingConnectionError(
+            f"this {entry.name} login opens {len(organisations)} organisations; choosing one "
+            "is not available yet: sign in with a login that opens only this client's"
+        )
+    organisation = (approved or organisations)[0]
 
     # One accounting system per client: connecting another replaces the old connection.
     for old in _connections(session, client_id):
@@ -118,7 +128,9 @@ def access_token(session: Session, settings: Settings, registry: Registry, clien
     try:
         if connection.expires_at - datetime.now(UTC) > RENEW_BEFORE:
             return _decrypt(cipher, connection.access_token)
-        tokens = entry.connector(settings).refresh(_decrypt(cipher, connection.refresh_token))
+        tokens = entry.connector(settings).refresh(
+            _decrypt(cipher, connection.refresh_token), connection.region
+        )
     except AccessRevoked as exc:
         raise _mark(connection, f"{entry.name} access was withdrawn ({exc})") from exc
     except ConnectorError as exc:
@@ -158,13 +170,15 @@ def disconnect(session: Session, settings: Settings, registry: Registry, client_
     connection = _connection(session, client_id, for_update=True)
     if connection is None:
         return
-    if connection.connection_id:
-        # Already revoked or expired there: removing it here is what matters.
-        with suppress(AccountingConnectionError, ConnectorError):
-            token = access_token(session, settings, registry, client_id)
-            registry[connection.provider].connector(settings).disconnect(
-                token, connection.connection_id
-            )
+    # Already revoked or expired there: removing it here is what matters.
+    with suppress(AccountingConnectionError, ConnectorError):
+        token = access_token(session, settings, registry, client_id)
+        registry[connection.provider].connector(settings).disconnect(
+            token,
+            connection.connection_id,
+            refresh_token=_decrypt(_cipher(settings), connection.refresh_token),
+            region=connection.region,
+        )
     session.delete(connection)
     session.flush()
 
@@ -191,6 +205,7 @@ def _store(settings: Settings, connection: AccountingConnection, tokens: Tokens)
     connection.refresh_token = cipher.encrypt(tokens.refresh_token.encode()).decode()
     connection.expires_at = tokens.expires_at
     connection.scopes = tokens.scopes
+    connection.region = tokens.region
 
 
 def _cipher(settings: Settings) -> Fernet:

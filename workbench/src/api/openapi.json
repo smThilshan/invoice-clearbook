@@ -39,7 +39,8 @@
         "description": "Which adapter a client's master data and postings go through (decision 20).",
         "enum": [
           "MANUAL",
-          "XERO"
+          "XERO",
+          "ZOHO"
         ],
         "title": "AccountingProvider",
         "type": "string"

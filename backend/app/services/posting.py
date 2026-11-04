@@ -123,6 +123,7 @@ class _Claim:
     refusal: str | None
     token: str | None
     tenant_id: str | None
+    region: str | None
     total: Decimal | None
     unavailable: str | None = None
     paused: str | None = None  # the connection needs a new sign-in: why
@@ -156,7 +157,7 @@ def send_next(
     try:
         posted = (
             registry[claim.provider]
-            .system(claim.token, claim.tenant_id)
+            .system(claim.token, claim.tenant_id, claim.region)
             .post_bill(
                 claim.bill, key=claim.key, progress=progress, save=_saver(sessions, claim, progress)
             )
@@ -470,7 +471,7 @@ def _claim(
     bill, refusal = _bill(session, document, invoice, chart, provider, name, outbox.line_grouping)
     if bill is not None:
         bill = replace(bill, attachment=_original(storage, document))
-    token = tenant_id = unavailable = paused = None
+    token = tenant_id = region = unavailable = paused = None
     if bill is not None:
         try:
             token = access_token(session, settings, registry, outbox.client_id)
@@ -479,7 +480,7 @@ def _claim(
                     AccountingConnection.client_id == outbox.client_id
                 )
             ).one()
-            tenant_id = connection.tenant_id
+            tenant_id, region = connection.tenant_id, connection.region
         except ReconnectNeeded as exc:
             paused = str(exc)  # marked on the connection: waits for a new sign-in
         except AccountingConnectionError as exc:
@@ -495,6 +496,7 @@ def _claim(
         refusal=refusal,
         token=token,
         tenant_id=tenant_id,
+        region=region,
         total=invoice.total if invoice else None,
         unavailable=unavailable,
         paused=paused,

@@ -50,6 +50,7 @@ class AccountingProvider(StrEnum):
 
     MANUAL = "MANUAL"  # no connection: CSV master data in, export file out
     XERO = "XERO"
+    ZOHO = "ZOHO"
 
 
 class LineGrouping(StrEnum):

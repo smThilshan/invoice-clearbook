@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -140,6 +140,7 @@ def get_enqueue_sweep() -> Callable[[str], object]:
 @callback_router.get("/{slug}/callback")
 def callback(
     slug: str,
+    request: Request,
     session: SessionDep,
     settings: SettingsDep,
     registry: RegistryDep,
@@ -158,7 +159,7 @@ def callback(
             settings, error=f"{entry.name} sign-in was not completed ({error or 'no code'})"
         )
     try:
-        connected = finish(session, settings, registry, state, code)
+        connected = finish(session, settings, registry, state, code, dict(request.query_params))
         session.commit()
     except AccountingConnectionError as exc:
         session.rollback()
