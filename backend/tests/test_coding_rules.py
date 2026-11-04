@@ -81,6 +81,16 @@ def test_bad_codes_are_errors(bad_line: Line, code: str, field: str) -> None:
     assert (issue.code, issue.field, issue.severity.value) == (code, field, "ERROR")
 
 
+def test_an_account_without_a_number_is_named_without_its_reference() -> None:
+    sales = Account("460001", "Sales", AccountClass.REVENUE, shows_code=False)
+    chart = ChartOfAccounts({"460001": sales}, CHART.tax_codes)
+
+    [issue] = check_codes(invoice(lines=[line("460001")]), chart)
+
+    assert (sales.label, CHART.accounts["5000"].label) == ("Sales", "5000 Food Cost")
+    assert issue.message.startswith("Account Sales is a REVENUE account")
+
+
 def test_non_postables_need_no_codes() -> None:
     assert check_codes(invoice(document_type=DocumentType.NON_POSTABLE, lines=[line(None)]),
                        CHART) == []  # fmt: skip

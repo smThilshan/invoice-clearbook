@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.registry import PROVIDERS, Registry
 from app.adapters.accounting.zoho.auth import ZohoAuth
+from app.adapters.accounting.zoho.books import ZohoBooks
 from app.core.config import Settings
 from app.domain.enums import AccountingProvider
 from app.services import accounting_connections as connections
@@ -35,11 +36,13 @@ class FakeZoho:
 
     def __init__(self) -> None:
         self.hosts: list[str] = []
+        self.requests: list[httpx.Request] = []
         self.revoked: list[str] = []
         self.organisations = [{"organization_id": "905001", "name": "Missan Test"}]
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.hosts.append(request.url.host)
+        self.requests.append(request)
         if request.url.path == "/oauth/v2/token/revoke":
             self.revoked.append(request.url.params["token"])
             return httpx.Response(200, json={"status": "success"})
@@ -52,12 +55,33 @@ class FakeZoho:
             })  # fmt: skip
         if request.url.path == "/books/v3/organizations":
             return httpx.Response(200, json={"code": 0, "organizations": self.organisations})
+        if request.url.path == "/books/v3/chartofaccounts":
+            return httpx.Response(200, json={"code": 0, "chartofaccounts": [
+                {"account_id": "4600400", "account_name": "Office Supplies",
+                 "account_type": "expense", "account_code": "", "is_active": True},
+                {"account_id": "4600401", "account_name": "Cost of Goods Sold",
+                 "account_type": "cost_of_goods_sold", "account_code": "5000", "is_active": True},
+                {"account_id": "4600402", "account_name": "Advertising",
+                 "account_type": "expense", "account_code": "", "is_active": True},
+            ]})  # fmt: skip
+        if request.url.path == "/books/v3/settings/taxes":
+            return httpx.Response(200, json={"code": 0, "taxes": [
+                {"tax_id": "46001", "tax_name": "Standard Rate", "tax_percentage": 5},
+            ]})  # fmt: skip
+        if request.url.path == "/books/v3/contacts":
+            return httpx.Response(200, json={"code": 0, "contacts": [
+                {"contact_id": "46100", "contact_name": "Al Shahama Supermarket"},
+            ]})  # fmt: skip
         return httpx.Response(404)
 
 
 def zoho_registry(zoho: FakeZoho) -> Registry:
     http = httpx.Client(transport=httpx.MockTransport(zoho))
-    entry = replace(PROVIDERS[AccountingProvider.ZOHO], connector=lambda s: ZohoAuth(s, http))
+    entry = replace(
+        PROVIDERS[AccountingProvider.ZOHO],
+        connector=lambda s: ZohoAuth(s, http),
+        system=lambda token, organisation, region: ZohoBooks(token, organisation, region, http),
+    )
     return {AccountingProvider.ZOHO: entry}
 
 
@@ -145,13 +169,23 @@ def test_a_forged_data_centre_is_refused_before_any_call(api: TestClient, zoho: 
     assert zoho.hosts == []
 
 
-def test_master_data_and_sending_say_they_are_not_available_yet(api: TestClient) -> None:
+def test_sync_brings_in_accounts_without_numbers_by_name(api: TestClient, zoho: FakeZoho) -> None:
     sign_in(api)
 
     synced = api.post(f"/clients/{CLIENT}/accounting/sync")
+    options = api.get(f"/clients/{CLIENT}/coding-options").json()
 
-    assert synced.status_code == 409, synced.text
-    assert "not available for Zoho Books yet" in synced.text
+    assert synced.status_code == 200, synced.text
+    assert {r.url.host for r in zoho.requests if "/books/" in r.url.path} == {"www.zohoapis.ae"}
+    assert [(a["code"], a["label"]) for a in options["accounts"]] == [
+        ("5000", "5000 Cost of Goods Sold"),  # numbered first, then by name
+        ("4600402", "Advertising"),
+        ("4600400", "Office Supplies"),
+    ]
+    assert {t["tax_type"]: t["code"] for t in options["tax_types"]} == {
+        "STANDARD_5": "46001",
+        "NONE": "NO_VAT",
+    }
 
 
 def test_zoho_without_its_app_keys_says_where_they_go(session: Session, tmp_path: Path) -> None:

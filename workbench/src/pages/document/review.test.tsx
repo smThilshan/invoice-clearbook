@@ -84,8 +84,9 @@ function detail(changes: Partial<DocumentDetail> = {}): DocumentDetail {
 
 const OPTIONS: CodingOptions = {
   accounts: [
-    { code: '5000', name: 'Food Cost', account_class: 'EXPENSE' },
-    { code: '5010', name: 'Beverage Cost', account_class: 'EXPENSE' },
+    { code: '5000', name: 'Food Cost', account_class: 'EXPENSE', label: '5000 Food Cost' },
+    { code: '5010', name: 'Beverage Cost', account_class: 'EXPENSE', label: '5010 Beverage Cost' },
+    { code: '1579923000000000400', name: 'Office Supplies', account_class: 'EXPENSE', label: 'Office Supplies' },
   ],
   tax_types: [
     { tax_type: 'STANDARD_5', code: 'STD5' },
@@ -356,6 +357,19 @@ describe('review screen', () => {
 
     await waitFor(() => expect(sent(api)).toBeDefined())
     expect((sent(api).invoice.lines as { account_code: string }[])[1]?.account_code).toBe('5010')
+  })
+
+  it('shows an account without a number by its name and keeps its reference (decision 74)', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('combobox', { name: 'Account for line 2' }))
+    await user.click(await screen.findByRole('option', { name: 'Office Supplies' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect((sent(api).invoice.lines as { account_code: string }[])[1]?.account_code)
+      .toBe('1579923000000000400')
   })
 
   it('sets one account and VAT on every line at once (decision 49)', async () => {

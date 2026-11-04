@@ -87,9 +87,10 @@ class RunOption(BaseModel):
 
 
 class AccountOption(BaseModel):
-    code: str
+    code: str  # the value a line stores
     name: str
     account_class: AccountClass
+    label: str  # what the list shows: "310 Cost of Goods Sold", or the name without a number
 
 
 class TaxOption(BaseModel):
@@ -226,7 +227,7 @@ def get_coding_options(
     )
     return CodingOptions(
         accounts=[
-            AccountOption(code=a.code, name=a.name, account_class=a.account_class)
+            AccountOption(code=a.code, name=a.name, account_class=a.account_class, label=a.label)
             for a in chart.purchase_accounts()
         ],
         tax_types=[TaxOption(tax_type=t, code=c) for t, c in chart.tax_codes.items()],

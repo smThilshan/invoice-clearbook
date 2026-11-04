@@ -775,6 +775,8 @@ export interface components {
             account_class: components["schemas"]["AccountClass"];
             /** Code */
             code: string;
+            /** Label */
+            label: string;
             /** Name */
             name: string;
         };

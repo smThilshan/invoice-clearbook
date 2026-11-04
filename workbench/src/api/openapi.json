@@ -22,6 +22,10 @@
             "title": "Code",
             "type": "string"
           },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -30,7 +34,8 @@
         "required": [
           "code",
           "name",
-          "account_class"
+          "account_class",
+          "label"
         ],
         "title": "AccountOption",
         "type": "object"

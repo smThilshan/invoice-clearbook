@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.accounting.base import CODE_IS_REFERENCE
 from app.adapters.llm import ExtractionClient, ExtractionError, ExtractionRequest
 from app.domain.enums import (
     AccountClass,
@@ -62,9 +63,15 @@ class Confidence(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Account:
-    code: str
+    code: str  # what lines reference and what is sent
     name: str
     account_class: AccountClass
+    shows_code: bool = True  # False: the code is the provider's ID, not a number to show
+
+    @property
+    def label(self) -> str:
+        """As the accountant knows it: number and name (310 Cost of Goods Sold), or the name."""
+        return f"{self.code} {self.name}" if self.shows_code else self.name
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,20 +120,26 @@ class CodingResult:
 def load_chart(
     session: Session, *, client_id: str, provider: AccountingProvider
 ) -> ChartOfAccounts:
-    accounts = {
-        account.code: Account(account.code, account.name, account.account_class)
+    rows = [
+        Account(
+            account.code,
+            account.name,
+            account.account_class,
+            shows_code=not (account.raw or {}).get(CODE_IS_REFERENCE),
+        )
         for account in session.scalars(
-            select(LedgerAccount)
-            .where(
+            select(LedgerAccount).where(
                 LedgerAccount.client_id == client_id,
                 LedgerAccount.provider == provider,
                 LedgerAccount.is_active.is_(True),
                 LedgerAccount.code.is_not(None),
             )
-            .order_by(LedgerAccount.code)
         )
         if account.code
-    }
+    ]
+    # Numbered accounts in number order, then accounts without a number by name.
+    rows.sort(key=lambda a: (not a.shows_code, a.code if a.shows_code else a.name.casefold()))
+    accounts = {account.code: account for account in rows}
     tax_codes: dict[TaxType, str] = {}
     for rate in session.scalars(
         select(TaxRate)
@@ -258,7 +271,7 @@ def check_codes(invoice: Invoice, chart: ChartOfAccounts) -> list[Issue]:
                     "account_wrong_class",
                     Severity.ERROR,
                     f"{field}.account_code",
-                    f"Account {account.code} {account.name} is a {account.account_class.value} "
+                    f"Account {account.label} is a {account.account_class.value} "
                     "account; supplier documents use expense or asset accounts.",
                 )
             )

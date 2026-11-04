@@ -14,6 +14,10 @@ from typing import Any, Protocol
 
 from app.domain.enums import AccountClass, AccountingProvider, AmountType, TaxType
 
+# In `LedgerAccountRecord.raw`: the provider gives this account no code (Zoho's are optional), so
+# `code` holds its ID instead: still what lines reference and what is sent, never shown.
+CODE_IS_REFERENCE = "code_is_reference"
+
 
 @dataclass(frozen=True, slots=True)
 class LedgerAccountRecord:

@@ -761,7 +761,7 @@ function Lines({
             <SelectContent>
               {accounts.map((a) => (
                 <SelectItem key={a.code} value={a.code}>
-                  {a.code} {a.name}
+                  {a.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -838,7 +838,7 @@ function Lines({
                           )}
                           {accounts.map((a) => (
                             <SelectItem key={a.code} value={a.code}>
-                              {a.code} {a.name}
+                              {a.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
