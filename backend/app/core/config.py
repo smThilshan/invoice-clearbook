@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # Our own file store (via the Storage interface). Relative paths are resolved against the
     # repo root.
     store_dir: Path = Field(default=Path("data/store"), validate_default=True)
+    # Live (decision 77): the built Workbench (`workbench/dist`). Set, one address serves it at
+    # / and the API under /api, the paths the Workbench calls; empty in development (Vite).
+    web_dist_dir: Path | None = None
     max_file_mb: int = Field(default=25, gt=0)  # larger files become FAILED documents
     # A file is ingested only if its size and mtime are unchanged over this interval, so a
     # file still being copied into the inbox is never read half-written.
@@ -175,10 +178,10 @@ class Settings(BaseSettings):
     def business_today(self) -> date:
         return datetime.now(ZoneInfo(self.business_timezone)).date()
 
-    @field_validator("store_dir", "ocr_models_dir")
+    @field_validator("store_dir", "ocr_models_dir", "web_dist_dir")
     @classmethod
-    def _resolve_against_repo_root(cls, path: Path) -> Path:
-        return path if path.is_absolute() else REPO_ROOT / path
+    def _resolve_against_repo_root(cls, path: Path | None) -> Path | None:
+        return path if path is None or path.is_absolute() else REPO_ROOT / path
 
     @property
     def database_url(self) -> URL:
