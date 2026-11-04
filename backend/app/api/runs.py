@@ -1,6 +1,5 @@
-"""Runs: process a folder the user picked in an allowed place (decisions 25, 35).
-
-No login yet (task 4.1): the API listens on localhost only.
+"""Runs: process a folder the user picked in an allowed place (decisions 25, 35), or one
+uploaded from their own computer (decision 78). Behind the login (decision 71).
 """
 
 import uuid
@@ -9,10 +8,11 @@ from datetime import UTC, date, datetime
 from pathlib import PurePosixPath
 from typing import Annotated, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
+from app.api.auth import UserDep
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType
@@ -33,6 +33,7 @@ from app.services.runs import (
     typical_work_ms,
 )
 from app.services.timings import StepTimings
+from app.services.uploads import UploadedFile, UploadError, start_upload_run
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -145,6 +146,57 @@ def create_run(
     return RunAccepted(
         run_id=run.id, status=run.status, folder=run.folder, folder_date=run.folder_date
     )
+
+
+class UploadAccepted(RunAccepted):
+    files: int  # invoice files saved and run
+    skipped: list[str]  # not invoice files (or unsafe or repeated paths): not run
+
+
+UNPROCESSABLE = status.HTTP_422_UNPROCESSABLE_CONTENT
+_PATHS = TypeAdapter(list[str])
+_PATHS_HELP = "JSON list: each file's path inside the chosen folder, in the order of `files`"
+_DATE_HELP = "Confirmed on the Run screen; left out = no folder date"
+
+
+@router.post("/upload", status_code=status.HTTP_202_ACCEPTED)
+def upload_run(
+    client_id: Annotated[str, Form()],
+    paths: Annotated[str, Form(description=_PATHS_HELP)],
+    files: Annotated[list[UploadFile], File()],
+    session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    enqueue_scan: Annotated[Callable[[str], object], Depends(get_enqueue_scan)],
+    user: UserDep,
+    folder_date: Annotated[date | None, Form(description=_DATE_HELP)] = None,
+) -> UploadAccepted:
+    """A folder (or files) chosen on the user's own computer, run like any folder (decision 78)."""
+    client = get_client(session, client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+    try:
+        names = _PATHS.validate_json(paths)
+    except ValidationError as exc:
+        raise HTTPException(UNPROCESSABLE, "paths: a JSON list of text") from exc
+    if len(names) != len(files):
+        raise HTTPException(UNPROCESSABLE, "one path per file")
+    uploaded = [
+        UploadedFile(name, file.file, file.size or 0)
+        for name, file in zip(names, files, strict=True)
+    ]
+    try:
+        result = start_upload_run(session, settings, client=client, files=uploaded,
+                                  folder_date=folder_date, created_by=user.email)  # fmt: skip
+        session.commit()
+    except UploadError as exc:
+        session.rollback()
+        raise HTTPException(UNPROCESSABLE, str(exc)) from exc
+
+    enqueue_scan(str(result.run.id))  # after commit, so the worker always finds the run
+    run = result.run
+    return UploadAccepted(run_id=run.id, status=run.status, folder=run.folder,
+                          folder_date=run.folder_date, files=result.files,
+                          skipped=result.skipped)  # fmt: skip
 
 
 @router.get("/{run_id}")

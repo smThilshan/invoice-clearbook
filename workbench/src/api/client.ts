@@ -1,7 +1,8 @@
 /**
  * API client. Types come from the backend's OpenAPI description (`make web-types`), so a
  * changed field in the backend is a compile error here, not a runtime surprise.
- * Requests go to /api, which Vite forwards to the FastAPI server (localhost only).
+ * Requests go to /api: Vite forwards them to the FastAPI server in development; live, the same
+ * server answers both (decision 77).
  */
 import type { components } from './schema'
 
@@ -23,6 +24,8 @@ export type PlaceListing = Schemas['PlaceListing']
 export type RunOption = Schemas['RunOption']
 export type RunCreate = Schemas['RunCreate']
 export type RunAccepted = Schemas['RunAccepted']
+export type UploadAccepted = Schemas['UploadAccepted']
+export type FolderDate = Schemas['FolderDate']
 export type RunProgress = Schemas['RunProgressOut']
 export type FileStatus = Schemas['FileStatus']
 export type FileStep = Schemas['Step']
@@ -160,6 +163,8 @@ export const api = {
   /** Recent work time per file, for the estimate before a run (task 4.17). */
   typicalTime: () => request<{ typical_ms: number | null }>('/runs/typical-time'),
   startRun: (body: RunCreate) => sendJson<RunAccepted>('POST', '/runs', body),
+  /** The date a folder's name stands for, read as for a folder picked on the server. */
+  folderDate: (name: string) => request<FolderDate>(`/folders/date?${new URLSearchParams({ name })}`),
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
   /** Stop a run (task 4.19): files not started stay as they are; the current step finishes. */
   stopRun: (runId: string) => sendJson<RunProgress>('POST', `/runs/${encodeURIComponent(runId)}/stop`, {}),
@@ -211,4 +216,50 @@ function searchParams(values: object): URLSearchParams {
     if (value !== undefined) params.set(key, String(value))
   }
   return params
+}
+
+/** A file chosen on this computer, with its path inside the chosen folder ("October/21/a.pdf"). */
+export interface ChosenFile {
+  path: string
+  file: File
+}
+
+/** Upload files chosen on this computer and start their run (decision 78). XMLHttpRequest, not
+ * fetch: only it reports how much of the upload has been sent. */
+export function uploadRun(
+  clientId: string,
+  files: ChosenFile[],
+  folderDate: string | null,
+  onProgress: (fraction: number) => void,
+): Promise<UploadAccepted> {
+  const form = new FormData()
+  form.append('client_id', clientId)
+  form.append('paths', JSON.stringify(files.map((chosen) => chosen.path)))
+  if (folderDate) form.append('folder_date', folderDate)
+  for (const chosen of files) form.append('files', chosen.file, chosen.file.name)
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/runs/upload')
+    xhr.setRequestHeader('Accept', 'application/json')
+    for (const [name, value] of Object.entries(APP_HEADER)) xhr.setRequestHeader(name, value)
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total)
+    }
+    xhr.onload = () => {
+      let body: { detail?: unknown } | undefined
+      try {
+        body = JSON.parse(xhr.responseText) as { detail?: unknown }
+      } catch {
+        body = undefined
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as UploadAccepted)
+      else {
+        const detail = typeof body?.detail === 'string' ? body.detail : `${xhr.status} ${xhr.statusText}`.trim()
+        reject(new ApiError(xhr.status, detail))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError(0, 'The upload was interrupted. Check the connection and try again.'))
+    xhr.send(form)
+  })
 }

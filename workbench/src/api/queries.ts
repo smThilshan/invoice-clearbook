@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   api,
   ApiError,
+  type ChosenFile,
   type ClientCreate,
   type LineGrouping,
   type LoginBody,
@@ -14,6 +15,7 @@ import {
   type RejectBody,
   type RunCreate,
   type RunProgress,
+  uploadRun,
 } from './client'
 import { WORKING } from '@/lib/labels'
 
@@ -171,6 +173,18 @@ export function useTypicalTime() {
 
 export function useStartRun() {
   return useMutation({ mutationFn: (body: RunCreate) => api.startRun(body) })
+}
+
+/** Upload files chosen on this computer and start their run (decision 78). */
+export function useUploadRun() {
+  return useMutation({
+    mutationFn: (upload: {
+      clientId: string
+      files: ChosenFile[]
+      folderDate: string | null
+      onProgress: (fraction: number) => void
+    }) => uploadRun(upload.clientId, upload.files, upload.folderDate, upload.onProgress),
+  })
 }
 
 /** A client's latest runs, for the queue filter; idle until a client is picked. */

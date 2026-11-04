@@ -241,6 +241,47 @@
         "title": "Body_upload_master_data_clients__client_id__master_data_post",
         "type": "object"
       },
+      "Body_upload_run_runs_upload_post": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "folder_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Confirmed on the Run screen; left out = no folder date",
+            "title": "Folder Date"
+          },
+          "paths": {
+            "description": "JSON list: each file's path inside the chosen folder, in the order of `files`",
+            "title": "Paths",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "paths",
+          "files"
+        ],
+        "title": "Body_upload_run_runs_upload_post",
+        "type": "object"
+      },
       "ChargeOut": {
         "properties": {
           "amount": {
@@ -1012,6 +1053,26 @@
           "date"
         ],
         "title": "Folder",
+        "type": "object"
+      },
+      "FolderDate": {
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "FolderDate",
         "type": "object"
       },
       "FolderListing": {
@@ -2866,6 +2927,55 @@
         "title": "TypicalTime",
         "type": "object"
       },
+      "UploadAccepted": {
+        "properties": {
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "folder_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Date"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "folder",
+          "folder_date",
+          "files",
+          "skipped"
+        ],
+        "title": "UploadAccepted",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -4485,6 +4595,49 @@
         ]
       }
     },
+    "/folders/date": {
+      "get": {
+        "description": "The date a folder's name stands for, for a folder chosen on the user's own computer\n(decision 78): the same reading as a folder picked here.",
+        "operationId": "get_folder_date_folders_date_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderDate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Folder Date",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
     "/folders/places": {
       "get": {
         "description": "The client's own folder (if it has one), then this Mac and the shared drives.",
@@ -4651,6 +4804,48 @@
           }
         },
         "summary": "Get Typical Time",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/upload": {
+      "post": {
+        "description": "A folder (or files) chosen on the user's own computer, run like any folder (decision 78).",
+        "operationId": "upload_run_runs_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_run_runs_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Run",
         "tags": [
           "runs"
         ]

@@ -1,22 +1,26 @@
-import { ChevronRight, FileText, Folder as FolderIcon, Play, Plus } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { ChevronRight, FileText, Folder as FolderIcon, Play, Plus, Upload } from 'lucide-react'
+import { type FormEvent, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 
-import type { Client, Folder, FolderPlace } from '@/api/client'
-import { useCreateClient, useFolder, usePlaces, useStartRun, useTypicalTime } from '@/api/queries'
+import { api, type Client, type Folder, type FolderPlace } from '@/api/client'
+import { useCreateClient, useFolder, usePlaces, useStartRun, useTypicalTime, useUploadRun } from '@/api/queries'
 import { ClientSelect } from '@/components/ClientSelect'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
+import { ProgressBar } from '@/components/ProgressBar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { type Choice, formatBytes, tooMuch } from '@/lib/chosenFiles'
 import { formatDate } from '@/lib/labels'
 import { lastFolder, rememberClient, rememberFolder } from '@/lib/remember'
 import { formatDuration } from '@/lib/timings'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { cn } from '@/lib/utils'
+
+import { ComputerPicker } from './ComputerPicker'
 
 /** The client's own folder; the top of any other place (this Mac, shared drives) is too big
  * to run whole, so a folder inside it must be opened first. */
@@ -29,10 +33,19 @@ interface Crumb {
   date: string | null // the date the folder name stands for
 }
 
-/** Pick or create a client, pick a folder anywhere in the allowed places, confirm the date,
- * start the run (tasks 4.3, 4.12; decision 35). */
+/** Where the documents are: on the user's own computer (uploaded, decision 78), or in a folder
+ * the server can reach (decision 35). */
+type Source = 'computer' | 'server'
+
+/** Pick or create a client, choose the documents (a folder on this computer, or one in the
+ * server's allowed places), confirm the date, start the run (tasks 4.3, 4.12; decisions 35, 78). */
 export function RunPage() {
   const [client, setClient] = useState<Client>()
+  const [source, setSource] = useState<Source>('computer')
+  const [choice, setChoice] = useState<Choice>()
+  const [choiceDate, setChoiceDate] = useState<string | null>(null) // from the chosen folder's name
+  const [sent, setSent] = useState(0) // how much of the upload has gone, 0 to 1
+  const latestChoice = useRef<Choice>(undefined)
   const [chosenPlace, setChosenPlace] = useState<FolderPlace>()
   const [savedPlace, setSavedPlace] = useState<string>()
   const [crumbs, setCrumbs] = useState<Crumb[]>([])
@@ -40,6 +53,7 @@ export function RunPage() {
   const places = usePlaces(client?.client_id)
   usePageTitle('Run')
   const startRun = useStartRun()
+  const uploadRun = useUploadRun()
   const navigate = useNavigate()
 
   // The first place (the client's own folder when it has one) is open until another is picked.
@@ -51,8 +65,10 @@ export function RunPage() {
   const tooBig = place !== undefined && place.key !== CLIENT_PLACE && current?.path === ''
   const listing = useFolder(client?.client_id, place?.key, current?.path ?? '')
   const typical = useTypicalTime().data?.typical_ms ?? null
-  const files = listing.data?.total_files
+  const files = source === 'server' ? listing.data?.total_files : choice?.invoices.length
   const estimate = files && typical ? files * typical : null
+  const ready = source === 'server' ? place !== undefined && current !== undefined : choice !== undefined
+  const chosenName = choice ? choice.folder || `${choice.invoices.length} chosen files` : ''
 
   function pickClient(picked: Client) {
     const saved = lastFolder(picked.client_id)
@@ -60,8 +76,33 @@ export function RunPage() {
     setChosenPlace(undefined)
     setSavedPlace(saved?.place)
     setCrumbs(saved?.crumbs ?? [])
-    setDate(saved?.crumbs.at(-1)?.date ?? '')
+    if (source === 'server') setDate(saved?.crumbs.at(-1)?.date ?? '')
     startRun.reset()
+    uploadRun.reset()
+  }
+
+  function pickSource(picked: Source) {
+    setSource(picked)
+    setDate(picked === 'server' ? (current?.date ?? '') : (choiceDate ?? ''))
+    startRun.reset()
+    uploadRun.reset()
+  }
+
+  function choose(chosen: Choice) {
+    latestChoice.current = chosen
+    setChoice(chosen)
+    setChoiceDate(null)
+    setDate('')
+    uploadRun.reset()
+    if (!chosen.folder) return
+    void api
+      .folderDate(chosen.folder)
+      .then((found) => {
+        if (latestChoice.current !== chosen) return // another folder was chosen meanwhile
+        setChoiceDate(found.date)
+        setDate(found.date ?? '')
+      })
+      .catch(() => undefined) // no date offered: the user can still type one
   }
 
   function pickPlace(picked: FolderPlace) {
@@ -79,6 +120,15 @@ export function RunPage() {
     if (client && place) rememberFolder(client.client_id, { place: place.key, crumbs: next })
   }
 
+  function upload() {
+    if (!client || !choice || choice.invoices.length === 0 || tooMuch(choice)) return
+    setSent(0)
+    uploadRun.mutate(
+      { clientId: client.client_id, files: choice.invoices, folderDate: date || null, onProgress: setSent },
+      { onSuccess: (accepted) => void navigate(`/run/${accepted.run_id}`) },
+    )
+  }
+
   function run() {
     if (!client || !place || !current || tooBig) return
     startRun.mutate(
@@ -91,7 +141,7 @@ export function RunPage() {
     <PageContainer className="space-y-6">
       <PageHeader
         title="Run"
-        description="Pick a client and a folder (on this Mac or a shared drive), confirm the date, and start processing. Sub-folders are included."
+        description="Pick a client, choose the documents (a folder on your computer, or one on the server), confirm the date, and start processing. Sub-folders are included."
       />
 
       <Card className="overflow-hidden shadow-sm">
@@ -108,13 +158,18 @@ export function RunPage() {
       {client && (
         <Card className="overflow-hidden shadow-sm">
           <CardHeader>
-            <CardTitle>2. Folder</CardTitle>
+            <CardTitle>2. Documents</CardTitle>
             <CardDescription>
-              Open the folder to process. Everything inside it, sub-folders included, is run.
+              {source === 'computer'
+                ? 'Choose a folder on your computer: every invoice in it, sub-folders included, is uploaded and run.'
+                : 'Open the folder to process. Everything inside it, sub-folders included, is run.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {places.isPending ? (
+            <SourcePicker value={source} onPick={pickSource} />
+            {source === 'computer' ? (
+              <ComputerPicker choice={choice} onChoose={choose} />
+            ) : places.isPending ? (
               <Skeleton className="h-8 w-64" />
             ) : places.isError ? (
               <ErrorAlert title="Places could not be loaded" error={places.error} />
@@ -123,7 +178,7 @@ export function RunPage() {
             ) : (
               <PlacePicker places={places.data} value={place} onPick={pickPlace} />
             )}
-            {place && current && (
+            {source === 'server' && place && current && (
               <>
                 <Breadcrumbs crumbs={trail} onGoTo={goTo} />
                 <FolderList
@@ -140,7 +195,7 @@ export function RunPage() {
         </Card>
       )}
 
-      {client && place && current && (
+      {client && ready && (
         <Card className="overflow-hidden shadow-sm">
           <CardHeader>
             <CardTitle>3. Date</CardTitle>
@@ -156,13 +211,40 @@ export function RunPage() {
               onChange={(event) => setDate(event.target.value)}
             />
             <p className="text-sm text-muted-foreground" data-testid="date-hint">
-              {dateHint(date, folderDate, current?.path ?? '')}
+              {source === 'server'
+                ? dateHint(date, folderDate, current?.path ?? '')
+                : dateHint(date, choiceDate, choice?.folder ?? '')}
             </p>
           </CardContent>
         </Card>
       )}
 
-      {client && place && current && (
+      {client && source === 'computer' && choice && (
+        <div className="space-y-3">
+          {uploadRun.isError && <ErrorAlert title="The upload did not finish" error={uploadRun.error} />}
+          <RunSummary client={client.name} folder={chosenName} date={date} files={files} estimate={estimate} />
+          {uploadRun.isPending && (
+            <div className="space-y-1">
+              <ProgressBar value={sent} label="Upload progress" />
+              <p className="text-sm text-muted-foreground">
+                {sent < 1
+                  ? `Uploading ${Math.round(sent * 100)}% of ${formatBytes(choice.bytes)}…`
+                  : 'Uploaded. Starting the run…'}
+              </p>
+            </div>
+          )}
+          <Button
+            size="lg"
+            onClick={upload}
+            disabled={uploadRun.isPending || choice.invoices.length === 0 || tooMuch(choice) !== null}
+          >
+            <Upload aria-hidden />
+            {uploadRun.isPending ? 'Uploading…' : `Upload and run ${client.name}: ${chosenName}`}
+          </Button>
+        </div>
+      )}
+
+      {client && source === 'server' && place && current && (
         <div className="space-y-3">
           {startRun.isError && <ErrorAlert title="The run did not start" error={startRun.error} />}
           <RunSummary
@@ -243,6 +325,31 @@ function NewClient({ onCreated }: { onCreated: (client: Client) => void }) {
       </div>
       {create.isError && <ErrorAlert title="The client was not created" error={create.error} />}
     </form>
+  )
+}
+
+function SourcePicker({ value, onPick }: { value: Source; onPick: (source: Source) => void }) {
+  const choices: [Source, string][] = [
+    ['computer', 'On my computer'],
+    ['server', 'On the server'],
+  ]
+  return (
+    <div role="group" aria-label="Where the documents are" className="flex flex-wrap gap-2">
+      {choices.map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          aria-pressed={key === value}
+          onClick={() => onPick(key)}
+          className={cn(
+            'rounded-md border px-3 py-1.5 text-sm',
+            key === value ? 'border-primary bg-secondary font-medium' : 'text-muted-foreground hover:bg-muted',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   )
 }
 

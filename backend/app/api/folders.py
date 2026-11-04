@@ -55,6 +55,18 @@ def get_places(
     ]
 
 
+class FolderDate(BaseModel):
+    date: str | None  # ISO; null when the name holds no date
+
+
+@router.get("/date")
+def get_folder_date(name: Annotated[str, Query()], settings: SettingsDep) -> FolderDate:
+    """The date a folder's name stands for, for a folder chosen on the user's own computer
+    (decision 78): the same reading as a folder picked here."""
+    when = folder_date_from_path(name, today=settings.business_today())
+    return FolderDate(date=when.isoformat() if when else None)
+
+
 @router.get("")
 def get_folder(
     session: SessionDep,

@@ -24,7 +24,8 @@ Development stays as it is: Docker Postgres 5432, Redis 6379, `make api` on 8000
 | Live code (never edit it) | `~/clearbook-live` |
 | Live settings and secrets | `~/clearbook-live/.env` |
 | Invoice files | `~/clearbook-live/data/store` |
-| Folders runs may use | `~/clearbook-live/inbox` |
+| Folders uploaded from accountants' computers | `~/clearbook-live/data/uploads` (removed after 30 days; the invoices stay in the store) |
+| Folders runs may use on the server | `~/clearbook-live/inbox` |
 | Logs | `~/clearbook-live/logs/` (`api.log`, `worker-reading.log`, `worker-posting.log`, `llm.log`, `backup.log`) |
 | Database | Homebrew Postgres 16, port 5433, database `clearbook_live` |
 | Backup key | `~/clearbook-live/.restic-password` |
@@ -144,6 +145,7 @@ If unsure, restore last night's backup instead (below).
 | The link does not open | `make live-status`. Is the Mac on and online? Run `Tailscale funnel status`. |
 | Login fails for everyone | Is Redis running? (`make live-status` → health). Then `brew services restart redis` |
 | Files stay "waiting for the AI" | Is LM Studio running with the model? `launchctl kickstart -k gui/$(id -u)/com.missan.clearbook.llm`. Files that failed: **Retry** on the run page |
+| An upload stops halfway | The connection dropped: choose the folder again and upload again. Files that already arrived are recognised and not doubled |
 | Bills do not reach Xero | Open the Review queue: **Waiting to send** / **Could not send** show why. Check `worker-posting.log` |
 | Backup did not run | `make live-status` shows the last backup. Is the disk connected? `cat ~/clearbook-live/logs/backup.log` |
 

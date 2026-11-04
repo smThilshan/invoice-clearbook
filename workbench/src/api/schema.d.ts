@@ -560,6 +560,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/folders/date": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Folder Date
+         * @description The date a folder's name stands for, for a folder chosen on the user's own computer
+         *     (decision 78): the same reading as a folder picked here.
+         */
+        get: operations["get_folder_date_folders_date_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/folders/places": {
         parameters: {
             query?: never;
@@ -652,6 +673,26 @@ export interface paths {
         get: operations["get_typical_time_runs_typical_time_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Run
+         * @description A folder (or files) chosen on the user's own computer, run like any folder (decision 78).
+         */
+        post: operations["upload_run_runs_upload_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -856,6 +897,23 @@ export interface components {
             ledger_accounts?: string | null;
             /** Tax Rates */
             tax_rates?: string | null;
+        };
+        /** Body_upload_run_runs_upload_post */
+        Body_upload_run_runs_upload_post: {
+            /** Client Id */
+            client_id: string;
+            /** Files */
+            files: string[];
+            /**
+             * Folder Date
+             * @description Confirmed on the Run screen; left out = no folder date
+             */
+            folder_date?: string | null;
+            /**
+             * Paths
+             * @description JSON list: each file's path inside the chosen folder, in the order of `files`
+             */
+            paths: string;
         };
         /** ChargeOut */
         ChargeOut: {
@@ -1074,6 +1132,11 @@ export interface components {
             name: string;
             /** Path */
             path: string;
+        };
+        /** FolderDate */
+        FolderDate: {
+            /** Date */
+            date: string | null;
         };
         /** FolderListing */
         FolderListing: {
@@ -1672,6 +1735,23 @@ export interface components {
         TypicalTime: {
             /** Typical Ms */
             typical_ms: number | null;
+        };
+        /** UploadAccepted */
+        UploadAccepted: {
+            /** Files */
+            files: number;
+            /** Folder */
+            folder: string;
+            /** Folder Date */
+            folder_date: string | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Skipped */
+            skipped: string[];
+            status: components["schemas"]["RunStatus"];
         };
         /** ValidationError */
         ValidationError: {
@@ -2725,6 +2805,37 @@ export interface operations {
             };
         };
     };
+    get_folder_date_folders_date_get: {
+        parameters: {
+            query: {
+                name: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderDate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_places_folders_places_get: {
         parameters: {
             query?: {
@@ -2854,6 +2965,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TypicalTime"];
+                };
+            };
+        };
+    };
+    upload_run_runs_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_run_runs_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

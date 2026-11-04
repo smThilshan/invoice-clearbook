@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     # Live (decision 77): the built Workbench (`workbench/dist`). Set, one address serves it at
     # / and the API under /api, the paths the Workbench calls; empty in development (Vite).
     web_dist_dir: Path | None = None
+    # Folders chosen on an accountant's own computer (decision 78) are saved here, one folder per
+    # upload, and run like any folder; the invoices are then copied into the store as usual.
+    upload_dir: Path = Field(default=Path("data/uploads"), validate_default=True)
+    # One upload at most (Starlette refuses more than 1000 files in one form anyway).
+    max_upload_files: int = Field(default=1000, ge=1, le=1000)
+    max_upload_mb: int = Field(default=1024, gt=0)
     max_file_mb: int = Field(default=25, gt=0)  # larger files become FAILED documents
     # A file is ingested only if its size and mtime are unchanged over this interval, so a
     # file still being copied into the inbox is never read half-written.
@@ -178,7 +184,7 @@ class Settings(BaseSettings):
     def business_today(self) -> date:
         return datetime.now(ZoneInfo(self.business_timezone)).date()
 
-    @field_validator("store_dir", "ocr_models_dir", "web_dist_dir")
+    @field_validator("store_dir", "ocr_models_dir", "web_dist_dir", "upload_dir")
     @classmethod
     def _resolve_against_repo_root(cls, path: Path | None) -> Path | None:
         return path if path is None or path.is_absolute() else REPO_ROOT / path

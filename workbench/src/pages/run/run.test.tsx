@@ -111,9 +111,10 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
   }
 }
 
-async function pickClient(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor') {
+async function pickClient(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor', from = 'On the server') {
   await user.click(await screen.findByRole('combobox', { name: 'Client' }))
   await user.click(await screen.findByRole('option', { name }))
+  await user.click(within(screen.getByRole('group', { name: 'Where the documents are' })).getByRole('button', { name: from }))
 }
 
 async function openFolder(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -222,6 +223,8 @@ describe('run screen', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() => expect(api.bodies['POST /clients']).toEqual({ name: 'Blue Sky' }))
+    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'On the server' }))
     expect(await screen.findByRole('button', { name: 'This Mac' })).toBeInTheDocument()
     expect(api.calls).toContain('GET /folders/places?client_id=blue-sky')
     expect(localStorage.getItem('clearbook.lastClient')).toBe('blue-sky')
@@ -343,6 +346,117 @@ describe('run screen', () => {
     renderApp('/run')
 
     expect(await screen.findByText(/No clients yet/)).toHaveTextContent('add one on the Run screen')
+  })
+})
+
+/** A file as the browser gives it for a chosen folder: its path inside the folder included. */
+function chosen(path: string, size = 1000): File {
+  const file = new File([new Uint8Array(size)], path.split('/').at(-1) ?? path)
+  Object.defineProperty(file, 'webkitRelativePath', { value: path })
+  return file
+}
+
+/** Stands in for the browser's XMLHttpRequest, which the upload uses for its progress. */
+class FakeUpload {
+  static sent: { url: string; form: FormData; headers: Record<string, string> }[] = []
+  static answer: { status: number; body: unknown } = { status: 202, body: {} }
+  upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  status = 0
+  statusText = ''
+  responseText = ''
+  private url = ''
+  private headers: Record<string, string> = {}
+
+  open(_method: string, url: string) {
+    this.url = url
+  }
+
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value
+  }
+
+  send(form: FormData) {
+    FakeUpload.sent.push({ url: this.url, form, headers: this.headers })
+    this.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 2 } as ProgressEvent)
+    setTimeout(() => {
+      this.status = FakeUpload.answer.status
+      this.responseText = JSON.stringify(FakeUpload.answer.body)
+      this.onload?.()
+    }, 0)
+  }
+}
+
+describe('run screen: documents on my computer', () => {
+  const realXhr = globalThis.XMLHttpRequest
+  beforeEach(() => {
+    FakeUpload.sent = []
+    FakeUpload.answer = {
+      status: 202,
+      body: { run_id: RUN_ID, status: 'RUNNING', folder: 'October 2026', folder_date: '2026-10-31', files: 2, skipped: [] },
+    }
+    globalThis.XMLHttpRequest = FakeUpload as unknown as typeof XMLHttpRequest
+  })
+  afterEach(() => {
+    globalThis.XMLHttpRequest = realXhr
+  })
+
+  async function chooseFolder(user: ReturnType<typeof userEvent.setup>, files: File[]) {
+    await pickClient(user, 'Cafe Al Noor', 'On my computer')
+    await user.upload(screen.getByLabelText('Folder to upload'), files)
+  }
+
+  it('uploads a chosen folder with its sub-folders and the date from its name, then shows the run', async () => {
+    backend({ '/folders/date': { date: '2026-10-31' } })
+    const user = userEvent.setup()
+    const router = renderApp('/run')
+
+    await chooseFolder(user, [
+      chosen('October 2026/21/bill.pdf', 2048),
+      chosen('October 2026/photo.jpg', 2048),
+      chosen('October 2026/totals.xlsx'),
+    ])
+
+    expect(screen.getByTestId('chosen')).toHaveTextContent('2 invoice files (4 KB) in “October 2026”, sub-folders included.')
+    expect(screen.getByTestId('chosen')).toHaveTextContent('1 other file is left out: totals.xlsx')
+    expect(await screen.findByDisplayValue('2026-10-31')).toBeInTheDocument()
+    expect(screen.getByTestId('date-hint')).toHaveTextContent('Taken from the folder name.')
+
+    await user.click(screen.getByRole('button', { name: 'Upload and run Cafe Al Noor: October 2026' }))
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/run/${RUN_ID}`))
+    const [sent] = FakeUpload.sent
+    expect(sent?.url).toBe('/api/runs/upload')
+    expect(sent?.headers['X-Clearbook']).toBe('1')
+    expect(sent?.form.get('client_id')).toBe('cafe-al-noor')
+    expect(sent?.form.get('folder_date')).toBe('2026-10-31')
+    expect(JSON.parse(String(sent?.form.get('paths')))).toEqual(['October 2026/21/bill.pdf', 'October 2026/photo.jpg'])
+    expect(sent?.form.getAll('files')).toHaveLength(2)
+  })
+
+  it('cannot upload a choice without invoice files', async () => {
+    backend({ '/folders/date': { date: null } })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await chooseFolder(user, [chosen('Notes/plan.docx')])
+
+    expect(screen.getByTestId('chosen')).toHaveTextContent('No invoice files (PDF or photo) in what you chose.')
+    expect(screen.getByRole('button', { name: /^Upload and run/ })).toBeDisabled()
+  })
+
+  it('says why the upload did not finish', async () => {
+    backend({ '/folders/date': { date: null } })
+    FakeUpload.answer = { status: 422, body: { detail: 'at most 1024 MB in one upload' } }
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await chooseFolder(user, [chosen('Bills/a.pdf')])
+    await user.click(screen.getByRole('button', { name: 'Upload and run Cafe Al Noor: Bills' }))
+
+    expect(await screen.findByText('The upload did not finish')).toBeInTheDocument()
+    expect(screen.getByText('at most 1024 MB in one upload')).toBeInTheDocument()
   })
 })
 
