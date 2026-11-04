@@ -106,7 +106,7 @@ describe('login (decision 71)', () => {
       configured: true, connected: true, needs_reconnect: false, reconnect_reason: null,
       provider: 'XERO', provider_name: 'Xero', organisation: 'Made-up Org',
       connected_at: '2026-10-23T10:00:00Z', bills_where: 'Bills to pay, Awaiting approval',
-      master_data_from: 'XERO', waiting: 0,
+      accounts: 0, master_data_from: 'XERO', waiting: 0,
       posting: { ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0,
                  posted: 0, paused: 0, paused_reason: null, failed: 0, failed_reason: null },
     }  // prettier-ignore

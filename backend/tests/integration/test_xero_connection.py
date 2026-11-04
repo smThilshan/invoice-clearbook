@@ -216,6 +216,36 @@ def test_a_cancelled_xero_sign_in_comes_back_with_the_reason(api: TestClient) ->
     assert "error=Xero+sign-in+was+not+completed" in back.headers["location"]
 
 
+def test_a_sign_in_started_on_the_run_page_returns_there(api: TestClient) -> None:
+    """Decision 79: connecting from the Run page keeps the user there, client still picked."""
+    start = api.get("/xero/connect", params={"client_id": CLIENT, "back": "run"})
+    state = start.headers["location"].split("state=")[1]
+    back = api.get("/xero/callback", params={"code": "code-1", "state": state})
+
+    assert back.headers["location"].startswith(f"http://127.0.0.1:5173/run?client={CLIENT}")
+    assert "connected=Demo+Company" in back.headers["location"]
+
+
+def test_a_cancelled_sign_in_returns_to_the_page_it_started_from(api: TestClient) -> None:
+    start = api.get("/xero/connect", params={"client_id": CLIENT, "back": "run"})
+    state = start.headers["location"].split("state=")[1]
+    back = api.get("/xero/callback", params={"error": "access_denied", "state": state})
+
+    assert back.headers["location"].startswith("http://127.0.0.1:5173/run?")
+    assert "error=Xero+sign-in+was+not+completed" in back.headers["location"]
+
+
+def test_a_sign_in_can_only_return_to_a_workbench_page(
+    api: TestClient, session: Session, xero: FakeXero
+) -> None:
+    refused = api.get("/xero/connect", params={"client_id": CLIENT, "back": "https://evil.test"})
+    elsewhere = connections._state(SETTINGS, CLIENT, "xero", "documents")  # signed, not allowed
+
+    assert refused.status_code == 422
+    with pytest.raises(connections.AccountingConnectionError, match="not started from"):
+        connections.finish(session, SETTINGS, registry(xero), elsewhere, "code-1")
+
+
 # --- Sync from Xero (task 5.4) ---------------------------------------------------------------
 
 
@@ -301,6 +331,7 @@ def test_sync_through_the_api_and_csv_import_is_then_refused(
 ) -> None:
     connect(session, xero)
 
+    before = api.get(f"/clients/{CLIENT}/accounting").json()
     synced = api.post(f"/clients/{CLIENT}/accounting/sync")
     status = api.get(f"/clients/{CLIENT}/accounting").json()
     csv = api.post(f"/clients/{CLIENT}/master-data", files={"contacts": ("c.csv", b"x")})
@@ -308,7 +339,8 @@ def test_sync_through_the_api_and_csv_import_is_then_refused(
     assert synced.status_code == 200, synced.text
     assert synced.json()["tax_mapping"][0] == {
         "code": "INPUT", "name": "Standard Rated Expenses", "tax_type": "STANDARD_5"}  # fmt: skip
-    assert status["master_data_from"] == "XERO"
+    assert (before["master_data_from"], before["accounts"]) == ("MANUAL", 0)  # not synced yet
+    assert (status["master_data_from"], status["accounts"]) == ("XERO", 2)  # decision 79
     assert csv.status_code == 409
 
 

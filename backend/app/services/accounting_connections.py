@@ -1,8 +1,9 @@
 """A client's connection to its accounting system (task 5.3, decisions 38, 43): connect, keep
 the access working, disconnect. Any provider in the registry; its own calls stay in its adapter.
 
-- The sign-in is started with a signed, short-lived `state` naming the client and the provider:
-  the provider sends it back, so a callback that was not started here (or is too old) is refused.
+- The sign-in is started with a signed, short-lived `state` naming the client, the provider and
+  the Workbench page to return to (decision 79): the provider sends it back, so a callback that
+  was not started here (or is too old) is refused, and the return can only be one of our pages.
 - Tokens are encrypted with settings.token_key before they reach the database.
 - An access token is renewed shortly before it expires, under a row lock so two workers cannot
   renew the same refresh token at once.
@@ -30,6 +31,8 @@ from app.models import AccountingConnection, Client
 logger = logging.getLogger(__name__)
 
 STATE_SECONDS = 600  # a sign-in must be finished within 10 minutes
+# Workbench pages a sign-in may return to (decision 79): never an address from the request.
+BACK_PAGES = ("clients", "run")
 RENEW_BEFORE = timedelta(minutes=2)
 
 
@@ -47,14 +50,18 @@ class Connected:
     client_id: str
     organisation: str
     provider_name: str
+    back: str  # the Workbench page the sign-in was started from
 
 
-def start(settings: Settings, entry: ProviderEntry, client: Client) -> str:
-    """The provider's sign-in address for this client."""
+def start(settings: Settings, entry: ProviderEntry, client: Client, back: str = "clients") -> str:
+    """The provider's sign-in address for this client; afterwards the user returns to `back`."""
+    if back not in BACK_PAGES:
+        raise AccountingConnectionError(f"cannot return to {back!r}")
     if not entry.connector(settings).configured():
         raise AccountingConnectionError(f"{entry.name} is not set up: its app keys go in .env")
     _cipher(settings)  # fail now, not after the user signed in, when TOKEN_KEY is missing
-    return entry.connector(settings).authorize_url(_state(settings, client.client_id, entry.slug))
+    state = _state(settings, client.client_id, entry.slug, back)
+    return entry.connector(settings).authorize_url(state)
 
 
 def finish(
@@ -67,7 +74,7 @@ def finish(
 ) -> Connected:
     """The provider sent the user back (`returned`: everything it sent): exchange the code, pick
     the organisation they approved and store the connection. The caller commits."""
-    client_id, slug = _from_state(settings, state)
+    client_id, slug, back = _from_state(settings, state)
     entry = by_slug(registry, slug)
     if entry is None:
         raise AccountingConnectionError("this sign-in names an accounting system we do not know")
@@ -107,7 +114,16 @@ def finish(
     _store(settings, connection, tokens)
     session.add(connection)
     session.flush()
-    return Connected(client_id, organisation.name, entry.name)
+    return Connected(client_id, organisation.name, entry.name, back)
+
+
+def return_page(settings: Settings, state: str) -> str:
+    """The page a sign-in returns to when it did not complete: the one in its state if this app
+    signed it, else the Clients page."""
+    try:
+        return _from_state(settings, state)[2]
+    except AccountingConnectionError:
+        return BACK_PAGES[0]
 
 
 def connection_of(session: Session, client_id: str) -> AccountingConnection | None:
@@ -231,21 +247,23 @@ def _decrypt(cipher: Fernet, value: str) -> str:
         ) from exc
 
 
-def _state(settings: Settings, client_id: str, slug: str) -> str:
-    body = f"{client_id}.{slug}.{int(time.time())}.{secrets.token_urlsafe(8)}"
+def _state(settings: Settings, client_id: str, slug: str, back: str = "clients") -> str:
+    body = f"{client_id}.{slug}.{back}.{int(time.time())}.{secrets.token_urlsafe(8)}"
     return f"{body}.{_sign(settings, body)}"
 
 
-def _from_state(settings: Settings, state: str) -> tuple[str, str]:
-    """(client id, provider slug) from a state this app signed."""
+def _from_state(settings: Settings, state: str) -> tuple[str, str, str]:
+    """(client id, provider slug, page to return to) from a state this app signed."""
     body, _, signature = state.rpartition(".")
     parts = body.split(".")
-    if len(parts) != 4 or not hmac.compare_digest(signature, _sign(settings, body)):
+    if len(parts) != 5 or not hmac.compare_digest(signature, _sign(settings, body)):
         raise AccountingConnectionError("this sign-in was not started from the Workbench")
-    client_id, slug, issued, _ = parts
+    client_id, slug, back, issued, _ = parts
     if not issued.isdigit() or time.time() - int(issued) > STATE_SECONDS:
         raise AccountingConnectionError("this sign-in took too long: start it again")
-    return client_id, slug
+    if back not in BACK_PAGES:
+        raise AccountingConnectionError("this sign-in was not started from the Workbench")
+    return client_id, slug, back
 
 
 def _sign(settings: Settings, body: str) -> str:

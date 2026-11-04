@@ -52,6 +52,10 @@
       },
       "AccountingStatus": {
         "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
           "bills_where": {
             "anyOf": [
               {
@@ -161,6 +165,7 @@
           "connected_at",
           "bills_where",
           "master_data_from",
+          "accounts",
           "waiting",
           "posting"
         ],
@@ -5106,7 +5111,7 @@
     },
     "/{slug}/connect": {
       "get": {
-        "description": "Start the provider's sign-in for this client.",
+        "description": "Start the provider's sign-in for this client; afterwards the user returns to `back`, the\nWorkbench page they started from (decision 79).",
         "operationId": "connect__slug__connect_get",
         "parameters": [
           {
@@ -5124,6 +5129,20 @@
             "required": true,
             "schema": {
               "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "back",
+            "required": false,
+            "schema": {
+              "default": "clients",
+              "enum": [
+                "clients",
+                "run"
+              ],
+              "title": "Back",
               "type": "string"
             }
           }

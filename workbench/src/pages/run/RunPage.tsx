@@ -1,25 +1,37 @@
-import { ChevronRight, FileText, Folder as FolderIcon, Play, Plus, Upload } from 'lucide-react'
-import { type FormEvent, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { ChevronRight, CircleCheck, FileText, Folder as FolderIcon, Play, Plus, Upload } from 'lucide-react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { useBlocker, useNavigate, useSearchParams } from 'react-router'
 
 import { api, type Client, type Folder, type FolderPlace } from '@/api/client'
-import { useCreateClient, useFolder, usePlaces, useStartRun, useTypicalTime, useUploadRun } from '@/api/queries'
+import {
+  useAccounting,
+  useClients,
+  useCreateClient,
+  useFolder,
+  usePlaces,
+  useStartRun,
+  useTypicalTime,
+  useUploadRun,
+} from '@/api/queries'
 import { ClientSelect } from '@/components/ClientSelect'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { ProgressBar } from '@/components/ProgressBar'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { type Choice, formatBytes, tooMuch } from '@/lib/chosenFiles'
+import { blocksRun, readinessOf } from '@/lib/readiness'
 import { formatDate } from '@/lib/labels'
 import { lastFolder, rememberClient, rememberFolder } from '@/lib/remember'
 import { formatDuration } from '@/lib/timings'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { cn } from '@/lib/utils'
 
+import { AccountingReadiness } from './AccountingReadiness'
 import { ComputerPicker } from './ComputerPicker'
 
 /** The client's own folder; the top of any other place (this Mac, shared drives) is too big
@@ -46,6 +58,18 @@ export function RunPage() {
   const [choiceDate, setChoiceDate] = useState<string | null>(null) // from the chosen folder's name
   const [sent, setSent] = useState(0) // how much of the upload has gone, 0 to 1
   const latestChoice = useRef<Choice>(undefined)
+  const uploaded = useRef(false) // the choice went up: leaving is fine
+  // Back from connecting an accounting system (decision 79): ?client=…&connected=… or &error=…
+  const [params, setParams] = useSearchParams()
+  const [returned] = useState(() => ({
+    client: params.get('client'),
+    connected: params.get('connected'),
+    system: params.get('system'),
+    error: params.get('error'),
+  }))
+  const clients = useClients()
+  const accounting = useAccounting(client?.client_id ?? '')
+  const blocked = client !== undefined && blocksRun(readinessOf(accounting.data, accounting.isError))
   const [chosenPlace, setChosenPlace] = useState<FolderPlace>()
   const [savedPlace, setSavedPlace] = useState<string>()
   const [crumbs, setCrumbs] = useState<Crumb[]>([])
@@ -70,16 +94,31 @@ export function RunPage() {
   const ready = source === 'server' ? place !== undefined && current !== undefined : choice !== undefined
   const chosenName = choice ? choice.folder || `${choice.invoices.length} chosen files` : ''
 
-  function pickClient(picked: Client) {
+  function adopt(picked: Client) {
     const saved = lastFolder(picked.client_id)
     setClient(picked)
     setChosenPlace(undefined)
     setSavedPlace(saved?.place)
     setCrumbs(saved?.crumbs ?? [])
     if (source === 'server') setDate(saved?.crumbs.at(-1)?.date ?? '')
+  }
+
+  function pickClient(picked: Client) {
+    adopt(picked)
     startRun.reset()
     uploadRun.reset()
   }
+
+  // The client the sign-in was started for is picked again on arrival (decision 79).
+  const returnedClient = returned.client ? clients.data?.find((c) => c.client_id === returned.client) : undefined
+  if (returnedClient && !client) adopt(returnedClient)
+
+  // Its outcome stays on screen (kept above); the address is cleaned up.
+  useEffect(() => {
+    if (params.size > 0 && (client || clients.data)) setParams({}, { replace: true })
+  }, [params, client, clients.data, setParams])
+
+  useLeaveGuard(() => choice !== undefined && choice.invoices.length > 0 && !uploaded.current)
 
   function pickSource(picked: Source) {
     setSource(picked)
@@ -125,7 +164,12 @@ export function RunPage() {
     setSent(0)
     uploadRun.mutate(
       { clientId: client.client_id, files: choice.invoices, folderDate: date || null, onProgress: setSent },
-      { onSuccess: (accepted) => void navigate(`/run/${accepted.run_id}`) },
+      {
+        onSuccess: (accepted) => {
+          uploaded.current = true
+          void navigate(`/run/${accepted.run_id}`)
+        },
+      },
     )
   }
 
@@ -144,6 +188,20 @@ export function RunPage() {
         description="Pick a client, choose the documents (a folder on your computer, or one on the server), confirm the date, and start processing. Sub-folders are included."
       />
 
+      {returned.connected && (
+        <Alert>
+          <CircleCheck className="text-success" aria-hidden />
+          <AlertTitle>Connected to {returned.system ?? 'the accounting system'}</AlertTitle>
+          <AlertDescription>Organisation: {returned.connected}</AlertDescription>
+        </Alert>
+      )}
+      {returned.error && (
+        <Alert variant="destructive">
+          <AlertTitle>Not connected</AlertTitle>
+          <AlertDescription>{returned.error}</AlertDescription>
+        </Alert>
+      )}
+
       <Card className="overflow-hidden shadow-sm">
         <CardHeader>
           <CardTitle>1. Client</CardTitle>
@@ -152,6 +210,12 @@ export function RunPage() {
         <CardContent className="space-y-3">
           <ClientSelect value={client?.client_id} onChange={pickClient} />
           <NewClient onCreated={pickClient} />
+          {client && (
+            <AccountingReadiness
+              clientId={client.client_id}
+              autoSync={returned.connected !== null && returned.client === client.client_id}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -167,7 +231,11 @@ export function RunPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <SourcePicker value={source} onPick={pickSource} />
-            {source === 'computer' ? (
+            {blocked ? (
+              <p className="text-sm text-muted-foreground">
+                First get the client's accounting system ready (above): then choose the documents.
+              </p>
+            ) : source === 'computer' ? (
               <ComputerPicker choice={choice} onChoose={choose} />
             ) : places.isPending ? (
               <Skeleton className="h-8 w-64" />
@@ -178,7 +246,7 @@ export function RunPage() {
             ) : (
               <PlacePicker places={places.data} value={place} onPick={pickPlace} />
             )}
-            {source === 'server' && place && current && (
+            {!blocked && source === 'server' && place && current && (
               <>
                 <Breadcrumbs crumbs={trail} onGoTo={goTo} />
                 <FolderList
@@ -195,7 +263,7 @@ export function RunPage() {
         </Card>
       )}
 
-      {client && ready && (
+      {client && !blocked && ready && (
         <Card className="overflow-hidden shadow-sm">
           <CardHeader>
             <CardTitle>3. Date</CardTitle>
@@ -219,7 +287,7 @@ export function RunPage() {
         </Card>
       )}
 
-      {client && source === 'computer' && choice && (
+      {client && !blocked && source === 'computer' && choice && (
         <div className="space-y-3">
           {uploadRun.isError && <ErrorAlert title="The upload did not finish" error={uploadRun.error} />}
           <RunSummary client={client.name} folder={chosenName} date={date} files={files} estimate={estimate} />
@@ -244,7 +312,7 @@ export function RunPage() {
         </div>
       )}
 
-      {client && source === 'server' && place && current && (
+      {client && !blocked && source === 'server' && place && current && (
         <div className="space-y-3">
           {startRun.isError && <ErrorAlert title="The run did not start" error={startRun.error} />}
           <RunSummary
@@ -533,4 +601,23 @@ function dateHint(date: string, folderDate: string | null, path: string): string
     )
   }
   return 'Entered by you.'
+}
+
+const LEAVE_WARNING = 'You chose documents but did not upload them. Leave anyway?'
+
+/** Ask before leaving the page (in the app or closing the tab) while `pending()` is true. */
+function useLeaveGuard(pending: () => boolean) {
+  const blocker = useBlocker(pending)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm(LEAVE_WARNING)) blocker.proceed()
+    else blocker.reset()
+  }, [blocker])
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (pending()) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  })
 }

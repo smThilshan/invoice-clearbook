@@ -18,18 +18,18 @@ const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url
 const NOT_CONNECTED: AccountingStatus = {
   providers: [XERO], configured: true, connected: false, needs_reconnect: false,
   reconnect_reason: null, provider: null, provider_name: null,
-  organisation: null, connected_at: null, bills_where: null, master_data_from: 'MANUAL',
+  organisation: null, connected_at: null, bills_where: null, accounts: 0, master_data_from: 'MANUAL',
   waiting: 0, posting: NOTHING,
 }  // prettier-ignore
 const CONNECTED: AccountingStatus = {
   providers: [XERO], configured: true, connected: true, needs_reconnect: false,
   reconnect_reason: null, provider: 'XERO', provider_name: 'Xero',
   organisation: 'Demo Company (Global)', connected_at: '2026-10-23T10:00:00Z',
-  bills_where: 'Bills to pay, Awaiting approval', master_data_from: 'MANUAL', waiting: 0,
+  bills_where: 'Bills to pay, Awaiting approval', accounts: 0, master_data_from: 'MANUAL', waiting: 0,
   posting: NOTHING,
 }  // prettier-ignore
 const SYNCED_WAITING: AccountingStatus = {
-  ...CONNECTED, master_data_from: 'XERO', waiting: 3, posting: { ...NOTHING, ready: 3 },
+  ...CONNECTED, accounts: 0, master_data_from: 'XERO', waiting: 3, posting: { ...NOTHING, ready: 3 },
 }  // prettier-ignore
 const SENT: AccountingStatus = {
   ...SYNCED_WAITING, waiting: 0, posting: { ...NOTHING, posted: 2, sent_back: 1 },
@@ -178,7 +178,7 @@ describe('clients', () => {
   it('names whichever accounting system the client is connected to', async () => {
     const zoho: AccountingStatus = {
       ...SYNCED_WAITING, provider_name: 'Zoho Books', organisation: 'Made-up Trading',
-      bills_where: 'Purchases, Bills', master_data_from: 'XERO',
+      bills_where: 'Purchases, Bills', accounts: 0, master_data_from: 'XERO',
     }  // prettier-ignore
     mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
               '/clients/cafe-al-noor/accounting': zoho })  // prettier-ignore
@@ -230,7 +230,7 @@ describe('clients', () => {
 
   it('says bills are paused when the client was disconnected', async () => {
     const disconnected: AccountingStatus = {
-      ...NOT_CONNECTED, master_data_from: 'XERO', waiting: 2,
+      ...NOT_CONNECTED, accounts: 0, master_data_from: 'XERO', waiting: 2,
       posting: { ...NOTHING, paused: 2, paused_reason: 'not connected: connect the accounting system again' },
     }  // prettier-ignore
     mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),

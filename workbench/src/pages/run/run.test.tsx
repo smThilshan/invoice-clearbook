@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { FolderPlace, PlaceListing, Readiness, RunProgress } from '@/api/client'
+import type { AccountingStatus, FolderPlace, PlaceListing, Readiness, RunProgress } from '@/api/client'
 import { RUN_REFRESH_MS } from '@/api/queries'
 import { type Answer, mockApi, renderApp, reply } from '@/test/render'
 
@@ -36,6 +36,24 @@ const FOLDERS: Record<string, PlaceListing> = {
   'p0:Invoice tests': listing('p0', 'Invoice tests', [], 3),
 }
 const RUN_ID = '6f1c2b0e-0000-4000-8000-000000000001'
+const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url: '/xero/connect' }
+const ZOHO = { key: 'ZOHO' as const, name: 'Zoho Books', configured: true, connect_url: '/zoho/connect' }
+const NOTHING_SENT = {
+  ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
+  paused: 0, paused_reason: null, failed: 0, failed_reason: null,
+}  // prettier-ignore
+/** Connected to Zoho Books and synced: ready to run (decision 79). */
+const SYNCED: AccountingStatus = {
+  providers: [XERO, ZOHO], configured: true, connected: true, needs_reconnect: false,
+  reconnect_reason: null, provider: 'ZOHO', provider_name: 'Zoho Books', organisation: 'Missan Trading',
+  connected_at: '2026-11-01T08:00:00Z', bills_where: 'Purchases, Bills', master_data_from: 'ZOHO',
+  accounts: 42, waiting: 0, posting: NOTHING_SENT,
+}  // prettier-ignore
+const NOT_SYNCED: AccountingStatus = { ...SYNCED, master_data_from: 'MANUAL', accounts: 0 }
+const NOT_CONNECTED: AccountingStatus = {
+  ...SYNCED, connected: false, provider: null, provider_name: null, organisation: null,
+  connected_at: null, bills_where: null, master_data_from: 'MANUAL', accounts: 0,
+}  // prettier-ignore
 
 const realFetch = globalThis.fetch
 
@@ -63,6 +81,9 @@ function backend(extra: Record<string, Answer> = {}) {
     '/folders/places': places,
     '/folders': folder,
     '/runs/typical-time': { typical_ms: 240_000 },
+    '/clients/cafe-al-noor/accounting': SYNCED,
+    '/clients/spice-route/accounting': SYNCED,
+    '/clients/blue-sky/accounting': SYNCED,
     'POST /runs': reply(202, {
       run_id: RUN_ID,
       status: 'RUNNING',
@@ -457,6 +478,130 @@ describe('run screen: documents on my computer', () => {
 
     expect(await screen.findByText('The upload did not finish')).toBeInTheDocument()
     expect(screen.getByText('at most 1024 MB in one upload')).toBeInTheDocument()
+  })
+})
+
+describe('run screen: the client\'s accounting system', () => {
+  async function pickOnly(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor') {
+    await user.click(await screen.findByRole('combobox', { name: 'Client' }))
+    await user.click(await screen.findByRole('option', { name }))
+  }
+
+  it('shows a synced client as ready and lets the documents be chosen', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+
+    const status = await screen.findByLabelText('Accounting system')
+    expect(await within(status).findByText('Zoho Books: Missan Trading. Accounts synced (42).')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+  })
+
+  it('syncs on the page before the documents can be chosen', async () => {
+    let status = NOT_SYNCED
+    const api = backend({
+      '/clients/cafe-al-noor/accounting': () => status,
+      'POST /clients/cafe-al-noor/accounting/sync': () => {
+        status = SYNCED
+        return { accounts: {}, tax_rates: {}, contacts: {}, deactivated: 0, tax_mapping: [] }
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+    expect(await screen.findByText(/not synced yet/)).toBeInTheDocument()
+    expect(screen.getByText(/First get the client's accounting system ready/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Choose folder' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Sync now' }))
+
+    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/sync')
+  })
+
+  it('offers every set-up accounting system, coming back to the Run page', async () => {
+    backend({ '/clients/cafe-al-noor/accounting': NOT_CONNECTED })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+
+    expect(await screen.findByRole('link', { name: 'Connect Xero' })).toHaveAttribute(
+      'href', '/api/xero/connect?client_id=cafe-al-noor&back=run',
+    )  // prettier-ignore
+    expect(screen.getByRole('link', { name: 'Connect Zoho Books' })).toHaveAttribute(
+      'href', '/api/zoho/connect?client_id=cafe-al-noor&back=run',
+    )  // prettier-ignore
+    expect(screen.queryByRole('button', { name: 'Choose folder' })).not.toBeInTheDocument()
+  })
+
+  it('runs a client without an accounting system on its imported accounts', async () => {
+    backend({ '/clients/cafe-al-noor/accounting': { ...NOT_CONNECTED, accounts: 12 } })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+
+    expect(await screen.findByText('No accounting system: uses the 12 imported accounts.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+  })
+
+  it('asks an accountant to get an admin, without buttons they cannot use', async () => {
+    backend({
+      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },
+      '/clients/cafe-al-noor/accounting': NOT_CONNECTED,
+    })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+
+    expect(await screen.findByText('Ask an admin to connect this client to its accounting system.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Connect/ })).not.toBeInTheDocument()
+  })
+
+  it('back from connecting: the client is picked again and its accounts are synced', async () => {
+    let status = NOT_SYNCED
+    const api = backend({
+      '/clients/cafe-al-noor/accounting': () => status,
+      'POST /clients/cafe-al-noor/accounting/sync': () => {
+        status = SYNCED
+        return { accounts: {}, tax_rates: {}, contacts: {}, deactivated: 0, tax_mapping: [] }
+      },
+    })
+    const router = renderApp('/run?client=cafe-al-noor&connected=Missan+Trading&system=Zoho+Books')
+
+    expect(await screen.findByText('Connected to Zoho Books')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/sync')
+    expect(screen.getByRole('combobox', { name: 'Client' })).toHaveTextContent('Cafe Al Noor')
+    expect(router.state.location.search).toBe('')
+  })
+
+  it('says why connecting failed, on the Run page', async () => {
+    backend({ '/clients/cafe-al-noor/accounting': NOT_CONNECTED })
+    renderApp('/run?client=cafe-al-noor&error=Zoho+Books+sign-in+was+not+completed')
+
+    expect(await screen.findByText('Zoho Books sign-in was not completed')).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Connect Zoho Books' })).toBeInTheDocument()
+  })
+
+  it('asks before leaving with chosen documents that were not uploaded', async () => {
+    backend({ '/folders/date': { date: null } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    const router = renderApp('/run')
+
+    await pickOnly(user)
+    await user.upload(await screen.findByLabelText('Folder to upload'), [chosen('Bills/a.pdf')])
+    await user.click(screen.getByRole('link', { name: /review queue/i }))
+
+    expect(confirm).toHaveBeenCalledWith('You chose documents but did not upload them. Leave anyway?')
+    expect(router.state.location.pathname).toBe('/run')
+    confirm.mockRestore()
   })
 })
 

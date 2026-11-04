@@ -10,12 +10,13 @@ import logging
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
@@ -24,13 +25,14 @@ from app.api.auth import require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountingProvider, TaxType
-from app.models import Client
+from app.models import Client, LedgerAccount
 from app.services import posting
 from app.services.accounting_connections import (
     AccountingConnectionError,
     connection_of,
     disconnect,
     finish,
+    return_page,
     start,
 )
 from app.services.accounting_sync import sync
@@ -90,6 +92,7 @@ class AccountingStatus(BaseModel):
     connected_at: datetime | None
     bills_where: str | None  # where sent bills are found in the provider's own screens
     master_data_from: str  # the provider once synced, else "MANUAL" (CSV import)
+    accounts: int  # active accounts coding can use, from `master_data_from` (decision 79)
     waiting: int  # approved documents not posted yet
     posting: PostingOut
 
@@ -116,19 +119,26 @@ class SyncOut(BaseModel):
 
 @router.get("/{slug}/connect", dependencies=[Depends(require_admin)])
 def connect(
-    slug: str, client_id: str, session: SessionDep, settings: SettingsDep, registry: RegistryDep
+    slug: str,
+    client_id: str,
+    session: SessionDep,
+    settings: SettingsDep,
+    registry: RegistryDep,
+    back: Literal["clients", "run"] = "clients",
 ) -> RedirectResponse:
-    """Start the provider's sign-in for this client."""
+    """Start the provider's sign-in for this client; afterwards the user returns to `back`, the
+    Workbench page they started from (decision 79)."""
     entry = by_slug(registry, slug)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown accounting system")
     client = get_client(session, client_id)
     if client is None:
-        return _back(settings, error="client not found")
+        return _back(settings, back, error="client not found")
     try:
-        return RedirectResponse(start(settings, entry, client), status.HTTP_307_TEMPORARY_REDIRECT)
+        url = start(settings, entry, client, back)
     except AccountingConnectionError as exc:
-        return _back(settings, client=client_id, error=str(exc))
+        return _back(settings, back, client=client_id, error=str(exc))
+    return RedirectResponse(url, status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 def get_enqueue_sweep() -> Callable[[str], object]:
@@ -154,22 +164,24 @@ def callback(
     entry = by_slug(registry, slug)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown accounting system")
+    back = return_page(settings, state)
     if error or not code:
         return _back(
-            settings, error=f"{entry.name} sign-in was not completed ({error or 'no code'})"
+            settings, back, error=f"{entry.name} sign-in was not completed ({error or 'no code'})"
         )
     try:
         connected = finish(session, settings, registry, state, code, dict(request.query_params))
         session.commit()
     except AccountingConnectionError as exc:
         session.rollback()
-        return _back(settings, error=str(exc))
+        return _back(settings, back, error=str(exc))
     try:
         enqueue(connected.client_id)
     except Exception:  # connected and saved: "Send waiting bills" or the worker's start sends them
         logger.warning("client %s: could not ask the worker to send now", connected.client_id)
     return _back(
         settings,
+        connected.back,
         client=connected.client_id,
         connected=connected.organisation,
         system=connected.provider_name,
@@ -204,6 +216,14 @@ def accounting_status(
         connected_at=connection.created_at if connection else None,
         bills_where=entry.bills_where if entry else None,
         master_data_from=client.accounting_provider.value,
+        accounts=session.scalar(
+            select(func.count()).where(
+                LedgerAccount.client_id == client_id,
+                LedgerAccount.provider == client.accounting_provider,
+                LedgerAccount.is_active.is_(True),
+            )
+        )
+        or 0,
         waiting=posting.waiting(session, client_id),
         posting=PostingOut(**asdict(posting.summary(session, client_id))),
     )
@@ -281,7 +301,7 @@ def _counts(counts: Counts) -> SyncCounts:
     return SyncCounts(created=counts.created, updated=counts.updated, unchanged=counts.unchanged)
 
 
-def _back(settings: Settings, **outcome: str) -> RedirectResponse:
-    """Back to the Workbench's Clients page, saying what happened."""
+def _back(settings: Settings, page: str = "clients", **outcome: str) -> RedirectResponse:
+    """Back to a Workbench page (only ever one of BACK_PAGES), saying what happened."""
     query = urlencode({key: value for key, value in outcome.items() if value})
-    return RedirectResponse(f"{settings.workbench_url}/clients?{query}", status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"{settings.workbench_url}/{page}?{query}", status.HTTP_303_SEE_OTHER)

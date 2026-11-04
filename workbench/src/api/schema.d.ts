@@ -811,7 +811,8 @@ export interface paths {
         };
         /**
          * Connect
-         * @description Start the provider's sign-in for this client.
+         * @description Start the provider's sign-in for this client; afterwards the user returns to `back`, the
+         *     Workbench page they started from (decision 79).
          */
         get: operations["connect__slug__connect_get"];
         put?: never;
@@ -850,6 +851,8 @@ export interface components {
         AccountingProvider: "MANUAL" | "XERO" | "ZOHO";
         /** AccountingStatus */
         AccountingStatus: {
+            /** Accounts */
+            accounts: number;
             /** Bills Where */
             bills_where: string | null;
             /** Configured */
@@ -3165,6 +3168,7 @@ export interface operations {
         parameters: {
             query: {
                 client_id: string;
+                back?: "clients" | "run";
             };
             header?: never;
             path: {
