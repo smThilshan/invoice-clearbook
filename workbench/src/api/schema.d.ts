@@ -259,8 +259,9 @@ export interface paths {
         };
         /**
          * Get Queue
-         * @description Exception first, then Check, then Ready; oldest first inside each. `sending`: a list of
-         *     approved documents instead (waiting, failed, posted; decision 70), `status` then unused.
+         * @description Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list
+         *     of approved documents instead (waiting, failed, posted; decision 70), or the documents back
+         *     in review not sent (not_sent); `status` then unused.
          */
         get: operations["get_queue_documents_get"];
         put?: never;
@@ -1012,6 +1013,8 @@ export interface components {
             issues: components["schemas"]["IssueOut"][];
             /** Mime Type */
             mime_type: string;
+            /** Not Sent */
+            not_sent: string | null;
             /** Page Count */
             page_count: number | null;
             queue: components["schemas"]["QueueCategory"] | null;
@@ -1076,6 +1079,8 @@ export interface components {
             invoice_date: string | null;
             /** Invoice Number */
             invoice_number: string | null;
+            /** Not Sent */
+            not_sent: string | null;
             queue: components["schemas"]["QueueCategory"] | null;
             /**
              * Run Id
@@ -1640,7 +1645,7 @@ export interface components {
          * @description The queue's lists of approved documents (decision 70).
          * @enum {string}
          */
-        SendingList: "waiting" | "failed" | "posted";
+        SendingList: "waiting" | "failed" | "posted" | "not_sent";
         /**
          * SendingOut
          * @description Where an approved document is on its way to the accounting system (decision 69).

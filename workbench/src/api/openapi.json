@@ -569,6 +569,17 @@
             "title": "Mime Type",
             "type": "string"
           },
+          "not_sent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Sent"
+          },
           "page_count": {
             "anyOf": [
               {
@@ -684,6 +695,7 @@
           "created_at",
           "sending",
           "external_url",
+          "not_sent",
           "source_path",
           "mime_type",
           "folder_date",
@@ -809,6 +821,17 @@
             ],
             "title": "Invoice Number"
           },
+          "not_sent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Sent"
+          },
           "queue": {
             "anyOf": [
               {
@@ -882,7 +905,8 @@
           "warnings",
           "created_at",
           "sending",
-          "external_url"
+          "external_url",
+          "not_sent"
         ],
         "title": "DocumentSummary",
         "type": "object"
@@ -2599,7 +2623,8 @@
         "enum": [
           "waiting",
           "failed",
-          "posted"
+          "posted",
+          "not_sent"
         ],
         "title": "SendingList",
         "type": "string"
@@ -3613,7 +3638,7 @@
     },
     "/documents": {
       "get": {
-        "description": "Exception first, then Check, then Ready; oldest first inside each. `sending`: a list of\napproved documents instead (waiting, failed, posted; decision 70), `status` then unused.",
+        "description": "Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list\nof approved documents instead (waiting, failed, posted; decision 70), or the documents back\nin review not sent (not_sent); `status` then unused.",
         "operationId": "get_queue_documents_get",
         "parameters": [
           {

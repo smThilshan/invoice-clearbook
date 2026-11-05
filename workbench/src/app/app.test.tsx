@@ -33,7 +33,7 @@ describe('layout and navigation', () => {
     await userEvent.click(await screen.findByRole('link', { name: /review queue/i }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/queue'))
-    expect(await screen.findByText(/exception first/i)).toBeInTheDocument()
+    expect(await screen.findByText(/not sent first/i)).toBeInTheDocument()
     await waitFor(() => expect(document.title).toBe('Review queue – Clearbook'))
   })
 

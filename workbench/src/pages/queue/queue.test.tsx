@@ -32,6 +32,7 @@ function doc(id: string, changes: Partial<DocumentSummary> = {}): DocumentSummar
     created_at: '2026-10-21T08:00:00Z',
     sending: null,
     external_url: null,
+    not_sent: null,
     ...changes,
   }
 }
@@ -44,7 +45,7 @@ const PAGE: QueuePage = {
   processing: 0,
   stopped: 0,
   stopped_run_id: null,
-  sending_counts: { waiting: 1, failed: 2, posted: 5 },
+  sending_counts: { waiting: 1, failed: 2, posted: 5, not_sent: 0 },
   documents: [
     doc('d1', { queue: 'EXCEPTION', errors: 2, warnings: 1, total: '1234567.5' }),
     doc('d2', { queue: 'CHECK', warnings: 1, vendor_name: null }),
@@ -328,6 +329,56 @@ describe('approved documents (decision 70)', () => {
     )  // prettier-ignore
     expect(failed).toHaveTextContent('Could not send')
     expect(failed).toHaveTextContent('made-up error')
+  })
+
+  const REASON = 'Not sent to Xero: bill 108 from this supplier is already in Xero (submitted)'
+  const CAME_BACK: QueuePage = {
+    ...PAGE,
+    sending_counts: { waiting: 0, failed: 0, posted: 5, not_sent: 1 },
+    documents: [doc('n1', { not_sent: REASON }), ...PAGE.documents],
+  }
+
+  it('shows what came back not sent on top, in red with its reason, not as Ready', async () => {
+    mockApi({
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/runs': RUNS,
+      '/clients/cafe-al-noor/accounting': XERO_STATUS, '/documents': CAME_BACK,
+    })  // prettier-ignore
+    renderApp('/queue?client=cafe-al-noor')
+
+    await screen.findByRole('table', { name: 'Documents' })
+    const [first, second] = screen.getAllByRole('row').slice(1) as [HTMLElement, HTMLElement]
+    expect(within(first).getByText('Not sent')).toBeInTheDocument()
+    expect(within(first).queryByText('Ready')).not.toBeInTheDocument()
+    expect(within(first).getByText(REASON)).toBeInTheDocument()
+    expect(within(second).queryByText('Not sent')).not.toBeInTheDocument()
+    expect(within(second).getByText('Exception')).toBeInTheDocument()
+  })
+
+  it('lists only what came back not sent, with their issues, from its count', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/runs': RUNS,
+      '/clients/cafe-al-noor/accounting': XERO_STATUS, '/documents': CAME_BACK,
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor')
+
+    const sent = await screen.findByRole('group', { name: 'Sent' })
+    const notSent = await within(sent).findByRole('button', { name: /^Not sent/ })
+    expect(notSent).toHaveTextContent('Not sent1')
+    await user.click(notSent)
+
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&sending=not_sent'))
+    await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ sending: 'not_sent' }))
+    expect(screen.getByRole('columnheader', { name: 'Issues' })).toBeInTheDocument()
+  })
+
+  it('shows no Not sent button when nothing came back', async () => {
+    backend()
+    renderApp('/queue?client=cafe-al-noor')
+
+    const sent = await screen.findByRole('group', { name: 'Sent' })
+    await within(sent).findByRole('button', { name: /^Posted/ })
+    expect(within(sent).queryByRole('button', { name: /^Not sent/ })).not.toBeInTheDocument()
   })
 
   it('goes back to the documents in review from a list of sent ones', async () => {

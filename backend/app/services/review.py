@@ -1,6 +1,7 @@
 """Review (task 4.2): the accountant's queue, edits and rejections.
 
-- Queue: documents in review, Exception first, then Check, then Ready; oldest first inside each.
+- Queue: documents in review, those that came back not sent first (with the reason), then
+  Exception, Check, Ready; oldest first inside each.
 - Edit: the accountant sends the whole corrected invoice. Fields that differ from the working
   copy, plus fields they confirmed unchanged, become human-verified (decision 24); then every
   deterministic check runs again, without the model. Setting the type to non-postable parks
@@ -54,6 +55,10 @@ _QUEUE_ORDER = case(
     value=Document.queue,
     else_=3,
 )
+# Back in review after the accounting system did not take it: the reason is on the document
+# (refused, already there, sent back by hand, deleted there). Approving again clears it.
+NOT_SENT = and_(Document.status == DocumentStatus.IN_REVIEW, Document.failure_reason.is_not(None))
+_NOT_SENT_FIRST = case((NOT_SENT, 0), else_=1)
 
 
 class RejectReason(StrEnum):
@@ -70,6 +75,7 @@ class SendingList(StrEnum):
     WAITING = "waiting"  # on its way: waiting, sending, retrying or paused
     FAILED = "failed"  # gave up: Try again or Send back
     POSTED = "posted"  # in the accounting system
+    NOT_SENT = "not_sent"  # back in review, not sent: why is on each one
 
 
 class ReviewError(Exception):
@@ -136,7 +142,7 @@ def list_queue(
             if category is not None
         }
         query = base.where(Document.queue == queue) if queue is not None else base
-        order = (_QUEUE_ORDER, Document.created_at, Document.id)
+        order = (_NOT_SENT_FIRST, _QUEUE_ORDER, Document.created_at, Document.id)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
     documents = session.scalars(query.order_by(*order).limit(limit).offset(offset)).all()
     unfinished = (
@@ -170,6 +176,8 @@ def _sending(name: SendingList) -> Any:
             return and_(Document.status.in_(SENDABLE), gave_up)
         case SendingList.POSTED:
             return Document.status.in_(POSTED_STATUSES)
+        case SendingList.NOT_SENT:
+            return NOT_SENT
 
 
 # Statuses whose pipeline step is still to come or running: not in the review queue yet.

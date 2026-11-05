@@ -554,7 +554,8 @@ def test_the_review_screen_tries_again_or_sends_back_through_the_api(
 
 
 def one_of_each(session: Session, xero: FakePosting) -> dict[str, Document]:
-    """A posted, a failed and a waiting bill, and one still in review."""
+    """A posted, a failed and a waiting bill, one back in review not sent, and one still in
+    review."""
     posted, _ = approved(session, invoice_number="INV-1")
     send(session, xero)
     failed, _ = gave_up(session, xero)
@@ -562,8 +563,12 @@ def one_of_each(session: Session, xero: FakePosting) -> dict[str, Document]:
     in_review, _ = approved(session, invoice_number="INV-4")
     session.execute(update(Document).where(Document.id == in_review.id)
                     .values(status=S.IN_REVIEW))  # fmt: skip
+    not_sent, _ = approved(session, invoice_number="INV-5")
+    reason = "Not sent to Xero: made-up"
+    session.execute(update(Document).where(Document.id == not_sent.id)
+                    .values(status=S.IN_REVIEW, failure_reason=reason))  # fmt: skip
     session.expire_all()
-    return {"posted": posted, "failed": failed, "waiting": waiting}
+    return {"posted": posted, "failed": failed, "waiting": waiting, "not_sent": not_sent}
 
 
 def test_each_list_holds_its_approved_documents_and_counts_them_all(
@@ -576,14 +581,15 @@ def test_each_list_holds_its_approved_documents_and_counts_them_all(
 
         assert [d.id for d in page.documents] == [docs[name.value].id], name
         assert page.sending_counts == {SendingList.WAITING: 1, SendingList.FAILED: 1,
-                                       SendingList.POSTED: 1}  # fmt: skip
+                                       SendingList.POSTED: 1, SendingList.NOT_SENT: 1}  # fmt: skip
         assert page.counts == {}  # categories are for documents in review
 
 
 def test_a_page_of_states_says_the_same_as_each_document_alone(
     session: Session, xero: FakePosting
 ) -> None:
-    docs = list(one_of_each(session, xero).values())
+    # Back in review is not on its way: it has no sending state.
+    docs = [d for name, d in one_of_each(session, xero).items() if name != "not_sent"]
 
     together = posting.sending_states(session, docs)
 
@@ -617,9 +623,42 @@ def test_posted_rows_link_to_the_bill_in_xero_through_the_api(
         "https://go.xero.com/organisationlogin/default.aspx?shortcode=%21aB1cD"
     )
     assert row["external_url"].endswith("InvoiceID%3Dxero-bill-1")
-    assert posted["sending_counts"] == {"waiting": 1, "failed": 1, "posted": 1}
+    assert posted["sending_counts"] == {"waiting": 1, "failed": 1, "posted": 1, "not_sent": 1}
     [row] = failed["documents"]
     assert (row["sending"]["state"], row["external_url"]) == ("failed", None)
+
+
+def test_not_sent_documents_come_first_in_review_with_their_reason(
+    session: Session, xero: FakePosting
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.core.config import get_settings
+    from app.core.db import get_session
+    from app.domain.enums import QueueCategory
+    from app.main import create_app
+
+    exception = make_document(session, status=S.IN_REVIEW, queue=QueueCategory.EXCEPTION)
+    xero.outcome = PostingRefused("Account code '429' has been archived")
+    refused, _ = approved(session)
+    send(session, xero)  # back in review with Xero's reason
+    session.execute(update(Document).where(Document.id == refused.id)
+                    .values(queue=QueueCategory.READY))  # fmt: skip
+    session.expire_all()
+    app = create_app(SETTINGS)
+    log_in(app)
+    app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_settings] = lambda: SETTINGS
+    with TestClient(app) as api:
+        page = api.get("/documents", params={"client_id": CLIENT}).json()
+
+    # Ready, yet above the Exception: the accountant sees first what did not go through.
+    assert [row["document_id"] for row in page["documents"]] == [str(refused.id), str(exception.id)]
+    first, second = page["documents"]
+    assert first["not_sent"] == "Not sent to Xero: Account code '429' has been archived"
+    assert second["not_sent"] is None
+    assert page["sending_counts"]["not_sent"] == 1
+    assert posting.summary(session, CLIENT).sent_back == 1
 
 
 def test_item_by_item_sends_identical_items_as_one_line_with_their_quantity(
@@ -635,13 +674,14 @@ def test_item_by_item_sends_identical_items_as_one_line_with_their_quantity(
     changes: dict[str, Any] = {"lines": [masala] * 3 + [yogurt] * 2,
                                "amount_type": AmountType.INCLUSIVE, "subtotal": Decimal("38.38"),
                                "vat": Decimal("1.92"), "total": Decimal("40.30")}  # fmt: skip
-    approved(session, **changes)  # by item: the default
+    _, by_item = approved(session, **changes)  # by item: the default
     _, by_account = approved(session, **changes, invoice_number="INV-8")
     by_account.line_grouping = LineGrouping.BY_ACCOUNT  # as copied at its approval
     session.flush()
 
-    send(session, xero)
-    send(session, xero)
+    # Each row named: made in one transaction, both have the same time, so "next" is either.
+    send(session, xero, outbox_id=str(by_item.id))
+    send(session, xero, outbox_id=str(by_account.id))
 
     assert [(x.description, x.quantity, x.unit_amount) for x in xero.bills[0].lines] == [
         ("Garam Masala", Decimal(3), Decimal("8.80")),
@@ -683,6 +723,7 @@ def test_a_bill_deleted_in_the_accounting_system_comes_back_to_review(
     assert (audit.actor, audit.reason, audit.details) == (
         "tester@missan.test", "deleted in Xero", {"external_id": "xero-bill-1"})  # fmt: skip
     assert posting.sending_of(session, doc) is None
+    assert posting.summary(session, CLIENT).sent_back == 1  # said on the Clients page too
 
 
 def test_a_bill_still_in_the_accounting_system_is_never_sent_again(

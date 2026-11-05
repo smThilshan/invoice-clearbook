@@ -48,8 +48,10 @@ const LISTS = [
   { status: 'REJECTED', label: 'Rejected' },
 ] as const
 type ListStatus = (typeof LISTS)[number]['status']
-// Approved documents on their way to the accounting system (decision 70).
+// Approved documents on their way to the accounting system (decision 70), and those that came
+// back to review not sent (shown only when there are some).
 const SENDING_LISTS: { key: SendingList; label: string }[] = [
+  { key: 'not_sent', label: 'Not sent' },
   { key: 'waiting', label: 'Waiting to send' },
   { key: 'failed', label: 'Could not send' },
   { key: 'posted', label: 'Posted' },
@@ -62,7 +64,7 @@ const CATEGORY_STYLES: Record<QueueCategory, string> = {
 }
 
 /**
- * Documents to review for one client: Exception first, then Check, then Ready (task 4.4).
+ * Documents to review for one client: not sent first, then Exception, Check, Ready (task 4.4).
  * Every filter lives in the address, so refresh, back and the link from a run keep them.
  */
 export function QueuePage() {
@@ -122,7 +124,7 @@ export function QueuePage() {
       )}
       <PageHeader
         title="Review queue"
-        description="Exception first, then Check, then Ready; oldest first inside each."
+        description="Not sent first, then Exception, Check, Ready; oldest first inside each."
       />
 
       {clientId && counts && !sending && (
@@ -189,6 +191,8 @@ export function QueuePage() {
           <Toggle label="Sent">
             {SENDING_LISTS.map((list) => {
               const count = sendingCounts?.[list.key] ?? 0
+              if (list.key === 'not_sent' && count === 0 && sending !== 'not_sent') return null
+              const alarming = (list.key === 'failed' || list.key === 'not_sent') && count > 0
               return (
                 <ToggleButton
                   key={list.key}
@@ -200,7 +204,7 @@ export function QueuePage() {
                     <span
                       className={cn(
                         'ml-1.5 tabular-nums',
-                        list.key === 'failed' && count > 0 ? 'font-semibold text-destructive' : 'text-muted-foreground',
+                        alarming ? 'font-semibold text-destructive' : 'text-muted-foreground',
                       )}
                     >
                       {count}
@@ -254,9 +258,11 @@ export function QueuePage() {
           <p className="rounded-lg border border-dashed p-6 text-center text-sm font-medium">
             {sending === 'failed'
               ? 'Nothing failed to send.'
-              : sending === 'posted'
-                ? `Nothing posted to ${system} yet.`
-                : 'Nothing waiting to be sent.'}
+              : sending === 'not_sent'
+                ? `Nothing came back: every approved bill went to ${system}.`
+                : sending === 'posted'
+                  ? `Nothing posted to ${system} yet.`
+                  : 'Nothing waiting to be sent.'}
           </p>
         ) : (
           <EmptyQueue
@@ -267,7 +273,11 @@ export function QueuePage() {
         )
       ) : (
         <>
-          <DocumentTable documents={queue.data.documents} sendingList={Boolean(sending)} system={system} />
+          <DocumentTable
+            documents={queue.data.documents}
+            sendingList={Boolean(sending) && sending !== 'not_sent'} // back in review: its issues
+            system={system}
+          />
           <Pager
             page={page}
             total={queue.data.total}
@@ -415,12 +425,15 @@ function DocumentTable({
             return (
               <TableRow
                 key={doc.document_id}
-                className="cursor-pointer"
+                className={cn('cursor-pointer', doc.not_sent && 'bg-destructive/5 hover:bg-destructive/10')}
                 onClick={() => void navigate(`/documents/${doc.document_id}`, { state })}
               >
-                <TableCell>
-                  {doc.queue && (
-                    <Badge className={CATEGORY_STYLES[doc.queue]}>{QUEUE_LABELS[doc.queue]}</Badge>
+                {/* Came back not sent: a red bar and badge instead of its category, so it stands out. */}
+                <TableCell className={cn('border-l-4', doc.not_sent ? 'border-l-destructive' : 'border-l-transparent')}>
+                  {doc.not_sent ? (
+                    <Badge className="bg-destructive text-white">Not sent</Badge>
+                  ) : (
+                    doc.queue && <Badge className={CATEGORY_STYLES[doc.queue]}>{QUEUE_LABELS[doc.queue]}</Badge>
                   )}
                 </TableCell>
                 <TableCell>
@@ -437,6 +450,11 @@ function DocumentTable({
                   <span className="block truncate text-xs text-muted-foreground" title={details}>
                     {details}
                   </span>
+                  {doc.not_sent && (
+                    <span className="mt-0.5 line-clamp-2 text-xs font-medium text-destructive" title={doc.not_sent}>
+                      {doc.not_sent}
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell className="hidden lg:table-cell">
                   <span className="block truncate tabular-nums" title={doc.invoice_number ?? undefined}>

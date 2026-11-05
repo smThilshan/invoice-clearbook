@@ -158,7 +158,10 @@ describe('clients', () => {
     expect(done.parentElement).toHaveTextContent(
       'Done. 2 bills sent to Xero: find them under Bills to pay, Awaiting approval. 1 bill came back to review with the reason.',
     )
-    expect(within(row).getByText(/1 bill sent back to review/)).toBeInTheDocument()
+    expect(within(row).getByText(/1 bill not sent to Xero, back in review/)).toBeInTheDocument()
+    expect(within(row).getByRole('link', { name: 'Show them' })).toHaveAttribute(
+      'href', '/queue?client=cafe-al-noor&sending=not_sent',
+    )  // prettier-ignore
     expect(within(row).queryByRole('button', { name: /Send .* to Xero/ })).not.toBeInTheDocument()
   })
 

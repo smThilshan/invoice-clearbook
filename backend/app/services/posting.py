@@ -403,14 +403,12 @@ def summary(session: Session, client_id: str) -> PostingSummary:
         )
         .order_by(Outbox.updated_at.desc())
     ).all()
-    # Sent back = in review again after a send attempt that could not go through.
+    # Sent back = in review again, not sent, with the reason (the Review queue's "Not sent").
     sent_back = session.scalars(
-        select(func.count(func.distinct(Document.id)))
-        .join(Outbox, Outbox.document_id == Document.id)
-        .where(
+        select(func.count()).where(
             Document.client_id == client_id,
             Document.status == DocumentStatus.IN_REVIEW,
-            Outbox.status == OutboxStatus.FAILED,
+            Document.failure_reason.is_not(None),
         )
     ).one()
     return PostingSummary(

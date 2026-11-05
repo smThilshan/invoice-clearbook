@@ -92,6 +92,7 @@ class DocumentSummary(BaseModel):
     created_at: datetime
     sending: SendingOut | None  # None: not approved (yet or any more)
     external_url: str | None  # posted: the document in the accounting system's screens (70)
+    not_sent: str | None  # back in review because the accounting system did not take it: why
 
 
 class QueuePageOut(BaseModel):
@@ -201,8 +202,9 @@ def get_queue(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> QueuePageOut:
-    """Exception first, then Check, then Ready; oldest first inside each. `sending`: a list of
-    approved documents instead (waiting, failed, posted; decision 70), `status` then unused."""
+    """Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list
+    of approved documents instead (waiting, failed, posted; decision 70), or the documents back
+    in review not sent (not_sent); `status` then unused."""
     if get_client(session, client_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
     page = review.list_queue(session, client_id=client_id, status=status_, queue=queue,
@@ -543,6 +545,9 @@ def _summary_fields(
     return {
         "sending": SendingOut(**asdict(sent)) if sent else None,
         "external_url": link,
+        "not_sent": (
+            document.failure_reason if document.status is DocumentStatus.IN_REVIEW else None
+        ),
         "document_id": document.id,
         "client_id": document.client_id,
         "run_id": document.run_id,

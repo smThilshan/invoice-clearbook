@@ -312,7 +312,6 @@ function PostingLines({
   clientId: string
   showPaused: boolean // false while the sign-in banner says it already
 }) {
-  const queue = `/queue?${new URLSearchParams({ client: clientId })}`
   return (
     <ul aria-label="Approved documents" className="space-y-0.5 text-sm">
       {summary.ready > 0 && (
@@ -361,11 +360,14 @@ function PostingLines({
         <li className="flex items-start gap-1.5 text-destructive">
           <Undo2 className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            {plural(summary.sent_back, 'bill')} sent back to review, not sent to {system}.{' '}
-            <Link to={queue} className="underline underline-offset-2">
-              Open the Review queue
+            {plural(summary.sent_back, 'bill')} not sent to {system}, back in review.{' '}
+            <Link
+              to={`/queue?${new URLSearchParams({ client: clientId, sending: 'not_sent' })}`}
+              className="underline underline-offset-2"
+            >
+              Show them
             </Link>{' '}
-            to see why.
+            with the reason.
           </span>
         </li>
       )}
