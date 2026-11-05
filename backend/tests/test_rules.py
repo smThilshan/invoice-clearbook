@@ -306,10 +306,17 @@ def test_due_before_issue_is_an_error() -> None:
     assert (issue.severity, issue.field) == (Severity.ERROR, "due_date")
 
 
-def test_document_dated_after_its_folder_is_warned() -> None:
-    inv = invoice(invoice_date=date(2026, 10, 21), due_date=None)
+def test_document_dated_after_its_folder_s_month_is_warned() -> None:
+    inv = invoice(invoice_date=date(2026, 11, 1), due_date=None)
 
     assert only(inv, "date_after_folder").severity is Severity.WARNING
+
+
+def test_document_dated_later_in_its_folder_s_month_is_not_warned() -> None:
+    """Decision 85: a receipt of the 21st filed in the day folder of the 20th."""
+    inv = invoice(invoice_date=date(2026, 10, 21), due_date=None)
+
+    assert "date_after_folder" not in codes(inv)
 
 
 @pytest.mark.parametrize(

@@ -7,6 +7,9 @@ updated, a field set back to the model's value is removed. At approval (task 4.8
 the final corrections, with the supplier, model and prompt version, for accuracy reports and
 later learning (Phase 10).
 
+A header field counts only when the accountant typed or confirmed it (`verified_fields`): a
+value the checks filled from the evidence (decisions 84, 85) is not theirs.
+
 Values are compared as values (1050 equals 1050.00) and stored as JSON (money as exact text,
 dates as ISO). Lines are matched by position: removing line 1 shifts the lines after it.
 """
@@ -44,11 +47,12 @@ def sync_corrections(session: Session, document: Document, *, corrected_by: str)
     ).first()
     model = _values(_model_invoice(extraction), document.coding or [])
     final = _values(working_copy(document), None)
+    verified = set(document.verified_fields or ())
 
     differing = {
         field: (model.get(field), final.get(field))
         for field in model.keys() | final.keys()
-        if model.get(field) != final.get(field)
+        if model.get(field) != final.get(field) and _by_accountant(field, verified)
     }
     existing = {
         row.field: row
@@ -91,6 +95,13 @@ def _model_invoice(extraction: Extraction | None) -> Invoice | None:
         return Invoice.model_validate(extraction.data)
     except ValidationError:
         return None
+
+
+def _by_accountant(field: str, verified: set[str]) -> bool:
+    """A header field differs by the accountant's hand only when they typed or confirmed it: the
+    checks may fill one from the evidence (decisions 84, 85), which is the system's proposal,
+    like a coding suggestion. Line fields are only ever changed in review."""
+    return field.startswith("lines[") or field in verified
 
 
 def _values(invoice: Invoice | None, coding: list[dict[str, Any]] | None) -> dict[str, Any]:

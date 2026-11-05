@@ -12,7 +12,8 @@ edit in review (task 4.2) they run again, deterministic and without the model, a
 accountant typed or confirmed are no longer grounded (decision 24).
 
 Nothing here changes an extracted value (rule 8); the coded invoice only adds account and tax
-codes to the lines, and an empty VAT type may get a likely one, with a warning (decision 84).
+codes to the lines; an empty VAT type may get a likely one (decision 84) and the date the one
+every clue agrees on (decision 85), each with a warning.
 An unreadable extraction still goes to review (Exception, "enter it by hand"). If the model is
 down, coding leaves accounts for review with a warning; verification itself never needs the
 model to succeed.
@@ -46,6 +47,8 @@ from app.domain.invoice import Invoice, Line
 from app.domain.state_machine import transition
 from app.models import Client, Document, Extraction
 from app.pipeline import coding
+from app.pipeline.dates import DateLimits, folder_for, photo_date, resolve_date
+from app.pipeline.folders import folder_year_known
 from app.pipeline.page_quality import quality_issues
 from app.pipeline.read import PageText, decode_image, load_page_texts
 from app.pipeline.subtotal import with_worked_out_subtotal
@@ -54,6 +57,7 @@ from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_
 from app.pipeline.verify.grounding import check_grounding
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.rules import RuleContext, check_vat, run_rules
+from app.pipeline.verify.supplier_history import SupplierHistory, load_supplier_history
 from app.pipeline.verify.type_check import check_document_type
 from app.pipeline.verify.vat_type import likely_vat_type, vat_type_from_amounts
 from app.pipeline.verify.vendor_match import match_vendor
@@ -249,12 +253,19 @@ def assess(
         invoice = with_worked_out_subtotal(invoice)
     pages = load_page_texts(storage, document)
     verified = frozenset(document.verified_fields or ())
-    likely: list[Issue] = []
+    filled: list[Issue] = []  # values chosen from the evidence, each with its note
     if invoice is not None:
-        invoice, likely = _likely_vat_type(session, document, invoice, verified)
+        history = load_supplier_history(session, document, invoice)
+        invoice, filled = _likely_vat_type(invoice, verified, history)
+        invoice, dated = _resolved_date(session, document, invoice, pages, verified, history,
+                                        settings=settings, today=today)  # fmt: skip
+        filled += dated
+    issued = invoice.invoice_date if invoice else None
+    folder = folder_for(issued, document.folder_date,
+                        known=folder_year_known(document.source_path))  # fmt: skip
     context = RuleContext.from_settings(
         settings,
-        folder_date=document.folder_date,
+        folder_date=folder,
         today=today,
         page_text="\n".join(page.text for page in pages),
     )
@@ -262,7 +273,7 @@ def assess(
     error = _last_extraction_error(session, document) if invoice is None else None
     issues = require_number(run_rules(invoice, context, extraction_error=error), provider)
     issues += quality_issues([(page.page, page.quality) for page in pages])
-    issues += likely
+    issues += filled
     park = False
     if invoice is not None:
         issues += check_grounding(invoice, pages, verified=verified)
@@ -325,10 +336,6 @@ TOTAL_GAP_CODES = frozenset({"lines_sum_mismatch"})
 VAT_CODES = frozenset({"vat_rate", "total_before_vat"})  # the VAT is not 5% of the amount
 
 
-# Decision 84: a supplier's documents read for its VAT type, the latest first.
-SUPPLIER_HISTORY_LIMIT = 50
-_DECIDED = (DocumentStatus.APPROVED, DocumentStatus.POSTING, DocumentStatus.POSTED,
-            DocumentStatus.SYNCED, DocumentStatus.POST_ERROR)  # fmt: skip
 _AMOUNT_TYPE_LABELS = {
     AmountType.INCLUSIVE: "VAT included",
     AmountType.EXCLUSIVE: "VAT added on top",
@@ -337,14 +344,14 @@ _AMOUNT_TYPE_LABELS = {
 
 
 def _likely_vat_type(
-    session: Session, document: Document, invoice: Invoice, verified: frozenset[str]
+    invoice: Invoice, verified: frozenset[str], history: SupplierHistory
 ) -> tuple[Invoice, list[Issue]]:
     """Decision 84: an empty VAT type the amounts do not prove is filled from other evidence,
     with a warning, which stays until the accountant confirms or changes it."""
     if "amount_type" in verified or vat_type_from_amounts(invoice) is not None:
         return invoice, []
     unset = invoice.model_copy(update={"amount_type": None})
-    likely = likely_vat_type(unset, _supplier_vat_type(session, document, invoice))
+    likely = likely_vat_type(unset, history.vat_type)
     if likely is None or invoice.amount_type not in (None, likely.amount_type):
         return invoice, []  # nothing likely, or chosen otherwise (lines edited since)
     invoice = invoice.model_copy(update={"amount_type": likely.amount_type})
@@ -355,33 +362,54 @@ def _likely_vat_type(
     return invoice, [Issue("vat_type_likely", Severity.WARNING, "amount_type", note)]
 
 
-def _supplier_vat_type(session: Session, document: Document, invoice: Invoice) -> AmountType | None:
-    """The VAT type this supplier's other documents prove, when they all agree. Proven: the
-    accountant chose or confirmed it, the document was approved, or its amounts show it. A
-    type chosen by decision 84 is never proof, so a guess cannot copy itself."""
-    key = vendor_key(invoice)
-    if key is None:
+def _resolved_date(
+    session: Session,
+    document: Document,
+    invoice: Invoice,
+    pages: Sequence[PageText],
+    verified: frozenset[str],
+    history: SupplierHistory,
+    *,
+    settings: Settings,
+    today: date,
+) -> tuple[Invoice, list[Issue]]:
+    """Decision 85: the document date from every clue. Weighed from the model's own date (its
+    last answer), so the note stays until the accountant confirms or changes the date."""
+    if "invoice_date" in verified:
+        return invoice, []
+    model = _model_answer(session, document)
+    model_date = model.invoice_date if model else invoice.invoice_date
+    limits = DateLimits(
+        today=today,
+        future_slack_days=settings.future_date_slack_days,
+        folder=document.folder_date,
+        max_days_before_folder=settings.period_max_days_before,
+        photo=photo_date(document.source_path, today),
+        folder_year_known=folder_year_known(document.source_path),
+    )
+    decision = resolve_date(model_date, invoice.evidence.get("invoice_date"), pages, limits,
+                            history.date_order)  # fmt: skip
+    if decision is None or invoice.invoice_date not in (model_date, decision.value):
+        return invoice, []  # the model's date stands, or it was changed since
+    other = decision.alternative.isoformat() if decision.alternative else None
+    note = f"Date {decision.value:%d %b %Y}: {decision.reason}. Check it against the document."
+    return invoice.model_copy(update={"invoice_date": decision.value}), [
+        Issue("date_resolved", Severity.WARNING, "invoice_date", note, other)
+    ]
+
+
+def _model_answer(session: Session, document: Document) -> Invoice | None:
+    """The model's last answer as extraction saved it, before any review edit."""
+    data = session.scalars(
+        select(Extraction.data)
+        .where(Extraction.document_id == document.id)
+        .order_by(Extraction.attempt.desc())
+        .limit(1)
+    ).first()
+    try:
+        return Invoice.model_validate(data) if data else None
+    except ValidationError:
         return None
-    others = session.scalars(
-        select(Document)
-        .where(Document.client_id == document.client_id, Document.vendor_key == key,
-               Document.id != document.id, Document.invoice.is_not(None))
-        .order_by(Document.created_at.desc())
-        .limit(SUPPLIER_HISTORY_LIMIT)
-    )  # fmt: skip
-    proven: set[AmountType] = set()
-    for other in others:
-        try:
-            earlier = Invoice.model_validate(other.invoice)
-        except ValidationError:
-            continue
-        chosen = earlier.amount_type
-        if chosen is None:
-            continue
-        decided = other.status in _DECIDED or "amount_type" in (other.verified_fields or ())
-        if decided or vat_type_from_amounts(earlier) is chosen:
-            proven.add(chosen)
-    return proven.pop() if len(proven) == 1 else None
 
 
 def require_number(issues: list[Issue], provider: AccountingProvider) -> list[Issue]:

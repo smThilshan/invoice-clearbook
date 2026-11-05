@@ -19,6 +19,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 
@@ -28,11 +29,18 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
 from app.adapters.storage.keys import original_key
+from app.core.config import get_settings
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
 from app.models import Document, Run
 from app.pipeline import file_types
-from app.pipeline.folders import InboxError, list_files, relative_to_root, resolve_inside
+from app.pipeline.folders import (
+    InboxError,
+    file_folder_date,
+    list_files,
+    relative_to_root,
+    resolve_inside,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +88,9 @@ def ingest_file(
     max_bytes: int,
     stable_seconds: float,
     sleep: Callable[[float], None] = time.sleep,
+    today: date | None = None,
 ) -> IngestResult:
+    """`today`: the business day, for folder names without a year (default: from settings)."""
     path = resolve_inside(client_root, relative_path)
     if not path.is_file():
         raise InboxError(f"not a file in the client folder: {relative_path!r}")
@@ -92,7 +102,9 @@ def ingest_file(
         return IngestResult(Outcome.NOT_READY)
 
     sha256, head = _fingerprint(path)
-    seen = _classify_existing(session, run, sha256, relative_path)
+    folder_date = file_folder_date(relative_path, run_folder=run.folder, run_date=run.folder_date,
+                                   today=today or get_settings().business_today())  # fmt: skip
+    seen = _classify_existing(session, run, sha256, relative_path, folder_date)
     if seen is not None:
         return seen
 
@@ -106,7 +118,7 @@ def ingest_file(
         client_id=run.client_id,
         run_id=run.id,
         direction=run.direction,
-        folder_date=run.folder_date,
+        folder_date=folder_date,
         source_path=relative_path,
         storage_key=key,
         sha256=sha256,
@@ -120,7 +132,7 @@ def ingest_file(
     except IntegrityError:
         # Another worker ingested the same content between our check and insert.
         session.expunge(document)
-        return _classify_existing(session, run, sha256, relative_path) or (
+        return _classify_existing(session, run, sha256, relative_path, folder_date) or (
             IngestResult(Outcome.ALREADY_SEEN)
         )
 
@@ -132,7 +144,7 @@ def ingest_file(
 
 
 def _classify_existing(
-    session: Session, run: Run, sha256: str, relative_path: str
+    session: Session, run: Run, sha256: str, relative_path: str, folder_date: date | None
 ) -> IngestResult | None:
     """None = content never seen. Otherwise: already seen (same path) or a new DUPLICATE,
     which belongs to the run (and folder) where it was found, not the original's."""
@@ -153,7 +165,7 @@ def _classify_existing(
         client_id=run.client_id,
         run_id=run.id,
         direction=run.direction,
-        folder_date=run.folder_date,
+        folder_date=folder_date,
         source_path=relative_path,
         storage_key=original.storage_key,
         sha256=sha256,

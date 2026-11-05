@@ -16,10 +16,10 @@ from app.adapters.ocr.base import RecognizedText
 from app.adapters.storage.keys import ocr_key, page_image_key
 from app.adapters.storage.local import LocalStorage
 from app.core.config import Settings
-from app.domain.enums import AmountType, DocumentType, QueueCategory, TaxType
+from app.domain.enums import AmountType, Direction, DocumentType, QueueCategory, TaxType
 from app.domain.enums import DocumentStatus as S
 from app.domain.invoice import Invoice, Line
-from app.models import AuditLog, Document, Extraction, VendorMapping
+from app.models import AuditLog, Correction, Document, Extraction, Run, VendorMapping
 from app.pipeline.read import PageText, TextSpan, encode_png
 from app.pipeline.verify.step import (
     VerifyOutcome,
@@ -27,7 +27,9 @@ from app.pipeline.verify.step import (
     recheck_document,
     verify_document,
 )
+from app.services.corrections import sync_corrections
 from app.services.master_data import import_master_data
+from app.services.pipeline import recheck_in_review
 from tests.integration.factories import CLIENT, make_document
 from tests.integration.test_coding import FakeCoder
 from tests.test_manual_master_data import SAMPLES
@@ -340,3 +342,77 @@ def test_the_warning_goes_once_the_accountant_confirms_the_type(
 
     assert "vat_type_likely" not in codes(doc)
     assert doc.invoice is not None and doc.invoice["amount_type"] == "INCLUSIVE"
+
+
+# --- the document date from every clue (decision 85) ---------------------------------------
+
+
+def with_model_answer(session: Session, doc: Document, invoice: Invoice) -> None:
+    session.add(Extraction(client_id=CLIENT, document_id=doc.id, attempt=1, model="m",
+                           prompt_version="p", schema_version=2, raw_output="{}",
+                           data=json.loads(invoice.model_dump_json())))  # fmt: skip
+    session.flush()
+
+
+def test_a_date_the_model_missed_is_read_from_the_page_with_a_note(
+    session: Session, storage: LocalStorage
+) -> None:
+    missed = bill(invoice_date=None)
+    doc = extracted(session, storage, missed)
+    with_model_answer(session, doc, missed)
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["invoice_date"] == "2026-10-15"
+    [note] = [i for i in doc.issues or [] if i["code"] == "date_resolved"]
+    assert note["severity"] == "WARNING" and "read from 'Date' on the page" in note["message"]
+    assert "date_missing" not in codes(doc)
+
+    recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+    assert "date_resolved" in codes(doc)  # weighed from the model's answer: the note stays
+
+    doc.verified_fields = ["invoice_date"]
+    recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+    assert "date_resolved" not in codes(doc)
+    assert doc.invoice["invoice_date"] == "2026-10-15"
+
+
+def test_a_date_the_checks_filled_is_not_the_accountant_s_correction(
+    session: Session, storage: LocalStorage
+) -> None:
+    missed = bill(invoice_date=None)
+    doc = extracted(session, storage, missed)
+    with_model_answer(session, doc, missed)
+    verify(session, storage, doc)
+
+    sync_corrections(session, doc, corrected_by="accountant@example.com")
+
+    assert not session.scalars(select(Correction).where(Correction.document_id == doc.id)).all()
+
+
+def test_a_model_date_that_fits_is_never_touched(session: Session, storage: LocalStorage) -> None:
+    doc = extracted(session, storage, bill())
+    with_model_answer(session, doc, bill())
+
+    verify(session, storage, doc)
+
+    assert "date_resolved" not in codes(doc)
+    assert doc.invoice is not None and doc.invoice["invoice_date"] == "2026-10-15"
+
+
+def test_recheck_gives_documents_in_review_their_own_folder_date(
+    session: Session, storage: LocalStorage
+) -> None:
+    run = Run(client_id=CLIENT, direction=Direction.PURCHASE, folder="October 2026",
+              folder_date=date(2026, 10, 31))  # from the run's folder: the month end  # fmt: skip
+    session.add(run)
+    session.flush()
+    doc = extracted(session, storage, bill())
+    doc.run_id, doc.source_path, doc.folder_date = run.id, "October 2026/16/inv.pdf", None
+    verify(session, storage, doc)
+
+    checked, moved = recheck_in_review(session, storage, settings=SETTINGS, today=TODAY)
+
+    assert (checked, moved) == (1, 1)
+    assert doc.folder_date == date(2026, 10, 16)
+    assert doc.issues == []  # checked again with it: 15 October is just before the folder

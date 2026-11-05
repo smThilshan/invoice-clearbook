@@ -3,6 +3,7 @@
     make resume                      # re-queue documents stranded between steps
     make retry-document ID=<uuid>    # send a FAILED document back to the start
     make reextract ID="<uuid> ..."   # the model reads documents in review again (decision 55)
+    make recheck                     # check every document in review again (no model call)
 
 The Workbench gets these as buttons later (task 4.2, behind login).
 """
@@ -12,11 +13,17 @@ import sys
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from app.adapters.storage import get_storage
 from app.core.config import get_settings
 from app.core.db import session_scope
 from app.domain.state_machine import InvalidTransitionError
 from app.models import Document
-from app.services.pipeline import reextract_document, retry_document, stalled_documents
+from app.services.pipeline import (
+    recheck_in_review,
+    reextract_document,
+    retry_document,
+    stalled_documents,
+)
 from app.workers.tasks import enqueue_next
 
 
@@ -73,6 +80,15 @@ def reextract(document_ids: list[str]) -> int:
     return 1 if failed else 0
 
 
+def recheck() -> int:
+    settings = get_settings()
+    with session_scope() as session:
+        checked, moved = recheck_in_review(session, get_storage(settings), settings=settings,
+                                           today=settings.business_today())  # fmt: skip
+    print(f"{checked} document(s) in review checked again; {moved} folder date(s) changed")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -83,9 +99,12 @@ def main() -> int:
         "reextract", help="the model reads documents in review or parked again"
     )
     reextract_cmd.add_argument("document_ids", nargs="+")
+    commands.add_parser("recheck", help="check every document in review again (no model call)")
     args = parser.parse_args()
     if args.command == "reextract":
         return reextract(args.document_ids)
+    if args.command == "recheck":
+        return recheck()
     return resume() if args.command == "resume" else retry(args.document_id)
 
 

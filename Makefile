@@ -67,6 +67,9 @@ reextract: ## The model reads documents in review again (pages kept, review edit
 	@test -n "$(ID)" || { echo 'usage: make reextract ID="<document uuid> ..."'; exit 1; }
 	@$(UV) python scripts/pipeline_admin.py reextract $(ID)
 
+recheck: ## Check every document in review again after a release (no model call; edits kept)
+	@$(UV) python scripts/pipeline_admin.py recheck
+
 add-client: ## Register a client with its own folder: make add-client ID=cafe-al-noor NAME="Cafe Al Noor" INBOX=/path
 	@test -n "$(ID)" -a -n "$(NAME)" -a -n "$(INBOX)" || { echo 'usage: make add-client ID=<id> NAME="<name>" INBOX=<folder>'; exit 1; }
 	@$(UV) python scripts/manage_clients.py add "$(ID)" "$(NAME)" "$(INBOX)" --base "$(CURDIR)"

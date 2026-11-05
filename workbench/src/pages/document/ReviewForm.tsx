@@ -415,7 +415,7 @@ function HeaderInput({
               size="xs"
               onClick={() => setValue(spec.name, issue.suggestion ?? '', { shouldDirty: true })}
             >
-              Use printed value {issue.suggestion}
+              Use printed value {shown(issue.suggestion, spec.kind)}
             </Button>
           )}
         </IssueNote>

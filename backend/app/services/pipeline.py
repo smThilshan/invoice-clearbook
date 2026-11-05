@@ -8,15 +8,19 @@ between steps (a worker crashed after committing, before queuing
 the next step) are found by `stalled_documents` and resumed.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.adapters.storage import Storage
+from app.core.config import Settings
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import can_transition, transition
 from app.models import Correction, Document, Run, RunStatus
+from app.pipeline.folders import file_folder_date
+from app.pipeline.verify.step import recheck_document
 
 
 class Step(StrEnum):
@@ -91,3 +95,26 @@ def stalled_documents(session: Session, *, idle_for: timedelta, now: datetime) -
             .order_by(Document.created_at)
         )
     )
+
+
+def recheck_in_review(
+    session: Session, storage: Storage, *, settings: Settings, today: date
+) -> tuple[int, int]:
+    """After a release that changes the checks (decisions 84, 85): every document in review
+    gets its folder date from its own folders again and is checked again. No model call; the
+    accountant's edits stay. Returns (documents checked, folder dates changed)."""
+    documents = session.scalars(
+        select(Document)
+        .where(Document.status == DocumentStatus.IN_REVIEW)
+        .order_by(Document.created_at)
+        .with_for_update()
+    ).all()
+    changed = 0
+    for document in documents:
+        run = session.get_one(Run, document.run_id)
+        folder_date = file_folder_date(document.source_path, run_folder=run.folder,
+                                       run_date=run.folder_date, today=today)  # fmt: skip
+        if folder_date != document.folder_date:
+            document.folder_date, changed = folder_date, changed + 1
+        recheck_document(session, storage, document, settings=settings, today=today)
+    return len(documents), changed

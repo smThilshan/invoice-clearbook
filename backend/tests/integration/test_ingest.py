@@ -10,7 +10,7 @@ from app.adapters.storage.local import LocalStorage
 from app.domain.enums import Direction, DocumentStatus
 from app.models import AuditLog, Document, Run
 from app.pipeline.ingest import InboxError, IngestResult, Outcome, ingest_file, scan_run
-from tests.integration.factories import make_run
+from tests.integration.factories import CLIENT, make_run
 
 pytestmark = pytest.mark.integration
 
@@ -197,3 +197,27 @@ def test_scan_missing_folder_raises(session: Session, inbox: Path) -> None:
 
     with pytest.raises(InboxError, match="not found"):
         scan_run(session, run, inbox)
+
+
+def test_each_file_takes_the_date_of_its_own_folder(
+    session: Session, storage: LocalStorage, inbox: Path
+) -> None:
+    """Decision 85: the run was started on the month folder; GALA's day folder dates it."""
+    run = Run(
+        client_id=CLIENT,
+        direction=Direction.PURCHASE,
+        folder="MARCH 0 - 15",
+        folder_date=date(2026, 3, 15),
+    )  # as the Run screen took it from the folder name
+    session.add(run)
+    session.flush()
+    (inbox / "MARCH 0 - 15/March 11").mkdir(parents=True)
+    (inbox / "MARCH 0 - 15/March 11/gala.pdf").write_bytes(PDF)
+
+    gala = "MARCH 0 - 15/March 11/gala.pdf"
+    result = ingest_file(
+        session, storage, run=run, client_root=inbox, relative_path=gala, max_bytes=1_048_576,
+        stable_seconds=0, sleep=lambda _: None, today=date(2026, 11, 5),
+    )  # fmt: skip
+
+    assert session.get_one(Document, result.document_id).folder_date == date(2026, 3, 11)

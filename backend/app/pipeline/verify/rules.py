@@ -5,6 +5,7 @@ that need other data come later: grounding (3.3), duplicates and credit-note ori
 the supplier's known TRN (3.5), account/tax codes (3.6), locked periods (accounting system).
 """
 
+import calendar
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -353,10 +354,12 @@ def check_dates(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
 
 
 def check_period(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
+    """Decision 85: after the folder means after its month ("March 11" holds a receipt of 12
+    March, filed in the day folder before it), as the date resolver allows."""
     issued, folder = invoice.invoice_date, ctx.folder_date
     if issued is None or folder is None:
         return []  # no folder date (decision 25): nothing to compare with
-    if issued > folder:
+    if issued > folder.replace(day=calendar.monthrange(folder.year, folder.month)[1]):
         return [
             _warning(
                 "date_after_folder",

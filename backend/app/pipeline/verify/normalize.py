@@ -198,6 +198,12 @@ def parse_date(text: str) -> DateReading | None:
     return readings[0] if readings else None
 
 
+def date_readings(text: str) -> list[tuple[int, DateReading]]:
+    """Every date in `text` with where it starts, in reading order (decision 85: its label is
+    the text before it)."""
+    return _positioned(to_ascii_digits(text))
+
+
 def find_dates(text: str) -> set[date]:
     """Every date in a page's text, both readings of ambiguous ones (for grounding)."""
     found: set[date] = set()
@@ -209,6 +215,10 @@ def find_dates(text: str) -> set[date]:
 
 
 def _readings(text: str) -> list[DateReading]:
+    return [reading for _, reading in _positioned(text)]
+
+
+def _positioned(text: str) -> list[tuple[int, DateReading]]:
     readings: list[tuple[int, DateReading]] = []
     for pattern, may_swap in _DATE_PATTERNS:
         for match in pattern.finditer(text):
@@ -216,7 +226,7 @@ def _readings(text: str) -> list[DateReading]:
             if reading is not None:
                 readings.append((match.start(), reading))
     readings.sort(key=lambda item: item[0])
-    return [reading for _, reading in readings]
+    return readings
 
 
 def _reading(parts: dict[str, str | None], *, may_swap: bool) -> DateReading | None:

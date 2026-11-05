@@ -76,22 +76,31 @@ _MONTH_DAY = re.compile(
     rf"|(?P<day2>\d{{1,2}})(?:st|nd|rd|th)?[\s\-_.]*(?:of[\s\-_.]+)?(?P<name2>{_NAME}))$",
     re.IGNORECASE,
 )
+# A range of days (decision 85): "MARCH 0 - 15", "April 1- 5", "January 11 - 20": its last day.
+_MONTH_RANGE = re.compile(
+    rf"^(?P<name>{_NAME})[\s_.]*(?P<first>\d{{1,2}})\s*-\s*(?P<last>\d{{1,2}})$"
+)
 _DAY = re.compile(r"^\d{1,2}$")
 
 
 def folder_date_from_path(relative: str, *, today: date) -> date | None:
-    """The date a folder path stands for (decisions 25, 31):
+    """The date a folder path stands for (decisions 25, 31, 85):
     a full date in a folder name (2026-10-21) -> that day; a day folder inside a month folder
-    (October 2026/21) -> that day; a month folder alone (October 2026) -> the month end;
-    nothing date-like -> None. Without a year ("May/May 1", "May/1", "May") the year is the
-    one that makes it the most recent such date up to `today` (the business day)."""
+    (October 2026/21) -> that day; a month folder alone (October 2026) -> the month end; a
+    range of days (March 1 - 15) -> its last day; nothing date-like, or folders naming
+    different months (March 1 - 15/April 5) -> None. Without a year ("May/May 1", "May/1",
+    "May") the year is the one that makes it the most recent such date up to `today` (the
+    business day)."""
     year = month = None
     found: date | None = None
     for part in PurePosixPath(relative.replace("\\", "/")).parts:
         part = part.strip()
         month_year = _month_year(part)
-        month_day = _month_day(part)
+        month_day = _month_day(part) or _month_range(part)
         month_only = _month_number(m["name"]) if (m := _MONTH_ONLY.match(part)) else None
+        named = month_year[1] if month_year else month_day[0] if month_day else month_only
+        if named is not None and month is not None and named != month:
+            return None  # the folders disagree: no date is better than a wrong one
         if month_year is not None:
             year, month = month_year
             found = _month_end(year, month)
@@ -110,9 +119,33 @@ def folder_date_from_path(relative: str, *, today: date) -> date | None:
         else:
             reading = parse_date(part)
             if reading is not None and not reading.ambiguous:
+                if month is not None and reading.value.month != month:
+                    return None
                 found = reading.value
                 year, month = found.year, found.month
     return found
+
+
+def file_folder_date(
+    relative_path: str, *, run_folder: str, run_date: date | None, today: date
+) -> date | None:
+    """The folder date of one file of a run (decision 85): the date its own folders stand for
+    ("MARCH 1 - 15/March 11/gala.pdf" -> 11 March, though the run was started on the month
+    folder), or the run's when it was typed for the run, not taken from the run's folder."""
+    if run_date is not None and run_date != folder_date_from_path(run_folder, today=today):
+        return run_date
+    folders = str(PurePosixPath(relative_path.replace("\\", "/")).parent)
+    return folder_date_from_path(folders, today=today) or run_date
+
+
+_YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+
+
+def folder_year_known(relative_path: str) -> bool:
+    """Whether a file's folders write the year ("October 2026", "2026-10-21"); False when
+    the year of its folder date was assumed ("August/14th August")."""
+    folders = PurePosixPath(relative_path.replace("\\", "/")).parent.parts
+    return any(_YEAR.search(part) for part in folders)
 
 
 def _latest_year(month: int, day: int, today: date) -> int:
@@ -152,6 +185,14 @@ def _month_day(part: str) -> tuple[int, int] | None:
     return (month, day) if month and 1 <= day <= 31 else None
 
 
+def _month_range(part: str) -> tuple[int, int] | None:
+    match = _MONTH_RANGE.match(part)
+    if match is None:
+        return None
+    month, last = _month_number(match["name"]), int(match["last"])
+    return (month, last) if month and int(match["first"]) <= last <= 31 else None
+
+
 def _month_number(name: str) -> int | None:
     """A whole month name or its abbreviation; "Marketing" is not March."""
     return _MONTH_NAMES.get(name.upper())
@@ -161,6 +202,7 @@ _MONTH_NAMES = {
     **{name.upper(): n for n, name in enumerate(calendar.month_name) if name},
     **{name.upper(): n for n, name in enumerate(calendar.month_abbr) if name},
     "SEPT": 9,
+    "FEBUARY": 2,  # a common misspelling, seen on the shared drive
 }
 
 

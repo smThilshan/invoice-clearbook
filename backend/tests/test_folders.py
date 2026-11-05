@@ -6,6 +6,7 @@ import pytest
 from app.pipeline import file_types
 from app.pipeline.folders import (
     InboxError,
+    file_folder_date,
     folder_date_from_path,
     list_files,
     list_subfolders,
@@ -180,3 +181,45 @@ def test_most_recent_year_turns_over_at_new_year() -> None:
         2026, 12, 30
     )
     assert folder_date_from_path("January/January 2", today=date(2027, 1, 3)) == date(2027, 1, 2)
+
+
+# --- decision 85: ranges, folders that disagree, each file's own folder ---------------------
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        ("MARCH 0 - 15", date(2026, 3, 15)),  # a range of days: its last day
+        ("April 1- 5", date(2026, 4, 5)),
+        ("Docs/January 11 - 20/January 12", date(2026, 1, 12)),
+        ("MARCH 0 - 15/March 11", date(2026, 3, 11)),
+        ("April 1- 5/April 5/Maintenance", date(2026, 4, 5)),
+        ("Febuary/6 Feb", date(2026, 2, 6)),  # misspelt on the shared drive
+    ],
+)
+def test_ranges_of_days_name_their_last_day(relative: str, expected: date) -> None:
+    assert folder_date_from_path(relative, today=TODAY) == expected
+
+
+@pytest.mark.parametrize(
+    "relative", ["MARCH 0 - 15/April 5", "May/June 3", "October 2026/2026-09-30"]
+)
+def test_folders_naming_different_months_give_no_date(relative: str) -> None:
+    assert folder_date_from_path(relative, today=TODAY) is None
+
+
+def test_a_file_takes_the_date_of_its_own_folder() -> None:
+    found = file_folder_date("Developer/MARCH 0 - 15/March 11/gala.pdf",
+                             run_folder="Developer/MARCH 0 - 15", run_date=date(2026, 3, 15),
+                             today=TODAY)  # fmt: skip
+
+    assert found == date(2026, 3, 11)
+
+
+def test_a_date_typed_for_the_run_wins_and_the_file_name_never_counts() -> None:
+    typed = file_folder_date("April 1- 5/April 5/x.pdf", run_folder="April 1- 5",
+                             run_date=date(2026, 4, 2), today=TODAY)  # fmt: skip
+    named = file_folder_date("Scans/IMG-20250815-WA0017.jpg", run_folder="Scans",
+                             run_date=None, today=TODAY)  # fmt: skip
+
+    assert (typed, named) == (date(2026, 4, 2), None)

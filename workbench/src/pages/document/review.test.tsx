@@ -274,6 +274,23 @@ describe('review screen', () => {
     expect(sent(api).invoice.amount_type).toBe('INCLUSIVE')
   })
 
+  it('offers the other reading of a date read month first, and sends it (decision 85)', async () => {
+    const resolved = detail({
+      invoice: { ...detail().invoice!, invoice_date: '2026-03-12' },
+      issues: [{ code: 'date_resolved', severity: 'WARNING', field: 'invoice_date',
+        message: 'Date 12 Mar 2026: read month first. Check it against the document.',
+        suggestion: '2026-12-03' }],
+    })  // prettier-ignore
+    const api = await open(backend(resolved))
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Use printed value 3 Dec 2026' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).invoice.invoice_date).toBe('2026-12-03')
+  })
+
   it('says when the VAT the AI read was cleared on a document that is no tax invoice', async () => {
     await open(backend(detail({ invoice: { ...detail().invoice!, vat: null }, cleared_vat: '2.97' })))
 
