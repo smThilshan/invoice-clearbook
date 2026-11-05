@@ -310,8 +310,20 @@ describe('review screen', () => {
     expect(sent(api).invoice).toMatchObject({ total: '1050.10', recipient_name: null, due_date: null })
     expect((sent(api).invoice.lines as unknown[])[0]).toEqual({
       description: 'Milk', qty: '10', unit_price: '60.00', amount: '600.00',
-      account_code: '5000', tax_type: 'STANDARD_5',
+      account_code: '5000', tax_type: 'STANDARD_5', item_code: null,
     })  // prettier-ignore
+  })
+
+  it('shows the barcode under a line and keeps it when saving (decision 82)', async () => {
+    const lines = (detail().invoice?.lines ?? []).map((line, n) => (n === 0 ? { ...line, item_code: '6297000611013' } : line))
+    const api = await open(backend(detail({ invoice: { ...detail().invoice!, lines } })))
+    const user = userEvent.setup()
+
+    expect(within(screen.getByRole('listitem', { name: 'Line 1' })).getByText('Barcode 6297000611013')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect((sent(api).invoice.lines as { item_code: string | null }[])[0]?.item_code).toBe('6297000611013')
   })
 
   it('checks the totals while typing', async () => {

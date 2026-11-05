@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.enums import AmountType, DocumentType, TaxType
 
 # Bump on any field change; stored with every extraction and correction.
-INVOICE_SCHEMA_VERSION = 1
+INVOICE_SCHEMA_VERSION = 2  # 2: Line.item_code (decision 82)
 
 Money = Annotated[Decimal, Field(allow_inf_nan=False)]
 Quantity = Annotated[Decimal, Field(allow_inf_nan=False)]
@@ -37,6 +37,9 @@ class Line(_Schema):
         default=None, description="Limited at runtime to the client's active accounts."
     )
     tax_type: TaxType | None = None
+    # The product's barcode printed under the item, read by our code from the page text (never
+    # asked of the model): tells the same product from a different one (decision 82).
+    item_code: str | None = None
 
 
 class Invoice(_Schema):

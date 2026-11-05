@@ -814,6 +814,12 @@ function Lines({
                     aria-invalid={worst(lineIssues('amount')) === 'ERROR' || undefined}
                     onFocus={focus('amount', 'amount')}
                     className="text-right tabular-nums" {...register(`lines.${index}.amount`)} />
+                  {lineValues[index]?.item_code && (
+                    // Decision 82: the printed barcode tells this product from another of the same name.
+                    <p className="text-xs text-muted-foreground tabular-nums sm:col-span-4">
+                      Barcode {lineValues[index]?.item_code}
+                    </p>
+                  )}
                 </div>
                 {editable && (
                   <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove line ${index + 1}`}

@@ -96,6 +96,7 @@ class PostingLine:
     unit_amount: Decimal
     account_code: str
     tax_code: str  # the client's own tax rate code (master data), already checked
+    item_code: str | None = None  # the printed barcode: which product it is (decision 82)
 
 
 @dataclass(frozen=True, slots=True)

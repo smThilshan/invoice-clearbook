@@ -123,3 +123,26 @@ def test_vat_added_on_top_is_checked_the_same_way() -> None:
     """5% of 0.30 is 0.015 -> 0.02 per line (0.04); 5% of 0.60 is 0.03: kept apart."""
     assert items([line("Clip", "0.30", tax="INPUT")] * 2, AmountType.EXCLUSIVE) == [
         "Clip 1 x 0.30", "Clip 1 x 0.30"]  # fmt: skip
+
+
+def coded(description: str, code: str | None, amount: str = "7.50") -> PostingLine:
+    return PostingLine(description, Decimal(2), Decimal(amount), "310", "INPUT", code)
+
+
+def test_two_products_of_the_same_name_and_price_stay_apart_by_their_barcode() -> None:
+    """Decision 82: the till cut both waters' names short; their barcodes differ (1.5L, 500ml)."""
+    water = "MAI DUBAI LOW SODIUM WATER"
+
+    assert items([coded(water, "6297000611013"), coded(water, "6297000611044")]) == [
+        f"{water} 2 x 7.50", f"{water} 2 x 7.50"]  # fmt: skip
+
+
+def test_the_same_barcode_is_one_product_whatever_ocr_made_of_its_name() -> None:
+    lines = [coded("MAI DUBAI LOW SODIUM WATER 1.", "6297000611013", "10.50"),
+             coded("MAI DUBAI LOU SODIUM UATER 1.", "6297000611013", "10.50")]  # fmt: skip
+
+    assert items(lines) == ["MAI DUBAI LOW SODIUM WATER 1. 4 x 10.50"]
+
+
+def test_a_line_without_a_barcode_never_joins_one_with_a_barcode() -> None:
+    assert len(items([coded("Water", "6297000611013"), coded("Water", None)])) == 2

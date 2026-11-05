@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.domain.enums import DocumentType, TaxType
 from app.domain.invoice import Invoice, Line
-from app.pipeline.model_schema import build_model_schema
+from app.pipeline.model_schema import NOT_ASKED, build_model_schema
 
 
 def walk(node: Any) -> Iterator[tuple[str, Any]]:
@@ -42,9 +42,16 @@ def test_every_field_present_and_required(
     for key in path:
         node = node[key]
 
-    assert list(node["properties"]) == list(model.model_fields)
-    assert node["required"] == list(model.model_fields)
+    asked = [name for name in model.model_fields if (model, name) not in NOT_ASKED]
+    assert list(node["properties"]) == asked
+    assert node["required"] == asked
     assert node["additionalProperties"] is False
+
+
+def test_the_item_code_is_never_asked_of_the_model() -> None:
+    """Decision 82: our code reads the barcode; the model's schema stays as it was."""
+    for schema in (build_model_schema(), build_model_schema(line_coding=False)):
+        assert "item_code" not in schema["properties"]["lines"]["items"]["properties"]
 
 
 def test_field_types(schema: dict[str, Any]) -> None:
@@ -109,5 +116,5 @@ def test_extraction_schema_leaves_line_coding_to_the_coding_step() -> None:
 
     assert "account_code" not in line["properties"]
     assert "tax_type" not in line["properties"]
-    coding = ("account_code", "tax_type")
+    coding = ("account_code", "tax_type", "item_code")
     assert line["required"] == [name for name in Line.model_fields if name not in coding]

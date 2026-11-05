@@ -26,6 +26,8 @@ JsonSchema = dict[str, Any]
 
 # Line coding is assigned by the coding step (task 3.6), not read off the document.
 LINE_CODING_FIELDS = frozenset({(Line, "account_code"), (Line, "tax_type")})
+# Read by our own code, never asked of the model: its prompt stays unchanged (EXP-004).
+NOT_ASKED = frozenset({(Line, "item_code")})
 
 # Decision 28: forced to YYYY-MM-DD, the model copied "4/5/2026" digit by digit into the year
 # ("4520-05-04"). It copies the date as printed; `extract.parse_answer_dates` converts it.
@@ -46,7 +48,7 @@ def build_model_schema(
             "type": ["string", "null"],
             "enum": [*account_codes, None],
         }
-    omit = frozenset() if line_coding else LINE_CODING_FIELDS
+    omit = NOT_ASKED if line_coding else NOT_ASKED | LINE_CODING_FIELDS
     return _object_schema(Invoice, overrides, omit)
 
 

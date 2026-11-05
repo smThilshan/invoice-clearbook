@@ -33,6 +33,7 @@ from app.domain.invoice import INVOICE_SCHEMA_VERSION, Invoice
 from app.domain.state_machine import transition
 from app.models import Document, Extraction
 from app.pipeline.descriptions import clean_descriptions
+from app.pipeline.item_codes import attach_item_codes
 from app.pipeline.line_totals import repair_unit_prices
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.no_vat import clear_unprinted_vat
@@ -178,6 +179,8 @@ def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     invoice = receipt_when_paid(invoice, pages)
     # Decision 82: lines still not adding up to the proven total, readings tried together.
     invoice = reconcile_lines(invoice, pages)
+    # Decision 82: each item's printed barcode, once the lines are final.
+    invoice = attach_item_codes(invoice, pages)
     # Decision 81: the subtotal is the total less the VAT, not the model's copy.
     return with_worked_out_subtotal(invoice)
 

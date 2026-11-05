@@ -572,7 +572,12 @@ def _bill(
             quantity, unit = _quantity_and_unit(line)
             lines.append(
                 PostingLine(
-                    line.description, quantity, unit, line.account_code or "", tax_code or ""
+                    line.description,
+                    quantity,
+                    unit,
+                    line.account_code or "",
+                    tax_code or "",
+                    line.item_code,
                 )
             )
     if problems or invoice.amount_type is None or not invoice.vendor_name:
@@ -631,16 +636,19 @@ VAT_RATES = {TaxType.STANDARD_5: Decimal("0.05"), TaxType.REVERSE_CHARGE: Decima
 def combine_items(
     lines: Sequence[PostingLine], rates: Mapping[str, Decimal], amount_type: AmountType
 ) -> list[PostingLine]:
-    """Item by item (decision 73): identical items, the same name (any case and spacing), unit
-    price, account and VAT code, are one line with their quantities added ("Garam Masala
-    1 x 8.80" three times: 3 x 8.80), in the order they first appear. A line without a name
-    stays as it is. The accounting system works out the VAT per line, rounded to the fils: a
+    """Item by item (decision 73): identical items, the same product, unit price, account and
+    VAT code, are one line with their quantities added ("Garam Masala 1 x 8.80" three times:
+    3 x 8.80), in the order they first appear. The same product: the same printed barcode
+    when there is one (decision 82: two sizes of the same name stay apart, an OCR slip in the
+    name does not split one), else the same name (any case and spacing). A line without
+    either stays as it is. The accounting system works out the VAT per line, rounded to the fils: a
     group whose VAT that way would differ from its lines' VAT is sent line by line, so the
     posted total is always the approved one."""
     groups: dict[tuple[str, Decimal, str, str], list[PostingLine]] = {}
     for n, line in enumerate(lines):
         name = " ".join((line.description or "").split()).casefold()
-        key = (name or f"#{n}", line.unit_amount, line.account_code, line.tax_code)
+        product = f"code:{line.item_code}" if line.item_code else name or f"#{n}"
+        key = (product, line.unit_amount, line.account_code, line.tax_code)
         groups.setdefault(key, []).append(line)
     combined = []
     for members in groups.values():

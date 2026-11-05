@@ -1306,6 +1306,8 @@ export interface components {
             amount: number | string;
             /** Description */
             description?: string | null;
+            /** Item Code */
+            item_code?: string | null;
             /** Qty */
             qty?: number | string | null;
             tax_type?: components["schemas"]["TaxType"] | null;
@@ -1323,6 +1325,8 @@ export interface components {
             amount: string;
             /** Description */
             description?: string | null;
+            /** Item Code */
+            item_code?: string | null;
             /** Qty */
             qty?: string | null;
             tax_type?: components["schemas"]["TaxType"] | null;

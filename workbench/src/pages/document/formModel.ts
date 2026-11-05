@@ -19,6 +19,7 @@ export interface LineValues {
   amount: string
   account_code: string
   tax_type: TaxType | ''
+  item_code: string  // the printed barcode, read by the server (decision 82); not edited
 }
 
 export interface FormValues {
@@ -76,7 +77,7 @@ export const TAX_TYPE_LABELS: Record<TaxType, string> = {
 }
 
 export function emptyLine(): LineValues {
-  return { description: '', qty: '', unit_price: '', amount: '', account_code: '', tax_type: '' }
+  return { description: '', qty: '', unit_price: '', amount: '', account_code: '', tax_type: '', item_code: '' }
 }
 
 const text = (value: string | null | undefined) => value ?? ''
@@ -107,6 +108,7 @@ export function toFormValues(invoice: Invoice | null | undefined): FormValues {
       amount: money(line.amount),
       account_code: text(line.account_code),
       tax_type: line.tax_type ?? '',
+      item_code: text(line.item_code),
     })),
   }
 }
@@ -138,6 +140,7 @@ export function toInvoiceInput(values: FormValues): InvoiceInput {
       amount: amount(line.amount) ?? '',
       account_code: value(line.account_code),
       tax_type: line.tax_type || null,
+      item_code: line.item_code || null,
     })),
   }
 }
