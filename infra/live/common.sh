@@ -28,6 +28,7 @@ say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 fail() { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 # A value from the live .env (KEY=value; no quotes needed for the keys read here).
-env_value() { grep -E "^$1=" "$LIVE_DIR/.env" | tail -1 | cut -d= -f2-; }
+# A setting of the live .env; empty when it is not there (callers then use their default).
+env_value() { { grep -E "^$1=" "$LIVE_DIR/.env" || true; } | tail -1 | cut -d= -f2-; }
 
 backend() { "$UV" run --no-sync --directory "$LIVE_DIR/backend" "$@"; }
