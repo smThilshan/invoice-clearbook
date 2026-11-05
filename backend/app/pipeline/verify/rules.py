@@ -135,8 +135,8 @@ def check_line_math(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
             and abs(lines_sum - target) > CENT
             and not _vat_type_mismatch(invoice)
         ):
-            issues.append(
-                _warning(
+            issues.append(  # an error: the accounting system builds the bill from the lines
+                _error(
                     "lines_sum_mismatch",
                     "lines",
                     f"The lines add up to {lines_sum}, but the {label} is {target}: "

@@ -142,7 +142,7 @@ def test_a_total_read_wrong_is_still_an_error() -> None:
 
     assert found["vat_rate"].severity is Severity.ERROR
     assert "1010.00" in found["vat_rate"].message
-    assert found["lines_sum_mismatch"].severity is Severity.WARNING
+    assert found["lines_sum_mismatch"].severity is Severity.ERROR
 
 
 def test_line_qty_times_price_mismatch_is_a_warning() -> None:
@@ -158,12 +158,14 @@ def test_line_qty_times_price_mismatch_is_a_warning() -> None:
     assert (issue.severity, issue.field) == (Severity.WARNING, "lines[0].amount")
 
 
-def test_lines_not_adding_up_to_subtotal_is_a_warning() -> None:
+def test_lines_not_adding_up_to_subtotal_is_an_error() -> None:
+    """Decision 82: the accounting system builds the bill from the lines, so its total would
+    not be the printed one."""
     lines = [Line(description="Rice", amount=Decimal("600.00"))]
 
     issue = only(invoice(lines=lines), "lines_sum_mismatch")
 
-    assert issue.severity is Severity.WARNING
+    assert issue.severity is Severity.ERROR
     assert "discount" in issue.message
 
 
