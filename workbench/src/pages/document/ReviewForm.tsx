@@ -268,6 +268,10 @@ export function ReviewForm({
             label={FIELD_LABELS.amount_type ?? ''}
             field="amount_type"
             issues={issues.byField.get('amount_type')}
+            confirm={editable ? {
+              checked: confirmed.has('amount_type'),
+              onChange: (on) => toggleConfirmed('amount_type', on),
+            } : undefined}
             suggest={editable ? {
               label: (value) => AMOUNT_TYPE_LABELS[value as AmountType] ?? value,
               apply: (value) => setValue('amount_type', value as AmountType, { shouldDirty: true }),
@@ -439,6 +443,7 @@ function SelectField({
   issues,
   correction,
   suggest,
+  confirm,
   children,
 }: {
   label: string
@@ -446,6 +451,8 @@ function SelectField({
   issues: Issue[] | undefined
   correction?: Correction
   suggest?: Suggest
+  /** Checked against the original: offered while the field has an issue (decision 84). */
+  confirm?: { checked: boolean; onChange: (on: boolean) => void }
   children: ReactNode
 }) {
   const before = correction?.model_value
@@ -466,6 +473,13 @@ function SelectField({
           )}
         </IssueNote>
       ))}
+      {confirm && issues && issues.length > 0 && (
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Checkbox checked={confirm.checked} onCheckedChange={(on) => confirm.onChange(on === true)}
+            aria-label={`${label} checked against the original`} />
+          Checked against the original: it is right
+        </label>
+      )}
     </div>
   )
 }

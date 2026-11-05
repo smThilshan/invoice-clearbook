@@ -272,3 +272,71 @@ def test_a_total_nothing_explains_keeps_its_error(session: Session, storage: Loc
 
     assert "vat_rate" in codes(doc)  # the error: VAT not 5% of the total less the VAT
     assert "total_has_charges" not in codes(doc)
+
+
+# --- a likely VAT type (decision 84) -------------------------------------------------------
+
+HALFWAY = [Line(description="Rice 5kg", amount=Decimal("625.00")),
+           Line(description="Cooking oil", amount=Decimal("400.00"))]  # fmt: skip
+# 1025.00: 25.00 from the total and from the amount before VAT, so the amounts prove nothing
+
+
+def earlier(session: Session, invoice: Invoice, **fields: Any) -> Document:
+    """Another document of the same supplier, already checked."""
+    return make_document(session, status=S.IN_REVIEW, vendor_key=f"TRN:{TRN}",
+                         invoice=json.loads(invoice.model_dump_json()), **fields)  # fmt: skip
+
+
+def test_the_supplier_s_proven_vat_type_fills_an_empty_one_with_a_warning(
+    session: Session, storage: LocalStorage
+) -> None:
+    gross = [Line(description="Rice 5kg", amount=Decimal("1050.00"))]
+    earlier(session, bill(lines=gross, amount_type=AmountType.INCLUSIVE))  # its amounts prove it
+    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["amount_type"] == "INCLUSIVE"
+    [note] = [i for i in doc.issues or [] if i["code"] == "vat_type_likely"]
+    assert note["severity"] == "WARNING" and "supplier" in note["message"]
+    assert "vat_type_missing" not in codes(doc)
+
+
+def test_a_likely_type_is_never_proof_for_the_next_document(
+    session: Session, storage: LocalStorage
+) -> None:
+    earlier(session, bill(lines=HALFWAY, amount_type=AmountType.INCLUSIVE))  # chosen, unproven
+    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["amount_type"] is None
+    assert "vat_type_missing" in codes(doc)
+
+
+def test_an_approved_or_accountant_chosen_type_is_proof(
+    session: Session, storage: LocalStorage
+) -> None:
+    earlier(session, bill(lines=HALFWAY, amount_type=AmountType.EXCLUSIVE),
+            verified_fields=["amount_type"])  # fmt: skip
+    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["amount_type"] == "EXCLUSIVE"
+
+
+def test_the_warning_goes_once_the_accountant_confirms_the_type(
+    session: Session, storage: LocalStorage
+) -> None:
+    earlier(session, bill(lines=[Line(description="Rice", amount=Decimal("1050.00"))],
+                          amount_type=AmountType.INCLUSIVE))  # fmt: skip
+    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+    verify(session, storage, doc)
+    assert "vat_type_likely" in codes(doc)
+
+    doc.verified_fields = ["amount_type"]
+    recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+
+    assert "vat_type_likely" not in codes(doc)
+    assert doc.invoice is not None and doc.invoice["amount_type"] == "INCLUSIVE"

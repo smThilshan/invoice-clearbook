@@ -9,9 +9,11 @@ including VAT, EXP-004), although the amounts it read were right. The amounts an
     anything else                     -> None: the accountant chooses (never guessed, rule 9)
 
 "Anything else" covers no lines, a missing total, discounts or charges outside the lines, and
-misread amounts; the checks flag those separately.
+misread amounts; the checks flag those separately. Then decision 84 may choose a likely type
+from other evidence (`likely_vat_type`), always shown with a warning.
 """
 
+from dataclasses import dataclass
 from decimal import Decimal
 
 from app.domain.enums import AmountType
@@ -37,3 +39,26 @@ def vat_type_from_amounts(invoice: Invoice) -> AmountType | None:
 
 def _same(a: Decimal, b: Decimal) -> bool:
     return abs(a - b) <= CENT
+
+
+@dataclass(frozen=True, slots=True)
+class LikelyVatType:
+    """A VAT type the amounts do not prove, chosen from other evidence (decision 84): shown
+    with a warning until the accountant confirms or changes it."""
+
+    amount_type: AmountType
+    reason: str
+
+
+def likely_vat_type(invoice: Invoice, supplier: AmountType | None) -> LikelyVatType | None:
+    """Decision 84, only when the amounts prove nothing: `supplier` is the type this supplier's
+    other documents prove (never a guess). Not the total the lines are nearest to: lines that
+    do not add up are the very ones misread (a VAT copied as an item made Amexhub's lines look
+    like the total). Not "a receipt includes VAT": Porter's receipt adds it on top."""
+    if not invoice.lines or invoice.total is None or vat_type_from_amounts(invoice) is not None:
+        return None
+    if supplier is not None:
+        return LikelyVatType(supplier, "this supplier's earlier documents show it")
+    if not invoice.vat:
+        return LikelyVatType(AmountType.NO_TAX, "no VAT is on the document")
+    return None

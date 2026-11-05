@@ -256,6 +256,24 @@ describe('review screen', () => {
     expect(sent(api).invoice.amount_type).toBe('EXCLUSIVE')
   })
 
+  it('lets a likely VAT type be confirmed as it is (decision 84)', async () => {
+    const likely = detail({
+      invoice: { ...detail().invoice!, amount_type: 'INCLUSIVE' },
+      issues: [{ code: 'vat_type_likely', severity: 'WARNING', field: 'amount_type',
+        message: "VAT included was chosen because this supplier's earlier documents show it.",
+        suggestion: null }],
+    })  // prettier-ignore
+    const api = await open(backend(likely))
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Amounts are checked against the original' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).confirmed).toEqual(['amount_type'])
+    expect(sent(api).invoice.amount_type).toBe('INCLUSIVE')
+  })
+
   it('says when the VAT the AI read was cleared on a document that is no tax invoice', async () => {
     await open(backend(detail({ invoice: { ...detail().invoice!, vat: null }, cleared_vat: '2.97' })))
 
