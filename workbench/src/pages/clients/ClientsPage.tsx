@@ -92,7 +92,8 @@ function ClientRow({ client }: { client: Client }) {
   const disconnect = useDisconnectAccounting()
   const sync = useSyncAccounting()
   const send = useSendWaiting()
-  // Connecting and syncing the accounting system is an admin's (decision 71); the API says so too.
+  // Connecting the accounting system is an admin's, syncing everyone's (decision 71); the API
+  // says so too.
   const admin = useMe().data?.role === 'ADMIN'
   const synced = Boolean(status.data?.connected && status.data.master_data_from === status.data.provider)
   const summary = status.data?.posting
@@ -186,7 +187,7 @@ function ClientRow({ client }: { client: Client }) {
             Send {summary.ready} {summary.ready === 1 ? 'bill' : 'bills'} to {system}
           </Button>
         )}
-        {connected && admin && (
+        {connected && (
           <Button
             size="sm"
             variant={synced ? 'outline' : 'default'}
@@ -203,7 +204,7 @@ function ClientRow({ client }: { client: Client }) {
           <span className="self-center text-xs text-muted-foreground">Connection actions are unavailable.</span>
         ) : !admin ? (
           <span className="self-center text-xs text-muted-foreground">
-            An admin connects and syncs the accounting system.
+            An admin connects the accounting system.
           </span>
         ) : connected ? (
           <Button

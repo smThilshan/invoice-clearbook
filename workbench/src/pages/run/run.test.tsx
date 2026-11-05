@@ -549,6 +549,38 @@ describe('run screen: the client\'s accounting system', () => {
     expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
   })
 
+  it('syncs a synced client again for new accounts or suppliers', async () => {
+    let status = SYNCED
+    const api = backend({
+      '/clients/cafe-al-noor/accounting': () => status,
+      'POST /clients/cafe-al-noor/accounting/sync': () => {
+        status = { ...SYNCED, accounts: 44 }
+        return { accounts: {}, tax_rates: {}, contacts: {}, deactivated: 0, tax_mapping: [] }
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+    await user.click(await screen.findByRole('button', { name: 'Sync again' }))
+
+    expect(await screen.findByText('Zoho Books: Missan Trading. Accounts synced (44).')).toBeInTheDocument()
+    expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/sync')
+  })
+
+  it('lets an accountant sync, but not connect', async () => {
+    backend({
+      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },
+      '/clients/cafe-al-noor/accounting': NOT_SYNCED,
+    })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickOnly(user)
+
+    expect(await screen.findByRole('button', { name: 'Sync now' })).toBeInTheDocument()
+  })
+
   it('asks an accountant to get an admin, without buttons they cannot use', async () => {
     backend({
       '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },

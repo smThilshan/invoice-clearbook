@@ -118,8 +118,8 @@ describe('login (decision 71)', () => {
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByText(/An admin connects and syncs/)).toBeInTheDocument()
-    expect(within(row).queryByRole('button', { name: /Sync from Xero/ })).not.toBeInTheDocument()
+    expect(await within(row).findByText('An admin connects the accounting system.')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: /Sync from Xero/ })).toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument()
   })
 })

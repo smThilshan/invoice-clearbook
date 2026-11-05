@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button'
 import { readinessOf } from '@/lib/readiness'
 
 /** The client's accounting system on the Run page, with what to do before choosing documents:
- * connect (any configured system, coming back here), sync, or sign in again. `autoSync`: the
- * user just connected from here, so the sync starts by itself. */
+ * connect (any configured system, coming back here), sync, or sign in again; once synced, sync
+ * again for new accounts or suppliers. Connecting is an admin's, syncing everyone's (decision
+ * 71). `autoSync`: the user just connected from here, so the sync starts by itself. */
 export function AccountingReadiness({ clientId, autoSync }: { clientId: string; autoSync: boolean }) {
   const status = useAccounting(clientId)
   const sync = useSyncAccounting()
@@ -17,10 +18,10 @@ export function AccountingReadiness({ clientId, autoSync }: { clientId: string; 
   const started = useRef(false)
 
   useEffect(() => {
-    if (!autoSync || started.current || readiness !== 'not-synced' || !admin) return
+    if (!autoSync || started.current || readiness !== 'not-synced') return
     started.current = true
     sync.mutate(clientId)
-  }, [autoSync, readiness, admin, clientId, sync])
+  }, [autoSync, readiness, clientId, sync])
 
   const data = status.data
   const system = data?.provider_name ?? 'the accounting system'
@@ -35,12 +36,20 @@ export function AccountingReadiness({ clientId, autoSync }: { clientId: string; 
       {status.isError && <ErrorAlert title="The accounting system could not be checked" error={status.error} />}
 
       {readiness === 'ready' && data && (
-        <p className="flex items-center gap-1.5">
-          <CircleCheck className="size-4 text-success" aria-hidden />
-          {data.connected
-            ? `${system}: ${data.organisation ?? ''}. Accounts synced (${data.accounts}).`
-            : `No accounting system: uses the ${data.accounts} imported accounts.`}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5">
+            <CircleCheck className="size-4 text-success" aria-hidden />
+            {data.connected
+              ? `${system}: ${data.organisation ?? ''}. Accounts synced (${data.accounts}).`
+              : `No accounting system: uses the ${data.accounts} imported accounts.`}
+          </p>
+          {data.connected && (
+            <Button size="sm" variant="outline" disabled={sync.isPending} onClick={() => sync.mutate(clientId)}>
+              <RefreshCw className={sync.isPending ? 'animate-spin' : undefined} aria-hidden />
+              {sync.isPending ? 'Syncing…' : 'Sync again'}
+            </Button>
+          )}
+        </div>
       )}
 
       {readiness === 'not-synced' && data && (
@@ -51,14 +60,10 @@ export function AccountingReadiness({ clientId, autoSync }: { clientId: string; 
               ? `Bringing in accounts, VAT rates and suppliers from ${system}…`
               : 'Its accounts are not synced yet: the AI needs them to suggest accounts.'}
           </p>
-          {admin ? (
-            <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate(clientId)}>
-              <RefreshCw className={sync.isPending ? 'animate-spin' : undefined} aria-hidden />
-              {sync.isPending ? 'Syncing…' : 'Sync now'}
-            </Button>
-          ) : (
-            <p className="text-muted-foreground">Ask an admin to sync this client.</p>
-          )}
+          <Button size="sm" disabled={sync.isPending} onClick={() => sync.mutate(clientId)}>
+            <RefreshCw className={sync.isPending ? 'animate-spin' : undefined} aria-hidden />
+            {sync.isPending ? 'Syncing…' : 'Sync now'}
+          </Button>
         </>
       )}
 

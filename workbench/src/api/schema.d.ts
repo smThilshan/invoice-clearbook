@@ -166,7 +166,8 @@ export interface paths {
         /**
          * Sync Accounting
          * @description Read accounts, tax rates and contacts from the connected accounting system. All or
-         *     nothing; afterwards coding and checks use its master data.
+         *     nothing; afterwards coding and checks use its master data. Every user may sync: it only
+         *     reads from the system, and accountants need fresh accounts before a run (decision 71).
          */
         post: operations["sync_accounting_clients__client_id__accounting_sync_post"];
         delete?: never;

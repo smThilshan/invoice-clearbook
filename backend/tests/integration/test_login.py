@@ -122,16 +122,17 @@ def test_a_change_without_the_app_header_is_refused_even_when_logged_in(api: Tes
     assert allowed.status_code == 201
 
 
-def test_only_an_admin_connects_or_syncs_the_accounting_system(api: TestClient) -> None:
+def test_only_an_admin_connects_or_disconnects_but_an_accountant_syncs(api: TestClient) -> None:
     log_in(api, email="accountant@missan.test")
-    sync = api.post(f"/clients/{CLIENT}/accounting/sync", headers=CHANGE)
     connect = api.get("/xero/connect", params={"client_id": CLIENT}, follow_redirects=False)
+    disconnect = api.post(f"/clients/{CLIENT}/accounting/disconnect", headers=CHANGE)
     status = api.get(f"/clients/{CLIENT}/accounting")
+    # Past the role check: refused only because this client is not connected.
+    sync = api.post(f"/clients/{CLIENT}/accounting/sync", headers=CHANGE)
 
-    assert sync.status_code == connect.status_code == 403
+    assert connect.status_code == disconnect.status_code == 403
     assert status.status_code == 200  # seeing the connection is every accountant's
-    log_in(api)
-    assert api.post(f"/clients/{CLIENT}/accounting/sync", headers=CHANGE).status_code == 409
+    assert sync.status_code == 409 and "not connected" in sync.json()["detail"]
 
 
 def test_logging_out_ends_the_session(api: TestClient) -> None:

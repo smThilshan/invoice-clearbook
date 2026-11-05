@@ -239,12 +239,13 @@ def disconnect_accounting(
     return accounting_status(client_id, session, settings, registry)
 
 
-@router.post("/clients/{client_id}/accounting/sync", dependencies=[Depends(require_admin)])
+@router.post("/clients/{client_id}/accounting/sync")
 def sync_accounting(
     client_id: str, session: SessionDep, settings: SettingsDep, registry: RegistryDep
 ) -> SyncOut:
     """Read accounts, tax rates and contacts from the connected accounting system. All or
-    nothing; afterwards coding and checks use its master data."""
+    nothing; afterwards coding and checks use its master data. Every user may sync: it only
+    reads from the system, and accountants need fresh accounts before a run (decision 71)."""
     client = _found(session, client_id)
     try:
         report = sync(session, settings, registry, client)
