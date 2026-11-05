@@ -1,4 +1,5 @@
-"""SQLAlchemy tables. Every table has client_id, except users (decision 71)."""
+"""SQLAlchemy tables. Every table has client_id, except users (decision 71) and Missan's
+SharePoint sign-in (decision 83)."""
 
 from app.models.accounting_connection import AccountingConnection
 from app.models.audit_log import AuditLog
@@ -9,6 +10,7 @@ from app.models.document import Correction, Document, Extraction
 from app.models.master_data import Contact, LedgerAccount, TaxRate
 from app.models.outbox import Outbox, OutboxStatus
 from app.models.run import Run, RunStatus
+from app.models.sharepoint_connection import SharePointConnection
 from app.models.user import User
 from app.models.vendor_mapping import VendorMapping
 
@@ -27,6 +29,7 @@ __all__ = [
     "OutboxStatus",
     "Run",
     "RunStatus",
+    "SharePointConnection",
     "TaxRate",
     "User",
     "VendorMapping",

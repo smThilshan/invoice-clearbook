@@ -6,7 +6,7 @@ are routed to the posting queue, model extraction to the extract queue (taken la
 strings (JSON). Jobs are enqueued only after the transaction that created their rows commits.
 
 Chain: scan_run -> ingest_file -> read_document -> extract_document -> verify_document
-(services/pipeline.py).
+(services/pipeline.py). A run of a SharePoint folder is fetched first, in scan_run (decision 83).
 A step that fails unexpectedly marks the document FAILED (reason = step + error type, never
 document content; the traceback goes to the log). If another worker moved the document first,
 the step stops quietly ("superseded") instead of failing it.
@@ -28,16 +28,17 @@ from app.adapters.llm import ExtractionError, ExtractionStopped, get_extraction_
 from app.adapters.ocr import get_ocr_engine
 from app.adapters.storage import get_storage
 from app.core.config import get_settings
-from app.core.db import session_scope
+from app.core.db import get_session_factory, session_scope
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import StaleStatusError
 from app.models import Document, Run, RunStatus
 from app.pipeline import extract, ingest, read
 from app.pipeline.folders import InboxError
 from app.pipeline.verify import step as verify
-from app.services import posting
+from app.services import posting, sharepoint_runs
 from app.services.clients import get_client, run_root
 from app.services.pipeline import NEXT_STEP, Step, fail_document
+from app.services.sharepoint import SharePointError
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ def scan_run(run_id: str) -> int:
     """List the run's files (sub-folders included) and enqueue one ingest job per file.
     Re-running re-enqueues every file; ingest recognises files it has already seen. If the
     client's shared folder cannot be read, the run is marked FAILED with the reason."""
+    if not _fetch_first(run_id):
+        return 0
     with session_scope() as session:
         run = session.get(Run, uuid.UUID(run_id))
         if run is None:
@@ -80,6 +83,29 @@ def scan_run(run_id: str) -> int:
         ingest_file.delay(run_id, relative_path)
     logger.info("run %s: %d file(s) queued for ingest", run_id, len(relative_paths))
     return len(relative_paths)
+
+
+def _fetch_first(run_id: str) -> bool:
+    """A SharePoint run's files are fetched before its scan (decision 83). False: the scan must
+    not go on (stopped meanwhile, or the run FAILED with the reason). Commits as it goes."""
+    with closing(get_session_factory()()) as session:
+        run = session.get(Run, uuid.UUID(run_id))
+        if run is None or run.status is RunStatus.STOPPED or not sharepoint_runs.needs_fetch(run):
+            return True  # the scan deals with these as it always has
+        try:
+            return sharepoint_runs.fetch(session, get_settings(), run)
+        except Exception as exc:
+            reason = str(exc) if isinstance(exc, SharePointError) else type(exc).__name__
+            if not isinstance(exc, SharePointError):
+                logger.exception("run %s: fetching from SharePoint crashed", run_id)
+            session.rollback()
+            failed = session.get(Run, uuid.UUID(run_id))
+            if failed is not None:
+                failed.status, failed.files = RunStatus.FAILED, []
+                failed.failure_reason = f"Could not fetch from SharePoint: {reason}"
+                session.commit()
+            logger.warning("run %s: FAILED while fetching from SharePoint", run_id)
+            return False
 
 
 @celery_app.task(name="pipeline.ingest_file", bind=True, max_retries=NOT_READY_MAX_RETRIES)

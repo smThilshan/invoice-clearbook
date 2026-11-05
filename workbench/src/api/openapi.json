@@ -1648,6 +1648,24 @@
         "title": "IssueOut",
         "type": "object"
       },
+      "LibraryOut": {
+        "properties": {
+          "drive_id": {
+            "title": "Drive Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "drive_id",
+          "name"
+        ],
+        "title": "LibraryOut",
+        "type": "object"
+      },
       "Line-Input": {
         "additionalProperties": false,
         "properties": {
@@ -2543,6 +2561,28 @@
             ],
             "title": "Failure Reason"
           },
+          "fetch_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch Total"
+          },
+          "fetched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched"
+          },
           "files": {
             "items": {
               "$ref": "#/components/schemas/FileStatus"
@@ -2584,6 +2624,17 @@
             "title": "Server Time",
             "type": "string"
           },
+          "sharepoint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sharepoint Path"
+          },
           "state": {
             "$ref": "#/components/schemas/RunState"
           },
@@ -2616,13 +2667,17 @@
           "files",
           "typical_ms",
           "force_stop",
-          "server_time"
+          "server_time",
+          "sharepoint_path",
+          "fetched",
+          "fetch_total"
         ],
         "title": "RunProgressOut",
         "type": "object"
       },
       "RunState": {
         "enum": [
+          "fetching",
           "scanning",
           "processing",
           "finished"
@@ -2701,6 +2756,233 @@
           "can_send_back"
         ],
         "title": "SendingOut",
+        "type": "object"
+      },
+      "SharePointFolderOut": {
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "drive_id": {
+            "title": "Drive Id",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "drive_id",
+          "item_id",
+          "name",
+          "path",
+          "date",
+          "items"
+        ],
+        "title": "SharePointFolderOut",
+        "type": "object"
+      },
+      "SharePointListing": {
+        "properties": {
+          "folder": {
+            "$ref": "#/components/schemas/SharePointFolderOut"
+          },
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/SharePointFolderOut"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "invoice_files": {
+            "title": "Invoice Files",
+            "type": "integer"
+          },
+          "other_files": {
+            "title": "Other Files",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "folder",
+          "folders",
+          "invoice_files",
+          "other_files"
+        ],
+        "title": "SharePointListing",
+        "type": "object"
+      },
+      "SharePointRunCreate": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "drive_id": {
+            "description": "The folder, as GET /sharepoint/folder names it",
+            "title": "Drive Id",
+            "type": "string"
+          },
+          "folder_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Confirmed on the Run screen; null = no folder date. Left out: read from the folder's path on SharePoint.",
+            "title": "Folder Date"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "drive_id",
+          "item_id"
+        ],
+        "title": "SharePointRunCreate",
+        "type": "object"
+      },
+      "SharePointStatus": {
+        "properties": {
+          "account_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Email"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "connected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected At"
+          },
+          "connected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected By"
+          },
+          "needs_reconnect": {
+            "title": "Needs Reconnect",
+            "type": "boolean"
+          },
+          "reconnect_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconnect Reason"
+          }
+        },
+        "required": [
+          "configured",
+          "connected",
+          "needs_reconnect",
+          "reconnect_reason",
+          "account_name",
+          "account_email",
+          "connected_by",
+          "connected_at"
+        ],
+        "title": "SharePointStatus",
+        "type": "object"
+      },
+      "SiteOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "site_id": {
+            "title": "Site Id",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "name",
+          "web_url"
+        ],
+        "title": "SiteOut",
         "type": "object"
       },
       "Span": {
@@ -4839,6 +5121,48 @@
         ]
       }
     },
+    "/runs/sharepoint": {
+      "post": {
+        "description": "A SharePoint folder, sub-folders included (decision 83): the worker fetches its invoice\nfiles (read only), then runs them like any folder. Progress: GET /runs/{id}.",
+        "operationId": "sharepoint_run_runs_sharepoint_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharePointRunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sharepoint Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/runs/typical-time": {
       "get": {
         "description": "For \"about 30 min\" on the Run screen before a run starts (task 4.17).",
@@ -5076,6 +5400,329 @@
         "summary": "Stop",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/sharepoint/callback": {
+      "get": {
+        "operationId": "callback_sharepoint_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/connect": {
+      "get": {
+        "description": "Start Microsoft's sign-in; afterwards the admin returns to `back`.",
+        "operationId": "connect_sharepoint_connect_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "back",
+            "required": false,
+            "schema": {
+              "default": "clients",
+              "enum": [
+                "clients",
+                "run"
+              ],
+              "title": "Back",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/disconnect": {
+      "post": {
+        "operationId": "disconnect_sharepoint_disconnect_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharePointStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/folder": {
+      "get": {
+        "description": "What is in a folder (\"root\": the library itself).",
+        "operationId": "get_folder_sharepoint_folder_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "drive_id",
+            "required": true,
+            "schema": {
+              "title": "Drive Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "item_id",
+            "required": false,
+            "schema": {
+              "default": "root",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharePointListing"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Folder",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/link": {
+      "get": {
+        "description": "The folder a pasted SharePoint address leads to.",
+        "operationId": "get_link_sharepoint_link_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "url",
+            "required": true,
+            "schema": {
+              "title": "Url",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharePointFolderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Link",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/sites": {
+      "get": {
+        "description": "The sites the connected account can open.",
+        "operationId": "get_sites_sharepoint_sites_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SiteOut"
+                  },
+                  "title": "Response Get Sites Sharepoint Sites Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Sites",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/sites/{site_id}/libraries": {
+      "get": {
+        "operationId": "get_libraries_sharepoint_sites__site_id__libraries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "site_id",
+            "required": true,
+            "schema": {
+              "title": "Site Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryOut"
+                  },
+                  "title": "Response Get Libraries Sharepoint Sites  Site Id  Libraries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Libraries",
+        "tags": [
+          "sharepoint"
+        ]
+      }
+    },
+    "/sharepoint/status": {
+      "get": {
+        "operationId": "get_status_sharepoint_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharePointStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Status",
+        "tags": [
+          "sharepoint"
         ]
       }
     },

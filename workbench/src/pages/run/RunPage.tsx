@@ -1,20 +1,21 @@
-import { ChevronRight, CircleCheck, FileText, Folder as FolderIcon, Play, Plus, Upload } from 'lucide-react'
+import { CircleCheck, Play, Plus, Upload } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useBlocker, useNavigate, useSearchParams } from 'react-router'
 
-import { api, type Client, type Folder, type FolderPlace } from '@/api/client'
+import { api, type Client } from '@/api/client'
 import {
   useAccounting,
   useClients,
   useCreateClient,
-  useFolder,
-  usePlaces,
-  useStartRun,
+  useSharePointFolder,
+  useSharePointStatus,
+  useStartSharePointRun,
   useTypicalTime,
   useUploadRun,
 } from '@/api/queries'
 import { ClientSelect } from '@/components/ClientSelect'
 import { ErrorAlert } from '@/components/ErrorAlert'
+import { SharePointConnection } from '@/components/SharePointConnection'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { ProgressBar } from '@/components/ProgressBar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -22,38 +23,28 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
 import { type Choice, formatBytes, tooMuch } from '@/lib/chosenFiles'
 import { blocksRun, readinessOf } from '@/lib/readiness'
 import { formatDate } from '@/lib/labels'
-import { lastFolder, rememberClient, rememberFolder } from '@/lib/remember'
+import { lastTrail, rememberClient, rememberTrail } from '@/lib/remember'
+import { isStep, type Step } from '@/lib/sharePoint'
 import { formatDuration } from '@/lib/timings'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { cn } from '@/lib/utils'
 
 import { AccountingReadiness } from './AccountingReadiness'
 import { ComputerPicker } from './ComputerPicker'
+import { SharePointPicker } from './SharePointPicker'
 
-/** The client's own folder; the top of any other place (this Mac, shared drives) is too big
- * to run whole, so a folder inside it must be opened first. */
-const CLIENT_PLACE = 'client'
+/** Where the documents are: a folder on SharePoint, read live (decision 83), or on the user's
+ * own computer (uploaded, decision 78). */
+type Source = 'sharepoint' | 'computer'
 
-/** One step of the path from the place down to the selected folder. */
-interface Crumb {
-  name: string
-  path: string // relative to the place; '' = the place itself
-  date: string | null // the date the folder name stands for
-}
-
-/** Where the documents are: on the user's own computer (uploaded, decision 78), or in a folder
- * the server can reach (decision 35). */
-type Source = 'computer' | 'server'
-
-/** Pick or create a client, choose the documents (a folder on this computer, or one in the
- * server's allowed places), confirm the date, start the run (tasks 4.3, 4.12; decisions 35, 78). */
+/** Pick or create a client, choose the documents (a folder on SharePoint, or one on this
+ * computer), confirm the date, start the run (tasks 4.3, 4.12; decisions 78, 83). */
 export function RunPage() {
   const [client, setClient] = useState<Client>()
-  const [source, setSource] = useState<Source>('computer')
+  const [picked, setPicked] = useState<Source>('sharepoint')
   const [choice, setChoice] = useState<Choice>()
   const [choiceDate, setChoiceDate] = useState<string | null>(null) // from the chosen folder's name
   const [sent, setSent] = useState(0) // how much of the upload has gone, 0 to 1
@@ -66,45 +57,47 @@ export function RunPage() {
     connected: params.get('connected'),
     system: params.get('system'),
     error: params.get('error'),
+    sharePoint: params.get('sharepoint'),
+    sharePointError: params.get('sharepoint_error'),
   }))
   const clients = useClients()
   const accounting = useAccounting(client?.client_id ?? '')
   const blocked = client !== undefined && blocksRun(readinessOf(accounting.data, accounting.isError))
-  const [chosenPlace, setChosenPlace] = useState<FolderPlace>()
-  const [savedPlace, setSavedPlace] = useState<string>()
-  const [crumbs, setCrumbs] = useState<Crumb[]>([])
+  const [trail, setTrail] = useState<Step[]>([])
   const [date, setDate] = useState('')
-  const places = usePlaces(client?.client_id)
+  const sharePoint = useSharePointStatus()
   usePageTitle('Run')
-  const startRun = useStartRun()
+  const startRun = useStartSharePointRun()
   const uploadRun = useUploadRun()
   const navigate = useNavigate()
 
-  // The first place (the client's own folder when it has one) is open until another is picked.
-  // A remembered folder (task 4.17) opens in its place when that place is still there.
-  const place = chosenPlace ?? places.data?.find((p) => p.key === savedPlace) ?? places.data?.[0]
-  const trail = crumbs.length > 0 ? crumbs : place ? [{ name: place.label, path: '', date: null }] : []
-  const current = trail.at(-1)
-  const folderDate = current?.date ?? null
-  const tooBig = place !== undefined && place.key !== CLIENT_PLACE && current?.path === ''
-  const listing = useFolder(client?.client_id, place?.key, current?.path ?? '')
+  // SharePoint first when this server has it (decision 83); otherwise only this computer.
+  const sharePointOn = sharePoint.data?.configured ?? false
+  const sharePointReady = sharePointOn && sharePoint.data?.connected === true && !sharePoint.data.needs_reconnect
+  const source: Source = sharePointOn ? picked : 'computer'
+  const last = trail.at(-1)
+  const current = last?.kind === 'folder' ? last : undefined
+  // A whole library or site is too much to run: a folder inside it is chosen.
+  const tooBig = current !== undefined && current.itemId === 'root'
+  const listing = useSharePointFolder(current?.driveId, current?.itemId)
   const typical = useTypicalTime().data?.typical_ms ?? null
-  const files = source === 'server' ? listing.data?.total_files : choice?.invoices.length
+  // Inside SharePoint only this folder's own files are counted: sub-folders are counted by the run.
+  const sharePointFiles = listing.data && listing.data.folders.length === 0 ? listing.data.invoice_files : undefined
+  const files = source === 'sharepoint' ? sharePointFiles : choice?.invoices.length
   const estimate = files && typical ? files * typical : null
-  const ready = source === 'server' ? place !== undefined && current !== undefined : choice !== undefined
+  const ready = source === 'sharepoint' ? sharePointReady && current !== undefined && !tooBig : choice !== undefined
   const chosenName = choice ? choice.folder || `${choice.invoices.length} chosen files` : ''
+  const trailName = trail.map((step) => step.name).join(' / ')
 
-  function adopt(picked: Client) {
-    const saved = lastFolder(picked.client_id)
-    setClient(picked)
-    setChosenPlace(undefined)
-    setSavedPlace(saved?.place)
-    setCrumbs(saved?.crumbs ?? [])
-    if (source === 'server') setDate(saved?.crumbs.at(-1)?.date ?? '')
+  function adopt(chosen: Client) {
+    const saved = lastTrail(chosen.client_id, isStep) ?? []
+    setClient(chosen)
+    setTrail(saved)
+    if (source === 'sharepoint') setDate(dateOf(saved))
   }
 
-  function pickClient(picked: Client) {
-    adopt(picked)
+  function pickClient(chosen: Client) {
+    adopt(chosen)
     startRun.reset()
     uploadRun.reset()
   }
@@ -120,9 +113,9 @@ export function RunPage() {
 
   useLeaveGuard(() => choice !== undefined && choice.invoices.length > 0 && !uploaded.current)
 
-  function pickSource(picked: Source) {
-    setSource(picked)
-    setDate(picked === 'server' ? (current?.date ?? '') : (choiceDate ?? ''))
+  function pickSource(chosen: Source) {
+    setPicked(chosen)
+    setDate(chosen === 'sharepoint' ? dateOf(trail) : (choiceDate ?? ''))
     startRun.reset()
     uploadRun.reset()
   }
@@ -144,19 +137,11 @@ export function RunPage() {
       .catch(() => undefined) // no date offered: the user can still type one
   }
 
-  function pickPlace(picked: FolderPlace) {
-    setChosenPlace(picked)
-    setCrumbs([])
-    setDate('')
+  function goTo(next: Step[]) {
+    setTrail(next)
+    setDate(dateOf(next))
     startRun.reset()
-    if (client) rememberFolder(client.client_id, { place: picked.key, crumbs: [] })
-  }
-
-  function goTo(next: Crumb[]) {
-    setCrumbs(next)
-    setDate(next.at(-1)?.date ?? '')
-    startRun.reset()
-    if (client && place) rememberFolder(client.client_id, { place: place.key, crumbs: next })
+    if (client) rememberTrail(client.client_id, next)
   }
 
   function upload() {
@@ -174,9 +159,9 @@ export function RunPage() {
   }
 
   function run() {
-    if (!client || !place || !current || tooBig) return
+    if (!client || !current || tooBig) return
     startRun.mutate(
-      { client_id: client.client_id, place: place.key, folder: current.path, folder_date: date || null },
+      { client_id: client.client_id, drive_id: current.driveId, item_id: current.itemId, folder_date: date || null },
       { onSuccess: (accepted) => void navigate(`/run/${accepted.run_id}`) },
     )
   }
@@ -185,7 +170,7 @@ export function RunPage() {
     <PageContainer className="space-y-6">
       <PageHeader
         title="Run"
-        description="Pick a client, choose the documents (a folder on your computer, or one on the server), confirm the date, and start processing. Sub-folders are included."
+        description="Pick a client, choose the documents (a folder on SharePoint, or one on your computer), confirm the date, and start processing. Sub-folders are included."
       />
 
       {returned.connected && (
@@ -193,6 +178,19 @@ export function RunPage() {
           <CircleCheck className="text-success" aria-hidden />
           <AlertTitle>Connected to {returned.system ?? 'the accounting system'}</AlertTitle>
           <AlertDescription>Organisation: {returned.connected}</AlertDescription>
+        </Alert>
+      )}
+      {returned.sharePoint && (
+        <Alert>
+          <CircleCheck className="text-success" aria-hidden />
+          <AlertTitle>Connected to SharePoint</AlertTitle>
+          <AlertDescription>As {returned.sharePoint}. Read only: nothing in SharePoint is changed.</AlertDescription>
+        </Alert>
+      )}
+      {returned.sharePointError && (
+        <Alert variant="destructive">
+          <AlertTitle>SharePoint not connected</AlertTitle>
+          <AlertDescription>{returned.sharePointError}</AlertDescription>
         </Alert>
       )}
       {returned.error && (
@@ -226,38 +224,21 @@ export function RunPage() {
             <CardDescription>
               {source === 'computer'
                 ? 'Choose a folder on your computer: every invoice in it, sub-folders included, is uploaded and run.'
-                : 'Open the folder to process. Everything inside it, sub-folders included, is run.'}
+                : 'Open the folder on SharePoint, or paste its link. Everything inside it, sub-folders included, is run. SharePoint is only read: nothing there is changed.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <SourcePicker value={source} onPick={pickSource} />
+            {sharePointOn && <SourcePicker value={source} onPick={pickSource} />}
             {blocked ? (
               <p className="text-sm text-muted-foreground">
                 First get the client's accounting system ready (above): then choose the documents.
               </p>
             ) : source === 'computer' ? (
               <ComputerPicker choice={choice} onChoose={choose} />
-            ) : places.isPending ? (
-              <Skeleton className="h-8 w-64" />
-            ) : places.isError ? (
-              <ErrorAlert title="Places could not be loaded" error={places.error} />
-            ) : places.data.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No folders can be reached from here.</p>
+            ) : sharePointReady ? (
+              <SharePointPicker trail={trail} onTrail={goTo} />
             ) : (
-              <PlacePicker places={places.data} value={place} onPick={pickPlace} />
-            )}
-            {!blocked && source === 'server' && place && current && (
-              <>
-                <Breadcrumbs crumbs={trail} onGoTo={goTo} />
-                <FolderList
-                  clientId={client.client_id}
-                  place={place}
-                  path={current.path}
-                  onOpen={(folder) =>
-                    goTo([...trail, { name: folder.name, path: folder.path, date: folder.date }])
-                  }
-                />
-              </>
+              <SharePointConnection back="run" showConnected={false} />
             )}
           </CardContent>
         </Card>
@@ -279,8 +260,8 @@ export function RunPage() {
               onChange={(event) => setDate(event.target.value)}
             />
             <p className="text-sm text-muted-foreground" data-testid="date-hint">
-              {source === 'server'
-                ? dateHint(date, folderDate, current?.path ?? '')
+              {source === 'sharepoint'
+                ? dateHint(date, current?.date ?? null, current?.path ?? '')
                 : dateHint(date, choiceDate, choice?.folder ?? '')}
             </p>
           </CardContent>
@@ -312,30 +293,29 @@ export function RunPage() {
         </div>
       )}
 
-      {client && !blocked && source === 'server' && place && current && (
+      {client && !blocked && source === 'sharepoint' && sharePointReady && current && (
         <div className="space-y-3">
           {startRun.isError && <ErrorAlert title="The run did not start" error={startRun.error} />}
-          <RunSummary
-            client={client.name}
-            folder={trail.map((c) => c.name).join(' / ')}
-            date={date}
-            files={files}
-            estimate={estimate}
-          />
+          <RunSummary client={client.name} folder={trailName} date={date} files={files} estimate={estimate} />
           {tooBig && (
             <p className="text-sm text-muted-foreground">
-              Open a folder inside {place.label} first: the whole of it is too much to run.
+              Open a folder inside {current.name} first: the whole library is too much to run.
             </p>
           )}
-          {!tooBig && files === 0 && (
-            <p className="text-sm text-muted-foreground">No invoice files in this folder or below it.</p>
+          {!tooBig && listing.data && listing.data.invoice_files === 0 && listing.data.folders.length === 0 && (
+            <p className="text-sm text-muted-foreground">No invoice files in this folder.</p>
           )}
-          <Button size="lg" onClick={run} disabled={startRun.isPending || tooBig || files === 0}>
+          <Button
+            size="lg"
+            onClick={run}
+            disabled={startRun.isPending || !ready || (sharePointFiles === 0)}
+          >
             <Play aria-hidden />
-            {startRun.isPending
-              ? 'Starting…'
-              : `Run ${client.name}: ${trail.map((c) => c.name).join(' / ')}`}
+            {startRun.isPending ? 'Starting…' : `Run ${client.name}: ${current.name}`}
           </Button>
+          <p className="text-xs text-muted-foreground">
+            The files are copied from SharePoint when the run starts; SharePoint itself is not changed.
+          </p>
         </div>
       )}
     </PageContainer>
@@ -398,8 +378,8 @@ function NewClient({ onCreated }: { onCreated: (client: Client) => void }) {
 
 function SourcePicker({ value, onPick }: { value: Source; onPick: (source: Source) => void }) {
   const choices: [Source, string][] = [
+    ['sharepoint', 'On SharePoint'],
     ['computer', 'On my computer'],
-    ['server', 'On the server'],
   ]
   return (
     <div role="group" aria-label="Where the documents are" className="flex flex-wrap gap-2">
@@ -421,130 +401,10 @@ function SourcePicker({ value, onPick }: { value: Source; onPick: (source: Sourc
   )
 }
 
-function PlacePicker({
-  places,
-  value,
-  onPick,
-}: {
-  places: FolderPlace[]
-  value: FolderPlace | undefined
-  onPick: (place: FolderPlace) => void
-}) {
-  return (
-    <div role="group" aria-label="Place" className="flex flex-wrap gap-2">
-      {places.map((place) => (
-        <button
-          key={place.key}
-          type="button"
-          aria-pressed={place.key === value?.key}
-          title={place.path}
-          onClick={() => onPick(place)}
-          className={cn(
-            'rounded-md border px-3 py-1.5 text-sm',
-            place.key === value?.key
-              ? 'border-primary bg-secondary font-medium'
-              : 'text-muted-foreground hover:bg-muted',
-          )}
-        >
-          {place.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function Breadcrumbs({ crumbs, onGoTo }: { crumbs: Crumb[]; onGoTo: (trail: Crumb[]) => void }) {
-  return (
-    <nav aria-label="Folder path" className="flex flex-wrap items-center gap-1 text-sm">
-      {crumbs.map((crumb, index) => {
-        const last = index === crumbs.length - 1
-        return (
-          <span key={crumb.path} className="flex items-center gap-1">
-            {index > 0 && <ChevronRight className="size-3.5 text-muted-foreground" aria-hidden />}
-            {last ? (
-              <span className="font-medium" aria-current="location">
-                {crumb.name}
-              </span>
-            ) : (
-              <button
-                type="button"
-                className="text-muted-foreground underline-offset-4 hover:underline"
-                onClick={() => onGoTo(crumbs.slice(0, index + 1))}
-              >
-                {crumb.name}
-              </button>
-            )}
-          </span>
-        )
-      })}
-    </nav>
-  )
-}
-
-function FolderList({
-  clientId,
-  place,
-  path,
-  onOpen,
-}: {
-  clientId: string
-  place: FolderPlace
-  path: string
-  onOpen: (folder: Folder) => void
-}) {
-  const listing = useFolder(clientId, place.key, path)
-
-  if (listing.isPending) return <Skeleton className="h-24 w-full" />
-  if (listing.isError) {
-    return <ErrorAlert title="This folder could not be opened" error={listing.error} />
-  }
-  return (
-    <div className="space-y-2">
-      <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="file-count">
-        <FileText className="size-4" aria-hidden />
-        {fileCountText(listing.data.invoice_files, listing.data.total_files)}
-      </p>
-      {listing.data.folders.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No sub-folders here.</p>
-      ) : (
-        <ul aria-label="Sub-folders" className="max-h-80 divide-y overflow-y-auto rounded-lg border">
-          {listing.data.folders.map((folder) => (
-            <li key={folder.path}>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
-                onClick={() => onOpen(folder)}
-              >
-                <FolderIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="flex-1 truncate">{folder.name}</span>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {folder.invoice_files === null
-                    ? 'many files'
-                    : folder.invoice_files > 0
-                      ? `${folder.invoice_files} invoice${folder.invoice_files === 1 ? '' : 's'}`
-                      : ''}
-                </span>
-                {folder.date && (
-                  <span className="w-24 text-right text-xs text-muted-foreground">{formatDate(folder.date)}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-/** What a run would take in, said plainly (task 4.17). */
-function fileCountText(direct: number, total: number | null): string {
-  if (total === null) return 'Too many files below this folder to count: open a folder inside it.'
-  if (total === 0) return 'No invoice files here or in its sub-folders.'
-  const inside = total - direct
-  const plural = (n: number) => `${n} invoice file${n === 1 ? '' : 's'}`
-  if (inside === 0) return `${plural(total)} (PDF or photo) in this folder.`
-  if (direct === 0) return `${plural(total)} in its sub-folders: a run takes them all.`
-  return `${plural(total)}: ${direct} here and ${inside} in its sub-folders.`
+/** The date the open SharePoint folder's name stands for; '' for none. */
+function dateOf(trail: Step[]): string {
+  const last = trail.at(-1)
+  return last?.kind === 'folder' ? (last.date ?? '') : ''
 }
 
 /** The choices so far, and what a run will take: files and roughly how long on this computer. */

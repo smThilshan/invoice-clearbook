@@ -59,11 +59,12 @@ if [[ ! -f "$LIVE_DIR/.env" ]]; then
         echo "WORKBENCH_URL=$PUBLIC_URL"
         echo "XERO_REDIRECT_URI=$PUBLIC_URL/api/xero/callback"
         echo "ZOHO_REDIRECT_URI=$PUBLIC_URL/api/zoho/callback"
+        echo "SHAREPOINT_REDIRECT_URI=$PUBLIC_URL/api/sharepoint/callback"
         echo "TOKEN_KEY=$(openssl rand -base64 32 | tr '+/' '-_')"
         echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')"
         echo "COOKIE_SECURE=true"
-        echo "# From the development .env: the model and the accounting system apps"
-        grep -E '^(LLM_|EXTRACT_MAX_IMAGES|OCR_DETECTION_MODEL|OCR_RECOGNITION_MODEL|XERO_CLIENT_|ZOHO_CLIENT_)' \
+        echo "# From the development .env: the model, the accounting system apps and SharePoint"
+        grep -E '^(LLM_|EXTRACT_MAX_IMAGES|OCR_DETECTION_MODEL|OCR_RECOGNITION_MODEL|XERO_CLIENT_|ZOHO_CLIENT_|SHAREPOINT_(TENANT_ID|CLIENT_))' \
             "$DEV_REPO/.env" || true
     } > "$LIVE_DIR/.env"
     umask 022

@@ -13,7 +13,7 @@ import {
   type ValueKind,
   type QueueQuery,
   type RejectBody,
-  type RunCreate,
+  type SharePointRunCreate,
   type RunProgress,
   uploadRun,
 } from './client'
@@ -23,9 +23,7 @@ export const queryKeys = {
   me: ['me'] as const,
   readiness: ['readiness'] as const,
   clients: ['clients'] as const,
-  places: (clientId: string) => ['places', clientId] as const,
-  folder: (clientId: string, place: string, path: string) =>
-    ['folder', clientId, place, path] as const,
+  sharePoint: ['sharepoint'] as const,
   run: (runId: string) => ['run', runId] as const,
   runs: (clientId: string) => ['runs', clientId] as const,
   queue: (query: QueueQuery) => ['queue', query] as const,
@@ -148,31 +146,64 @@ export function useSyncAccounting() {
   })
 }
 
-/** Where a folder may be picked; idle until a client is picked. */
-export function usePlaces(clientId: string | undefined) {
-  return useQuery({
-    queryKey: queryKeys.places(clientId ?? ''),
-    queryFn: () => api.places(clientId ?? ''),
-    enabled: clientId !== undefined,
+/** Missan's SharePoint sign-in (decision 83). */
+export function useSharePointStatus() {
+  return useQuery({ queryKey: [...queryKeys.sharePoint, 'status'], queryFn: api.sharePointStatus })
+}
+
+export function useDisconnectSharePoint() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: api.disconnectSharePoint,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.sharePoint }),
   })
 }
 
-/** Sub-folders of `path` in a place; idle until a client and a place are picked. */
-export function useFolder(clientId: string | undefined, place: string | undefined, path: string) {
+/** SharePoint answers are read live, every time: what is there now is what a run takes. A
+ * refused sign-in is marked by the server, so the status is read again after an error. */
+function useSharePoint<T>(key: readonly unknown[], read: () => Promise<T>, enabled = true) {
+  const client = useQueryClient()
   return useQuery({
-    queryKey: queryKeys.folder(clientId ?? '', place ?? '', path),
-    queryFn: () => api.folder(clientId ?? '', place ?? '', path),
-    enabled: clientId !== undefined && place !== undefined,
-    retry: false, // a missing folder will not appear by retrying
+    queryKey: [...queryKeys.sharePoint, ...key],
+    queryFn: async () => {
+      try {
+        return await read()
+      } catch (error) {
+        void client.invalidateQueries({ queryKey: [...queryKeys.sharePoint, 'status'] })
+        throw error
+      }
+    },
+    enabled,
+    retry: false,
   })
+}
+
+export function useSharePointSites(enabled: boolean) {
+  return useSharePoint(['sites'], api.sharePointSites, enabled)
+}
+
+export function useSharePointLibraries(siteId: string | undefined) {
+  return useSharePoint(['libraries', siteId], () => api.sharePointLibraries(siteId ?? ''), siteId !== undefined)
+}
+
+export function useSharePointFolder(driveId: string | undefined, itemId: string | undefined) {
+  return useSharePoint(
+    ['folder', driveId, itemId],
+    () => api.sharePointFolder(driveId ?? '', itemId ?? ''),
+    driveId !== undefined && itemId !== undefined,
+  )
+}
+
+export function useSharePointLink() {
+  return useMutation({ mutationFn: api.sharePointLink })
 }
 
 export function useTypicalTime() {
   return useQuery({ queryKey: ['typical-time'], queryFn: api.typicalTime, staleTime: 60_000 })
 }
 
-export function useStartRun() {
-  return useMutation({ mutationFn: (body: RunCreate) => api.startRun(body) })
+export function useStartSharePointRun() {
+  return useMutation({ mutationFn: (body: SharePointRunCreate) => api.startSharePointRun(body) })
 }
 
 /** Upload files chosen on this computer and start their run (decision 78). */

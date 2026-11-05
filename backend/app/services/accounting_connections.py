@@ -9,7 +9,6 @@ the access working, disconnect. Any provider in the registry; its own calls stay
   renew the same refresh token at once.
 """
 
-import hashlib
 import hmac
 import logging
 import secrets
@@ -25,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import AccessRevoked, ConnectorError, Tokens
 from app.adapters.accounting.registry import ProviderEntry, Registry, by_slug
+from app.core import token_crypto
 from app.core.config import Settings
 from app.models import AccountingConnection, Client
 
@@ -225,17 +225,10 @@ def _store(settings: Settings, connection: AccountingConnection, tokens: Tokens)
 
 
 def _cipher(settings: Settings) -> Fernet:
-    key = settings.token_key.get_secret_value()
-    if not key:
-        raise AccountingConnectionError(
-            "TOKEN_KEY is not set in .env: create one with `make secret-key`"
-        )
     try:
-        return Fernet(key)
-    except ValueError as exc:
-        raise AccountingConnectionError(
-            "TOKEN_KEY in .env is not a valid key: `make secret-key`"
-        ) from exc
+        return token_crypto.cipher(settings)
+    except token_crypto.TokenKeyError as exc:
+        raise AccountingConnectionError(str(exc)) from exc
 
 
 def _decrypt(cipher: Fernet, value: str) -> str:
@@ -267,6 +260,5 @@ def _from_state(settings: Settings, state: str) -> tuple[str, str, str]:
 
 
 def _sign(settings: Settings, body: str) -> str:
-    _cipher(settings)  # no TOKEN_KEY: refuse, never sign with an empty or borrowed key
-    key = settings.token_key.get_secret_value()
-    return hmac.new(key.encode(), body.encode(), hashlib.sha256).hexdigest()[:32]
+    _cipher(settings)  # no TOKEN_KEY: refuse with this module's error
+    return token_crypto.sign(settings, body)

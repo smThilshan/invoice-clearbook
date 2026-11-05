@@ -109,6 +109,23 @@ make add-user EMAIL=accountant@missan.ae NAME="Name" ROLE=accountant
   2. **Connect** each one to Xero or Zoho again;
   3. **Sync** the master data.
 
+### 7b. SharePoint (decision 83)
+Invoice folders are read live from SharePoint, read only. The app registration in Entra ID
+(Missan's Microsoft tenant) has both redirect URIs: `http://localhost:8000/sharepoint/callback`
+and `https://<address>/api/sharepoint/callback`.
+1. Put the keys in `~/clearbook-live/.env` (and in the development `.env`): `SHAREPOINT_TENANT_ID`,
+   `SHAREPOINT_CLIENT_ID`, `SHAREPOINT_CLIENT_SECRET`, and
+   `SHAREPOINT_REDIRECT_URI=https://<address>/api/sharepoint/callback`. Type the secret yourself:
+   never paste it into a chat or a commit.
+2. `launchctl kickstart -k gui/$(id -u)/com.missan.clearbook.api` (and the reading worker).
+3. An admin opens **Clients → SharePoint → Connect SharePoint** and signs in with their own
+   Microsoft account. The Workbench then sees the sites and folders that account sees, and
+   never changes anything there.
+
+**Before the client secret expires** (24 months after it was made): make a new secret in Entra ID
+(App registrations → Clearbook → Certificates & secrets), put it in both `.env` files, restart.
+The sign-in itself lapses after 90 days without use: then **Connect SharePoint again**.
+
 ### 8. Prove the backup
 ```
 make live-backup
@@ -147,6 +164,8 @@ If unsure, restore last night's backup instead (below).
 | Files stay "waiting for the AI" | Is LM Studio running with the model? `launchctl kickstart -k gui/$(id -u)/com.missan.clearbook.llm`. Files that failed: **Retry** on the run page |
 | An upload stops halfway | The connection dropped: choose the folder again and upload again. Files that already arrived are recognised and not doubled |
 | Bills do not reach Xero | Open the Review queue: **Waiting to send** / **Could not send** show why. Check `worker-posting.log` |
+| "SharePoint needs to be connected again" | An admin: **Clients → Connect SharePoint again**. If it keeps happening, check the client secret has not expired (7b) |
+| A SharePoint run stops with "Could not fetch from SharePoint" | The reason is on the run page. Moved or renamed folder: open it again. No access: the connected account cannot open it |
 | Backup did not run | `make live-status` shows the last backup. Is the disk connected? `cat ~/clearbook-live/logs/backup.log` |
 
 ## Restoring after a loss

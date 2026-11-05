@@ -11,7 +11,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import __version__
-from app.api import accounting, auth, clients, documents, folders, health, runs
+from app.api import accounting, auth, clients, documents, folders, health, runs, sharepoint
 from app.core.config import Settings, get_settings
 from app.core.db import dispose_engine
 from app.core.logging import configure_logging
@@ -46,13 +46,16 @@ def _api(settings: Settings) -> FastAPI:
         redoc_url=None,
         openapi_url=None if is_prod else "/openapi.json",
     )
-    # Open: probes, logging in, and the accounting system's return (signed state). Everything
-    # else needs a logged-in user (decision 71); tests/test_routes_need_login.py keeps it so.
+    # Open: probes, logging in, and the return from an accounting system or SharePoint (signed
+    # state). Everything else needs a logged-in user (decision 71);
+    # tests/test_routes_need_login.py keeps it so.
     app.include_router(health.router)
     app.include_router(auth.router)
+    # SharePoint's own paths first: the accounting routes' "/{slug}/..." would match them too.
+    app.include_router(sharepoint.callback_router)
     app.include_router(accounting.callback_router)
     logged_in = [Depends(auth.current_user)]
-    for module in (runs, clients, folders, accounting, documents):
+    for module in (runs, clients, folders, sharepoint, accounting, documents):
         app.include_router(module.router, dependencies=logged_in)
     return app
 

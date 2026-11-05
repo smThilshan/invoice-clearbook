@@ -64,6 +64,7 @@ MARK_EXPIRES = timedelta(minutes=35)  # longer than the job time limit (30 min)
 
 
 class RunState(StrEnum):
+    FETCHING = "fetching"  # its SharePoint folder is being fetched (decision 83)
     SCANNING = "scanning"  # folder not listed yet
     PROCESSING = "processing"  # some files are queued or between steps
     FINISHED = "finished"  # every file settled: in review, parked, failed or duplicate
@@ -148,7 +149,7 @@ def start_run(
 
 def run_progress(session: Session, run: Run) -> RunProgress:
     if run.files is None:
-        return RunProgress(run, RunState.SCANNING, [])
+        return RunProgress(run, RunState.FETCHING if run.remote else RunState.SCANNING, [])
 
     paths = [str(path) for path in run.files]
     by_path: dict[str, Document] = {}

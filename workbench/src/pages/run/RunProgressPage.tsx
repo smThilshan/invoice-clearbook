@@ -117,6 +117,9 @@ export function RunProgressPage() {
         description={
           <>
             Folder <span className="font-medium text-foreground">{progress.folder || '(all)'}</span>
+            {progress.sharepoint_path && (
+              <span title={progress.sharepoint_path}> on SharePoint</span>
+            )}
             {' · '}
             {progress.folder_date ? `date ${formatDate(progress.folder_date)}` : 'no folder date'}
           </>
@@ -138,6 +141,20 @@ export function RunProgressPage() {
           <AlertTitle>The run could not continue</AlertTitle>
           <AlertDescription>{progress.failure_reason ?? 'Unknown reason.'}</AlertDescription>
         </Alert>
+      ) : progress.state === 'fetching' ? (
+        <div className="space-y-2">
+          <div role="status" className="flex items-center gap-2 text-sm">
+            {!stopped && <LoaderCircle className="size-4 animate-spin text-info" aria-hidden />}
+            {progress.fetch_total === null || progress.fetch_total === undefined
+              ? stopped
+                ? 'Stopped while looking through the folder on SharePoint.'
+                : 'Looking through the folder on SharePoint…'
+              : `${stopped ? 'Stopped' : 'Fetching'} from SharePoint: ${progress.fetched ?? 0} of ${progress.fetch_total} file${progress.fetch_total === 1 ? '' : 's'}`}
+          </div>
+          {progress.fetch_total ? (
+            <ProgressBar value={(progress.fetched ?? 0) / progress.fetch_total} label="Fetching from SharePoint" />
+          ) : null}
+        </div>
       ) : progress.state === 'scanning' ? (
         <div role="status" className="flex items-center gap-2 text-sm">
           <LoaderCircle className="size-4 animate-spin text-info" aria-hidden />
@@ -171,7 +188,7 @@ export function RunProgressPage() {
           ))}
         </ol>
       )}
-      {progress.state !== 'scanning' && progress.files.length === 0 && (
+      {progress.state !== 'scanning' && progress.state !== 'fetching' && progress.files.length === 0 && (
         <p className="text-sm text-muted-foreground">No documents found in this folder.</p>
       )}
 

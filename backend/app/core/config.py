@@ -153,6 +153,13 @@ class Settings(BaseSettings):
         "ZohoBooks.bills.ALL,ZohoBooks.contacts.ALL,ZohoBooks.settings.READ,"
         "ZohoBooks.accountants.READ"
     )
+    # SharePoint (decision 83): an app registered in Missan's Microsoft Entra ID (Web platform),
+    # signed in to once by a Missan user. Read-only delegated permissions: it sees what that user
+    # sees and can change nothing. Secrets only in .env; the client secret expires (24 months).
+    sharepoint_tenant_id: str = ""
+    sharepoint_client_id: str = ""
+    sharepoint_client_secret: SecretStr = SecretStr("")
+    sharepoint_redirect_uri: str = "http://localhost:8000/sharepoint/callback"
     # Encrypts the accounting system tokens stored in the database (`make secret-key`).
     token_key: SecretStr = SecretStr("")
     # Where the browser returns after connecting an accounting system.

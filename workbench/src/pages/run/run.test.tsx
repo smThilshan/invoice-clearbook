@@ -1,39 +1,45 @@
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AccountingStatus, FolderPlace, PlaceListing, Readiness, RunProgress } from '@/api/client'
+import type {
+  AccountingStatus,
+  Readiness,
+  RunProgress,
+  SharePointFolder,
+  SharePointListing,
+  SharePointStatus,
+} from '@/api/client'
 import { RUN_REFRESH_MS } from '@/api/queries'
 import { type Answer, mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
 const CLIENTS = [
-  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' }, // has its own folder
-  { client_id: 'spice-route', name: 'Spice Route' }, // has none
+  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor' },
+  { client_id: 'spice-route', name: 'Spice Route' },
 ]
-const OWN: FolderPlace = { key: 'client', label: 'Cafe Al Noor folder', path: '/Shared/Cafe Al Noor' }
-const MAC: FolderPlace = { key: 'p0', label: 'This Mac', path: '/Users/me' }
-type Sub = [name: string, date: string | null, files: number | null]
-const listing = (place: string, path: string, folders: Sub[], files = 0): PlaceListing => ({
-  place,
-  path,
-  folders: folders.map(([name, date, count]) => ({
-    name, path: path ? `${path}/${name}` : name, date, invoice_files: count,
-  })),
-  invoice_files: files,
-  total_files: folders.some(([, , n]) => n === null) ? null
-    : files + folders.reduce((sum, [, , n]) => sum + (n ?? 0), 0),
-})  // prettier-ignore
-const FOLDERS: Record<string, PlaceListing> = {
-  'client:': listing('client', '', [
-    ['October 2026', '2026-10-31', 2], ['August', '2026-08-31', 1], ['Supplier bills', null, 0],
-  ]),
-  'client:August': listing('client', 'August', [], 1),
-  'client:October 2026': listing('client', 'October 2026', [['21', '2026-10-21', 2]]),
-  'client:October 2026/21': listing('client', 'October 2026/21', [], 2),
-  'client:Supplier bills': listing('client', 'Supplier bills', []),
-  'p0:': listing('p0', '', [['Invoice tests', null, 3], ['Library', null, null]]),
-  'p0:Invoice tests': listing('p0', 'Invoice tests', [], 3),
+/** Missan's SharePoint sign-in (decision 83), connected. */
+const SHAREPOINT: SharePointStatus = {
+  configured: true, connected: true, needs_reconnect: false, reconnect_reason: null,
+  account_name: 'Made-up Admin', account_email: 'admin@missan.test', connected_by: 'admin@missan.test',
+  connected_at: '2026-11-05T08:00:00Z',
+}  // prettier-ignore
+const DRIVE = 'b!drive-1'
+const sp = (itemId: string, name: string, path: string, date: string | null, items: number | null = null): SharePointFolder =>
+  ({ drive_id: DRIVE, item_id: itemId, name, path, date, items })  // prettier-ignore
+const ROOT = sp('root', 'Documents', '', null)
+const ROAST = sp('f-roast', 'ROAST', 'ROAST', null, 1)
+const APRIL = sp('f-april', 'April', 'ROAST/April', '2026-04-30', 2)
+const APRIL_11 = sp('f-a11', 'April 11', 'ROAST/April/April 11', '2026-04-11', 3)
+const SUPPLIERS = sp('f-sup', 'Supplier bills', 'ROAST/Supplier bills', null, 0)
+const inside = (folder: SharePointFolder, folders: SharePointFolder[], files = 0, other = 0): SharePointListing =>
+  ({ folder, folders, invoice_files: files, other_files: other })  // prettier-ignore
+const LISTINGS: Record<string, SharePointListing> = {
+  root: inside(ROOT, [ROAST]),
+  'f-roast': inside(ROAST, [APRIL, SUPPLIERS]),
+  'f-april': inside(APRIL, [APRIL_11], 1),
+  'f-a11': inside(APRIL_11, [], 2, 1),
+  'f-sup': inside(SUPPLIERS, []),
 }
 const RUN_ID = '6f1c2b0e-0000-4000-8000-000000000001'
 const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url: '/xero/connect' }
@@ -63,14 +69,9 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function places(request: Request) {
-  return new URL(request.url).searchParams.get('client_id') === 'cafe-al-noor' ? [OWN, MAC] : [MAC]
-}
-
-function folder(request: Request) {
-  const params = new URL(request.url).searchParams
-  const path = params.get('path') ?? ''
-  return FOLDERS[`${params.get('place')}:${path}`] ?? reply(404, { detail: `folder not found: ${path}` })
+function sharePointFolder(request: Request) {
+  const itemId = new URL(request.url).searchParams.get('item_id') ?? ''
+  return LISTINGS[itemId] ?? reply(409, { detail: 'not found in SharePoint (moved, renamed or deleted?)' })
 }
 
 function backend(extra: Record<string, Answer> = {}) {
@@ -78,18 +79,16 @@ function backend(extra: Record<string, Answer> = {}) {
     '/health/ready': READY,
     '/clients': CLIENTS,
     'POST /clients': reply(201, { client_id: 'blue-sky', name: 'Blue Sky' }),
-    '/folders/places': places,
-    '/folders': folder,
     '/runs/typical-time': { typical_ms: 240_000 },
     '/clients/cafe-al-noor/accounting': SYNCED,
     '/clients/spice-route/accounting': SYNCED,
     '/clients/blue-sky/accounting': SYNCED,
-    'POST /runs': reply(202, {
-      run_id: RUN_ID,
-      status: 'RUNNING',
-      folder: 'October 2026/21',
-      folder_date: '2026-10-21',
-    }),
+    '/sharepoint/status': SHAREPOINT,
+    '/sharepoint/sites': [{ site_id: 's-roast', name: 'ROAST HUB', web_url: 'https://missan.sharepoint.com/sites/ROASTHUB' }],
+    '/sharepoint/sites/s-roast/libraries': [{ drive_id: DRIVE, name: 'Documents' }],
+    '/sharepoint/folder': sharePointFolder,
+    '/sharepoint/link': APRIL,
+    'POST /runs/sharepoint': reply(202, { run_id: RUN_ID, status: 'RUNNING', folder: 'April 11', folder_date: '2026-04-11' }),
     [`/runs/${RUN_ID}`]: progress(),
     ...extra,
   })
@@ -110,6 +109,9 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
     typical_ms: 240_000,
     force_stop: false,
     server_time: '2026-10-21T08:05:00Z',
+    sharepoint_path: null,
+    fetched: null,
+    fetch_total: null,
     files: [
       { file: 'inv-1.pdf', status: 'IN_REVIEW', document_id: 'd1', document_type: 'BILL',
         pages: 1, failure_reason: null, from_earlier_run: false, step: 'done', step_since: null,
@@ -132,108 +134,268 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
   }
 }
 
-async function pickClient(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor', from = 'On the server') {
+async function pickClient(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor', from = 'On SharePoint') {
   await user.click(await screen.findByRole('combobox', { name: 'Client' }))
   await user.click(await screen.findByRole('option', { name }))
-  await user.click(within(screen.getByRole('group', { name: 'Where the documents are' })).getByRole('button', { name: from }))
+  await user.click(within(await screen.findByRole('group', { name: 'Where the documents are' })).getByRole('button', { name: from }))
 }
 
-async function openFolder(user: ReturnType<typeof userEvent.setup>, name: string) {
-  const list = await screen.findByRole('list', { name: 'Sub-folders' })
-  await user.click(within(list).getByRole('button', { name: new RegExp(`^${name}`) }))
+async function open(user: ReturnType<typeof userEvent.setup>, list: string, name: string) {
+  const choices = await screen.findByRole('list', { name: list })
+  await user.click(within(choices).getByRole('button', { name: new RegExp(`^${name}`) }))
 }
 
-describe('run screen', () => {
-  it("opens the client's own folder, browses into a day folder and takes its date", async () => {
+/** Sites › ROAST HUB › Documents › ROAST › then `folders`. */
+async function browseTo(user: ReturnType<typeof userEvent.setup>, ...folders: string[]) {
+  await open(user, 'Sites', 'ROAST HUB')
+  await open(user, 'Libraries', 'Documents')
+  await open(user, 'Sub-folders', 'ROAST')
+  for (const folder of folders) await open(user, 'Sub-folders', folder)
+}
+
+describe('run screen: documents on SharePoint', () => {
+  it('browses from the sites into a day folder and takes its date', async () => {
     backend()
     const user = userEvent.setup()
     renderApp('/run')
 
     await pickClient(user)
-    await openFolder(user, 'October 2026')
-    await openFolder(user, '21')
+    await browseTo(user, 'April', 'April 11')
 
-    const placeGroup = screen.getByRole('group', { name: 'Place' })
-    expect(within(placeGroup).getByRole('button', { name: 'Cafe Al Noor folder' }))
-      .toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('navigation', { name: 'Folder path' })).toHaveTextContent(
-      'Cafe Al Noor folder' + 'October 2026' + '21',
+      'All sites' + 'ROAST HUB' + 'Documents' + 'ROAST' + 'April' + 'April 11',
     )
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-10-21')
-    expect(screen.getByTestId('date-hint')).toHaveTextContent('Taken from the folder name.')
-    expect(await screen.findByTestId('file-count')).toHaveTextContent('2 invoice files')
-    expect(screen.getByText('No sub-folders here.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-11')
+    expect(screen.getByTestId('date-hint')).toHaveTextContent('which has no year: 2026 is assumed.')
+    expect(await screen.findByTestId('file-count')).toHaveTextContent(
+      '2 invoice files (PDF or photo) in this folder. 1 other file left out.',
+    )
   })
 
-  it('says which year is assumed for a folder name without one', async () => {
+  it('shows each sub-folder with how much is in it and its date', async () => {
     backend()
     const user = userEvent.setup()
     renderApp('/run')
 
     await pickClient(user)
-    await openFolder(user, 'August')
+    await browseTo(user)
 
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-08-31')
-    expect(screen.getByTestId('date-hint')).toHaveTextContent(
-      'which has no year: 2026 is assumed. Change it if the documents are from another year.',
-    )
+    const april = within(await screen.findByRole('list', { name: 'Sub-folders' })).getByRole('button', { name: /^April/ })
+    expect(april).toHaveTextContent('2 items')
+    expect(april).toHaveTextContent('30 Apr 2026')
   })
 
-  it('goes back up with the folder path and uses the month end for a month folder', async () => {
-    backend()
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user)
-    await openFolder(user, 'October 2026')
-    await openFolder(user, '21')
-    await user.click(screen.getByRole('button', { name: 'October 2026' }))
-
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-10-31')
-    expect(await screen.findByRole('button', { name: /^21/ })).toBeInTheDocument()
-  })
-
-  it('starts the run with the place, folder and date, then shows its progress', async () => {
+  it('starts the run with the folder and date, then shows its progress', async () => {
     const api = backend()
     const user = userEvent.setup()
     const router = renderApp('/run')
 
     await pickClient(user)
-    await openFolder(user, 'October 2026')
-    await openFolder(user, '21')
-    await user.click(
-      screen.getByRole('button', { name: 'Run Cafe Al Noor: Cafe Al Noor folder / October 2026 / 21' }),
-    )
+    await browseTo(user, 'April', 'April 11')
+    const summary = screen.getByLabelText('Run summary')
+    await waitFor(() => expect(summary).toHaveTextContent('2 invoice files · about 8 min on this computer'))
+    expect(summary).toHaveTextContent('ROAST HUB / Documents / ROAST / April / April 11')
+    await user.click(screen.getByRole('button', { name: 'Run Cafe Al Noor: April 11' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe(`/run/${RUN_ID}`))
-    expect(api.bodies['POST /runs']).toEqual({
-      client_id: 'cafe-al-noor',
-      place: 'client',
-      folder: 'October 2026/21',
-      folder_date: '2026-10-21',
-    })
+    expect(api.bodies['POST /runs/sharepoint']).toEqual({
+      client_id: 'cafe-al-noor', drive_id: DRIVE, item_id: 'f-a11', folder_date: '2026-04-11',
+    })  // prettier-ignore
     expect(await screen.findByRole('heading', { name: 'Run: Cafe Al Noor' })).toBeInTheDocument()
   })
 
-  it('runs a folder on this Mac, but never the whole of it', async () => {
+  it('runs a folder with sub-folders, saying the run takes everything inside', async () => {
     const api = backend()
     const user = userEvent.setup()
     renderApp('/run')
 
     await pickClient(user)
-    await user.click(within(await screen.findByRole('group', { name: 'Place' })).getByRole('button', { name: 'This Mac' }))
+    await browseTo(user, 'April')
 
-    expect(await screen.findByText(/Open a folder inside This Mac first/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Run Cafe Al Noor/ })).toBeDisabled()
-    await openFolder(user, 'Invoice tests')
-    expect(await screen.findByTestId('file-count')).toHaveTextContent('3 invoice files')
-    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
-
-    await waitFor(() =>
-      expect(api.bodies['POST /runs']).toMatchObject({ place: 'p0', folder: 'Invoice tests' }),
+    expect(await screen.findByTestId('file-count')).toHaveTextContent(
+      '1 invoice file here and 1 sub-folder: a run takes everything inside.',
     )
+    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-30')
+    await user.click(screen.getByRole('button', { name: 'Run Cafe Al Noor: April' }))
+    await waitFor(() => expect(api.bodies['POST /runs/sharepoint']).toMatchObject({ item_id: 'f-april' }))
   })
 
+  it('never runs a whole library', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await open(user, 'Sites', 'ROAST HUB')
+    await open(user, 'Libraries', 'Documents')
+
+    expect(await screen.findByText(/Open a folder inside Documents first/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Run Cafe Al Noor/ })).toBeDisabled()
+  })
+
+  it('cannot run a folder without invoice files', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await browseTo(user, 'Supplier bills')
+
+    expect(await screen.findByText('No invoice files in this folder.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Run Cafe Al Noor/ })).toBeDisabled()
+    expect(screen.getByTestId('date-hint')).toHaveTextContent('The folder name has no date.')
+  })
+
+  it('goes back up with the folder path', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await browseTo(user, 'April', 'April 11')
+    await user.click(within(screen.getByRole('navigation', { name: 'Folder path' })).getByRole('button', { name: 'April' }))
+
+    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-30')
+    expect(await screen.findByRole('button', { name: /^April 11/ })).toBeInTheDocument()
+  })
+
+  it('opens a pasted SharePoint link straight at its folder', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await user.type(await screen.findByRole('textbox', { name: 'SharePoint folder link' }), 'https://missan.sharepoint.com/:f:/s/ROASTHUB/April')
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(await screen.findByRole('navigation', { name: 'Folder path' })).toHaveTextContent('All sites' + 'April')
+    expect(api.calls).toContain('GET /sharepoint/link?url=https%3A%2F%2Fmissan.sharepoint.com%2F%3Af%3A%2Fs%2FROASTHUB%2FApril')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-30')
+  })
+
+  it('says why a pasted link could not be opened', async () => {
+    backend({ '/sharepoint/link': reply(409, { detail: 'this link is to a file: paste the link of the folder it is in' }) })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await user.type(await screen.findByRole('textbox', { name: 'SharePoint folder link' }), 'https://missan.sharepoint.com/:b:/x')
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+
+    expect(await screen.findByText('This link could not be opened')).toBeInTheDocument()
+    expect(screen.getByText(/link is to a file/)).toBeInTheDocument()
+  })
+
+  it('sends no folder date when the user clears it', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await browseTo(user, 'April', 'April 11')
+    await user.clear(screen.getByLabelText('Folder date'))
+
+    expect(screen.getByTestId('date-hint')).toHaveTextContent('the period check is skipped')
+    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
+    await waitFor(() => expect(api.bodies['POST /runs/sharepoint']).toMatchObject({ folder_date: null }))
+  })
+
+  it('says why the run did not start', async () => {
+    backend({ 'POST /runs/sharepoint': reply(409, { detail: 'not found in SharePoint (moved, renamed or deleted?)' }) })
+    const user = userEvent.setup()
+    const router = renderApp('/run')
+
+    await pickClient(user)
+    await browseTo(user, 'April', 'April 11')
+    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
+
+    expect(await screen.findByText('The run did not start')).toBeInTheDocument()
+    expect(screen.getByText(/not found in SharePoint/)).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/run')
+  })
+
+  it('says why a folder could not be opened', async () => {
+    backend({ '/sharepoint/sites': reply(409, { detail: 'you do not have access to this in SharePoint' }) })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+
+    expect(await screen.findByText('SharePoint sites could not be loaded')).toBeInTheDocument()
+    expect(screen.getByText('you do not have access to this in SharePoint')).toBeInTheDocument()
+  })
+
+  it('remembers the last SharePoint folder per client and opens it again', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await browseTo(user, 'April', 'April 11')
+    expect(JSON.parse(localStorage.getItem('clearbook.lastSharePoint.cafe-al-noor') ?? '[]')).toMatchObject([
+      { kind: 'site', name: 'ROAST HUB' }, { name: 'Documents' }, { name: 'ROAST' }, { name: 'April' },
+      { name: 'April 11', itemId: 'f-a11' },
+    ])  // prettier-ignore
+    cleanup()
+
+    renderApp('/run')
+    await pickClient(user)
+    expect(await screen.findByRole('navigation', { name: 'Folder path' })).toHaveTextContent('April 11')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-11')
+  })
+
+  it('asks an admin to connect SharePoint, coming back to the Run page', async () => {
+    backend({ '/sharepoint/status': { ...SHAREPOINT, connected: false, account_name: null } })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+
+    expect(await screen.findByRole('link', { name: 'Connect SharePoint' })).toHaveAttribute(
+      'href', '/api/sharepoint/connect?back=run',
+    )  // prettier-ignore
+    expect(screen.queryByRole('textbox', { name: 'SharePoint folder link' })).not.toBeInTheDocument()
+  })
+
+  it('tells an accountant an admin connects SharePoint, and offers this computer meanwhile', async () => {
+    backend({
+      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },
+      '/sharepoint/status': { ...SHAREPOINT, needs_reconnect: true, reconnect_reason: 'Microsoft no longer accepts the SharePoint sign-in' },
+    })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+
+    expect(await screen.findByText(/An admin connects it on the Clients page/)).toHaveTextContent(
+      'SharePoint needs to be connected again: Microsoft no longer accepts the SharePoint sign-in.',
+    )
+    expect(screen.queryByRole('link', { name: /Connect SharePoint/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'On my computer' }))
+    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+  })
+
+  it('offers only this computer when SharePoint is not set up', async () => {
+    backend({ '/sharepoint/status': { ...SHAREPOINT, configured: false, connected: false } })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await user.click(await screen.findByRole('combobox', { name: 'Client' }))
+    await user.click(await screen.findByRole('option', { name: 'Cafe Al Noor' }))
+
+    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Where the documents are' })).not.toBeInTheDocument()
+  })
+
+  it('says it is connected after the SharePoint sign-in, or why not', async () => {
+    backend()
+    renderApp('/run?sharepoint=Made-up+Admin')
+    expect(await screen.findByText('Connected to SharePoint')).toBeInTheDocument()
+    expect(screen.getByText(/As Made-up Admin. Read only/)).toBeInTheDocument()
+  })
+})
+
+describe('run screen', () => {
   it('creates a client from a name and picks it straight away', async () => {
     const api = backend()
     const user = userEvent.setup()
@@ -244,10 +406,7 @@ describe('run screen', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() => expect(api.bodies['POST /clients']).toEqual({ name: 'Blue Sky' }))
-    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'On the server' }))
-    expect(await screen.findByRole('button', { name: 'This Mac' })).toBeInTheDocument()
-    expect(api.calls).toContain('GET /folders/places?client_id=blue-sky')
+    expect(await screen.findByRole('textbox', { name: 'SharePoint folder link' })).toBeInTheDocument()
     expect(localStorage.getItem('clearbook.lastClient')).toBe('blue-sky')
   })
 
@@ -261,105 +420,6 @@ describe('run screen', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }))
 
     expect(await screen.findByText('The client was not created')).toBeInTheDocument()
-  })
-
-  it('sends no folder date when the user clears it', async () => {
-    const api = backend()
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user)
-    await openFolder(user, 'October 2026')
-    await user.clear(screen.getByLabelText('Folder date'))
-
-    expect(screen.getByTestId('date-hint')).toHaveTextContent('the period check is skipped')
-    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
-    await waitFor(() =>
-      expect(api.bodies['POST /runs']).toEqual({
-        client_id: 'cafe-al-noor',
-        place: 'client',
-        folder: 'October 2026',
-        folder_date: null,
-      }),
-    )
-  })
-
-  it('asks for a date when the folder name has none', async () => {
-    backend()
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user)
-    await openFolder(user, 'Supplier bills')
-
-    expect(screen.getByLabelText('Folder date')).toHaveValue('')
-    expect(screen.getByTestId('date-hint')).toHaveTextContent('The folder name has no date.')
-  })
-
-  it('says why a folder could not be opened', async () => {
-    backend({ '/folders': reply(404, { detail: 'folder not found: Invoice tests' }) })
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user, 'Spice Route')
-
-    expect(await screen.findByText('This folder could not be opened')).toBeInTheDocument()
-    expect(screen.getByText('folder not found: Invoice tests')).toBeInTheDocument()
-  })
-
-  it('says why the run did not start', async () => {
-    backend({ 'POST /runs': reply(404, { detail: 'folder not found: October 2026' }) })
-    const user = userEvent.setup()
-    const router = renderApp('/run')
-
-    await pickClient(user)
-    await openFolder(user, 'October 2026')
-    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
-
-    expect(await screen.findByText('The run did not start')).toBeInTheDocument()
-    expect(screen.getByText('folder not found: October 2026')).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/run')
-  })
-
-  it('sums up the run before it starts: files and roughly how long', async () => {
-    backend()
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user)
-    expect(await screen.findByRole('button', { name: /^October 2026/ })).toHaveTextContent('2 invoices')
-    await openFolder(user, 'October 2026')
-
-    const run = screen.getByLabelText('Run summary')
-    await waitFor(() => expect(run).toHaveTextContent('2 invoice files · about 8 min on this computer'))
-    expect(screen.getByTestId('file-count')).toHaveTextContent('2 invoice files in its sub-folders')
-  })
-
-  it('cannot run a folder without invoice files', async () => {
-    backend()
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user)
-    await openFolder(user, 'Supplier bills')
-
-    expect(await screen.findByText('No invoice files in this folder or below it.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Run Cafe Al Noor/ })).toBeDisabled()
-  })
-
-  it('says when a folder is too big to count, and remembers the last folder per client', async () => {
-    backend()
-    const user = userEvent.setup()
-    renderApp('/run')
-
-    await pickClient(user)
-    await user.click(within(await screen.findByRole('group', { name: 'Place' })).getByRole('button', { name: 'This Mac' }))
-    expect(await screen.findByRole('button', { name: /^Library/ })).toHaveTextContent('many files')
-    await openFolder(user, 'Invoice tests')
-
-    expect(JSON.parse(localStorage.getItem('clearbook.lastFolder.cafe-al-noor') ?? '{}')).toMatchObject({
-      place: 'p0', crumbs: [{ name: 'This Mac' }, { name: 'Invoice tests' }],
-    })  // prettier-ignore
   })
 
   it('says how to add the first client', async () => {
@@ -496,7 +556,7 @@ describe('run screen: the client\'s accounting system', () => {
 
     const status = await screen.findByLabelText('Accounting system')
     expect(await within(status).findByText('Zoho Books: Missan Trading. Accounts synced (42).')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'SharePoint folder link' })).toBeInTheDocument()
   })
 
   it('syncs on the page before the documents can be chosen', async () => {
@@ -514,11 +574,11 @@ describe('run screen: the client\'s accounting system', () => {
     await pickOnly(user)
     expect(await screen.findByText(/not synced yet/)).toBeInTheDocument()
     expect(screen.getByText(/First get the client's accounting system ready/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Choose folder' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'SharePoint folder link' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Sync now' }))
 
-    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'SharePoint folder link' })).toBeInTheDocument()
     expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/sync')
   })
 
@@ -535,7 +595,7 @@ describe('run screen: the client\'s accounting system', () => {
     expect(screen.getByRole('link', { name: 'Connect Zoho Books' })).toHaveAttribute(
       'href', '/api/zoho/connect?client_id=cafe-al-noor&back=run',
     )  // prettier-ignore
-    expect(screen.queryByRole('button', { name: 'Choose folder' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'SharePoint folder link' })).not.toBeInTheDocument()
   })
 
   it('runs a client without an accounting system on its imported accounts', async () => {
@@ -546,7 +606,7 @@ describe('run screen: the client\'s accounting system', () => {
     await pickOnly(user)
 
     expect(await screen.findByText('No accounting system: uses the 12 imported accounts.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'SharePoint folder link' })).toBeInTheDocument()
   })
 
   it('syncs a synced client again for new accounts or suppliers', async () => {
@@ -607,7 +667,7 @@ describe('run screen: the client\'s accounting system', () => {
     const router = renderApp('/run?client=cafe-al-noor&connected=Missan+Trading&system=Zoho+Books')
 
     expect(await screen.findByText('Connected to Zoho Books')).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'SharePoint folder link' })).toBeInTheDocument()
     expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/sync')
     expect(screen.getByRole('combobox', { name: 'Client' })).toHaveTextContent('Cafe Al Noor')
     expect(router.state.location.search).toBe('')
@@ -628,6 +688,7 @@ describe('run screen: the client\'s accounting system', () => {
     const router = renderApp('/run')
 
     await pickOnly(user)
+    await user.click(within(await screen.findByRole('group', { name: 'Where the documents are' })).getByRole('button', { name: 'On my computer' }))
     await user.upload(await screen.findByLabelText('Folder to upload'), [chosen('Bills/a.pdf')])
     await user.click(screen.getByRole('link', { name: /review queue/i }))
 
@@ -754,6 +815,21 @@ describe('run progress', () => {
 
     await waitFor(() => expect(api.calls).toContain(`POST /runs/${RUN_ID}/resume`))
     expect(await screen.findByRole('button', { name: 'Stop run' })).toBeInTheDocument()
+  })
+
+  it('shows how far fetching from SharePoint got before the files are run', async () => {
+    backend({
+      [`/runs/${RUN_ID}`]: progress({
+        state: 'fetching', files: [], files_found: 0, counts: {}, folder: 'April 11',
+        sharepoint_path: 'ROAST/April/April 11', fetched: 12, fetch_total: 37,
+      }),
+    })  // prettier-ignore
+    renderApp(`/run/${RUN_ID}`)
+
+    expect(await screen.findByText('Fetching from SharePoint: 12 of 37 files')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Fetching from SharePoint' })).toBeInTheDocument()
+    expect(screen.getByText('on SharePoint')).toHaveAttribute('title', 'ROAST/April/April 11')
+    expect(screen.queryByText('No documents found in this folder.')).not.toBeInTheDocument()
   })
 
   it('shows why a run could not continue', async () => {

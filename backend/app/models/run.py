@@ -50,5 +50,10 @@ class Run(UuidPk, ClientScoped, Timestamps, Base):
     # Force stop (task 4.20): the user asked to abandon the model read under way; only on a
     # stopped run, cleared by Resume.
     force_stop: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Decision 83: a folder on SharePoint, fetched into `root_path` before the scan:
+    # {"system": "sharepoint", "drive_id", "item_id", "path"}; null = the files were already here.
+    remote: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    fetch_total: Mapped[int | None]  # invoice files to fetch; null = not listed yet
+    fetched: Mapped[int | None]  # fetched so far; null = nothing to fetch
 
     __table_args__ = (Index(None, "client_id", "folder_date"),)

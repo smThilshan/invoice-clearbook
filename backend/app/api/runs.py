@@ -1,5 +1,6 @@
-"""Runs: process a folder the user picked in an allowed place (decisions 25, 35), or one
-uploaded from their own computer (decision 78). Behind the login (decision 71).
+"""Runs: process a folder the user picked in an allowed place (decisions 25, 35), one uploaded
+from their own computer (decision 78), or one on SharePoint (decision 83). Behind the login
+(decision 71).
 """
 
 import uuid
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.auth import UserDep
+from app.api.sharepoint import MicrosoftDep
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType
@@ -32,6 +34,8 @@ from app.services.runs import (
     stop_run,
     typical_work_ms,
 )
+from app.services.sharepoint import SharePointError
+from app.services.sharepoint_runs import start_sharepoint_run
 from app.services.timings import StepTimings
 from app.services.uploads import UploadedFile, UploadError, start_upload_run
 
@@ -104,6 +108,10 @@ class RunProgressOut(BaseModel):
     typical_ms: int | None  # recent work time per file (for time left); null when finished
     force_stop: bool  # force stop asked: the read under way is being abandoned (task 4.20)
     server_time: datetime  # so the screen's timers use the server's clock
+    # Decision 83: a SharePoint folder (its path there), fetched before the run reads it.
+    sharepoint_path: str | None
+    fetched: int | None  # files fetched so far; null = nothing to fetch
+    fetch_total: int | None  # files to fetch; null = not listed yet
 
 
 class TypicalTime(BaseModel):
@@ -197,6 +205,47 @@ def upload_run(
     return UploadAccepted(run_id=run.id, status=run.status, folder=run.folder,
                           folder_date=run.folder_date, files=result.files,
                           skipped=result.skipped)  # fmt: skip
+
+
+class SharePointRunCreate(BaseModel):
+    client_id: str
+    drive_id: str = Field(description="The folder, as GET /sharepoint/folder names it")
+    item_id: str
+    folder_date: date | None = Field(
+        default=None,
+        description="Confirmed on the Run screen; null = no folder date. "
+        "Left out: read from the folder's path on SharePoint.",
+    )
+
+
+@router.post("/sharepoint", status_code=status.HTTP_202_ACCEPTED)
+def sharepoint_run(
+    body: SharePointRunCreate,
+    session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    enqueue_scan: Annotated[Callable[[str], object], Depends(get_enqueue_scan)],
+    microsoft: MicrosoftDep,
+    user: UserDep,
+) -> RunAccepted:
+    """A SharePoint folder, sub-folders included (decision 83): the worker fetches its invoice
+    files (read only), then runs them like any folder. Progress: GET /runs/{id}."""
+    client = get_client(session, body.client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+    folder_date = body.folder_date if "folder_date" in body.model_fields_set else FROM_FOLDER
+    try:
+        run = start_sharepoint_run(session, settings, client=client, drive_id=body.drive_id,
+                                   item_id=body.item_id, folder_date=folder_date,
+                                   created_by=user.email, microsoft=microsoft)  # fmt: skip
+        session.commit()
+    except SharePointError as exc:
+        session.commit()  # a renewed sign-in is kept; no run was made
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    enqueue_scan(str(run.id))  # after commit, so the worker always finds the run
+    return RunAccepted(
+        run_id=run.id, status=run.status, folder=run.folder, folder_date=run.folder_date
+    )
 
 
 @router.get("/{run_id}")
@@ -307,6 +356,9 @@ def _progress_out(session: Session, run: Run) -> RunProgressOut:
         typical_ms=progress.typical_ms,
         force_stop=run.force_stop,
         server_time=datetime.now(UTC),
+        sharepoint_path=run.remote.get("path") if run.remote else None,
+        fetched=run.fetched,
+        fetch_total=run.fetch_total,
         files=[
             FileStatus(
                 file=_inside(run.folder, f.path),

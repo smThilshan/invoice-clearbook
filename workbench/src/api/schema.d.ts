@@ -661,6 +661,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/sharepoint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sharepoint Run
+         * @description A SharePoint folder, sub-folders included (decision 83): the worker fetches its invoice
+         *     files (read only), then runs them like any folder. Progress: GET /runs/{id}.
+         */
+        post: operations["sharepoint_run_runs_sharepoint_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/typical-time": {
         parameters: {
             query?: never;
@@ -777,6 +798,154 @@ export interface paths {
          *     running finishes first. 409 if the run is not running.
          */
         post: operations["stop_runs__run_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Callback */
+        get: operations["callback_sharepoint_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Connect
+         * @description Start Microsoft's sign-in; afterwards the admin returns to `back`.
+         */
+        get: operations["connect_sharepoint_connect_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect */
+        post: operations["disconnect_sharepoint_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Folder
+         * @description What is in a folder ("root": the library itself).
+         */
+        get: operations["get_folder_sharepoint_folder_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Link
+         * @description The folder a pasted SharePoint address leads to.
+         */
+        get: operations["get_link_sharepoint_link_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sites
+         * @description The sites the connected account can open.
+         */
+        get: operations["get_sites_sharepoint_sites_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/sites/{site_id}/libraries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Libraries */
+        get: operations["get_libraries_sharepoint_sites__site_id__libraries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sharepoint/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Status */
+        get: operations["get_status_sharepoint_status_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1295,6 +1464,13 @@ export interface components {
             /** Suggestion */
             suggestion?: string | null;
         };
+        /** LibraryOut */
+        LibraryOut: {
+            /** Drive Id */
+            drive_id: string;
+            /** Name */
+            name: string;
+        };
         /** Line */
         "Line-Input": {
             /**
@@ -1610,6 +1786,10 @@ export interface components {
             created_at: string;
             /** Failure Reason */
             failure_reason: string | null;
+            /** Fetch Total */
+            fetch_total: number | null;
+            /** Fetched */
+            fetched: number | null;
             /** Files */
             files: components["schemas"]["FileStatus"][];
             /** Files Found */
@@ -1630,6 +1810,8 @@ export interface components {
              * Format: date-time
              */
             server_time: string;
+            /** Sharepoint Path */
+            sharepoint_path: string | null;
             state: components["schemas"]["RunState"];
             status: components["schemas"]["RunStatus"];
             /** Typical Ms */
@@ -1639,7 +1821,7 @@ export interface components {
          * RunState
          * @enum {string}
          */
-        RunState: "scanning" | "processing" | "finished";
+        RunState: "fetching" | "scanning" | "processing" | "finished";
         /**
          * RunStatus
          * @enum {string}
@@ -1667,6 +1849,76 @@ export interface components {
              * @enum {string}
              */
             state: "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted";
+        };
+        /** SharePointFolderOut */
+        SharePointFolderOut: {
+            /** Date */
+            date: string | null;
+            /** Drive Id */
+            drive_id: string;
+            /** Item Id */
+            item_id: string;
+            /** Items */
+            items: number | null;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+        };
+        /** SharePointListing */
+        SharePointListing: {
+            folder: components["schemas"]["SharePointFolderOut"];
+            /** Folders */
+            folders: components["schemas"]["SharePointFolderOut"][];
+            /** Invoice Files */
+            invoice_files: number;
+            /** Other Files */
+            other_files: number;
+        };
+        /** SharePointRunCreate */
+        SharePointRunCreate: {
+            /** Client Id */
+            client_id: string;
+            /**
+             * Drive Id
+             * @description The folder, as GET /sharepoint/folder names it
+             */
+            drive_id: string;
+            /**
+             * Folder Date
+             * @description Confirmed on the Run screen; null = no folder date. Left out: read from the folder's path on SharePoint.
+             */
+            folder_date?: string | null;
+            /** Item Id */
+            item_id: string;
+        };
+        /** SharePointStatus */
+        SharePointStatus: {
+            /** Account Email */
+            account_email: string | null;
+            /** Account Name */
+            account_name: string | null;
+            /** Configured */
+            configured: boolean;
+            /** Connected */
+            connected: boolean;
+            /** Connected At */
+            connected_at: string | null;
+            /** Connected By */
+            connected_by: string | null;
+            /** Needs Reconnect */
+            needs_reconnect: boolean;
+            /** Reconnect Reason */
+            reconnect_reason: string | null;
+        };
+        /** SiteOut */
+        SiteOut: {
+            /** Name */
+            name: string;
+            /** Site Id */
+            site_id: string;
+            /** Web Url */
+            web_url: string;
         };
         /** Span */
         Span: {
@@ -2962,6 +3214,39 @@ export interface operations {
             };
         };
     };
+    sharepoint_run_runs_sharepoint_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharePointRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_typical_time_runs_typical_time_get: {
         parameters: {
             query?: never;
@@ -3135,6 +3420,224 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_sharepoint_callback_get: {
+        parameters: {
+            query?: {
+                state?: string;
+                code?: string;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connect_sharepoint_connect_get: {
+        parameters: {
+            query?: {
+                back?: "clients" | "run";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_sharepoint_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePointStatus"];
+                };
+            };
+        };
+    };
+    get_folder_sharepoint_folder_get: {
+        parameters: {
+            query: {
+                drive_id: string;
+                item_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePointListing"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_link_sharepoint_link_get: {
+        parameters: {
+            query: {
+                url: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePointFolderOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sites_sharepoint_sites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteOut"][];
+                };
+            };
+        };
+    };
+    get_libraries_sharepoint_sites__site_id__libraries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                site_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_status_sharepoint_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharePointStatus"];
                 };
             };
         };

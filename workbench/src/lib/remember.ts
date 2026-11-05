@@ -20,29 +20,23 @@ export function rememberClient(clientId: string): void {
   }
 }
 
-/** The folder last run or opened for a client (task 4.17): its place and the path to it. */
-export interface RememberedFolder {
-  place: string
-  crumbs: { name: string; path: string; date: string | null }[]
-}
+/** The SharePoint folder last opened for a client (task 4.17, decision 83): the way to it from
+ * the list of sites. Kept as the screen saved it; `isStep` checks each step is still readable. */
+const LAST_SHAREPOINT = 'clearbook.lastSharePoint.'
 
-const LAST_FOLDER = 'clearbook.lastFolder.'
-
-export function lastFolder(clientId: string): RememberedFolder | undefined {
+export function lastTrail<T>(clientId: string, isStep: (step: unknown) => step is T): T[] | undefined {
   try {
-    const saved = localStorage.getItem(LAST_FOLDER + clientId)
+    const saved = localStorage.getItem(LAST_SHAREPOINT + clientId)
     const parsed: unknown = saved ? JSON.parse(saved) : undefined
-    if (typeof parsed !== 'object' || parsed === null) return undefined
-    const { place, crumbs } = parsed as Partial<RememberedFolder>
-    return typeof place === 'string' && Array.isArray(crumbs) ? { place, crumbs } : undefined
+    return Array.isArray(parsed) && parsed.every(isStep) ? parsed : undefined
   } catch {
     return undefined
   }
 }
 
-export function rememberFolder(clientId: string, folder: RememberedFolder): void {
+export function rememberTrail(clientId: string, trail: unknown[]): void {
   try {
-    localStorage.setItem(LAST_FOLDER + clientId, JSON.stringify(folder))
+    localStorage.setItem(LAST_SHAREPOINT + clientId, JSON.stringify(trail))
   } catch {
     // not remembered this time; nothing else depends on it
   }

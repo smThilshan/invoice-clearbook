@@ -24,6 +24,7 @@ import {
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
+import { SharePointConnection } from '@/components/SharePointConnection'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,7 +37,7 @@ import { usePageTitle } from '@/lib/usePageTitle'
 /** Clients and their accounting system (tasks 5.3, 5.4, 5.1): connect a client, sync its
  * master data, send approved bills waiting to be posted, disconnect. The accounting system's
  * name always comes from the API (decision 43): Xero today, others later. Its sign-in sends the
- * browser back here. */
+ * browser back here. Above them, Missan's SharePoint sign-in, used for every client (83). */
 export function ClientsPage() {
   usePageTitle('Clients')
   const clients = useClients()
@@ -44,6 +45,8 @@ export function ClientsPage() {
   const connected = params.get('connected')
   const system = params.get('system') ?? 'the accounting system'
   const failed = params.get('error')
+  const sharePoint = params.get('sharepoint')
+  const sharePointFailed = params.get('sharepoint_error')
 
   return (
     <PageContainer className="space-y-6">
@@ -64,6 +67,26 @@ export function ClientsPage() {
           <AlertDescription>{failed}</AlertDescription>
         </Alert>
       )}
+      {sharePoint && (
+        <Alert>
+          <CircleCheck className="text-success" aria-hidden />
+          <AlertTitle>Connected to SharePoint</AlertTitle>
+          <AlertDescription>As {sharePoint}. Read only: nothing in SharePoint is changed.</AlertDescription>
+        </Alert>
+      )}
+      {sharePointFailed && (
+        <Alert variant="destructive">
+          <AlertTitle>SharePoint not connected</AlertTitle>
+          <AlertDescription>{sharePointFailed}</AlertDescription>
+        </Alert>
+      )}
+      <section aria-label="SharePoint" className="space-y-2 rounded-lg border p-4">
+        <h2 className="font-medium">SharePoint</h2>
+        <p className="text-sm text-muted-foreground">
+          Where the Run screen finds invoice folders, for every client. Read only.
+        </p>
+        <SharePointConnection back="clients" />
+      </section>
       {clients.isPending ? (
         <Skeleton className="h-32 w-full" />
       ) : clients.isError ? (

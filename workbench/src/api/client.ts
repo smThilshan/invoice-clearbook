@@ -18,11 +18,13 @@ export type LineGrouping = Schemas['LineGrouping']
 export type AccountingStatus = Schemas['AccountingStatus']
 export type SyncResult = Schemas['SyncOut']
 export type PostingSummary = Schemas['PostingOut']
-export type FolderPlace = Schemas['PlaceOut']
-export type Folder = Schemas['FolderOut']
-export type PlaceListing = Schemas['PlaceListing']
+export type SharePointStatus = Schemas['SharePointStatus']
+export type SharePointSite = Schemas['SiteOut']
+export type SharePointLibrary = Schemas['LibraryOut']
+export type SharePointFolder = Schemas['SharePointFolderOut']
+export type SharePointListing = Schemas['SharePointListing']
+export type SharePointRunCreate = Schemas['SharePointRunCreate']
 export type RunOption = Schemas['RunOption']
-export type RunCreate = Schemas['RunCreate']
 export type RunAccepted = Schemas['RunAccepted']
 export type UploadAccepted = Schemas['UploadAccepted']
 export type FolderDate = Schemas['FolderDate']
@@ -152,18 +154,25 @@ export const api = {
   /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
   setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),
-  /** Where the Run screen may pick a folder: the client's own folder, this Mac, shared drives. */
-  places: (clientId: string) =>
-    request<FolderPlace[]>(`/folders/places?${new URLSearchParams({ client_id: clientId })}`),
-  /** Sub-folders of `path` inside a place ('' = its top), and its invoice file count. */
-  folder: (clientId: string, place: string, path: string) =>
-    request<PlaceListing>(`/folders?${new URLSearchParams({ client_id: clientId, place, path })}`),
+  /** Missan's SharePoint sign-in (decision 83): read only, made once by an admin. */
+  sharePointStatus: () => request<SharePointStatus>('/sharepoint/status'),
+  disconnectSharePoint: () => sendJson<SharePointStatus>('POST', '/sharepoint/disconnect', {}),
+  /** The SharePoint sites the connected account can open. */
+  sharePointSites: () => request<SharePointSite[]>('/sharepoint/sites'),
+  sharePointLibraries: (siteId: string) =>
+    request<SharePointLibrary[]>(`/sharepoint/sites/${encodeURIComponent(siteId)}/libraries`),
+  /** What is in a SharePoint folder ('root': the library itself). */
+  sharePointFolder: (driveId: string, itemId: string) =>
+    request<SharePointListing>(`/sharepoint/folder?${new URLSearchParams({ drive_id: driveId, item_id: itemId })}`),
+  /** The folder a pasted SharePoint address leads to. */
+  sharePointLink: (url: string) => request<SharePointFolder>(`/sharepoint/link?${new URLSearchParams({ url })}`),
   /** Latest runs that took in documents, newest first (the queue's run filter). */
   runs: (clientId: string) => request<RunOption[]>(`/clients/${encodeURIComponent(clientId)}/runs`),
   /** Recent work time per file, for the estimate before a run (task 4.17). */
   typicalTime: () => request<{ typical_ms: number | null }>('/runs/typical-time'),
-  startRun: (body: RunCreate) => sendJson<RunAccepted>('POST', '/runs', body),
-  /** The date a folder's name stands for, read as for a folder picked on the server. */
+  /** Run a SharePoint folder, sub-folders included: the server fetches it, then runs it. */
+  startSharePointRun: (body: SharePointRunCreate) => sendJson<RunAccepted>('POST', '/runs/sharepoint', body),
+  /** The date a folder's name stands for. */
   folderDate: (name: string) => request<FolderDate>(`/folders/date?${new URLSearchParams({ name })}`),
   run: (runId: string) => request<RunProgress>(`/runs/${encodeURIComponent(runId)}`),
   /** Stop a run (task 4.19): files not started stay as they are; the current step finishes. */

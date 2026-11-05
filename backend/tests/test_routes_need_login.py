@@ -17,6 +17,7 @@ OPEN = {
     ("POST", "/auth/login"),
     ("POST", "/auth/logout"),
     ("GET", "/{slug}/callback"),
+    ("GET", "/sharepoint/callback"),
 }
 
 
@@ -34,7 +35,7 @@ def test_every_route_but_the_open_ones_refuses_a_request_without_a_session() -> 
         for method in operations
     ]
     open_now = set()
-    with TestClient(app) as client:
+    with TestClient(app, follow_redirects=False) as client:  # a redirect is not a refusal
         for method, path in routes:
             url = re.sub(r"\{[^}]+\}", _example, path)
             answer = client.request(method, url, headers={"X-Clearbook": "1"})

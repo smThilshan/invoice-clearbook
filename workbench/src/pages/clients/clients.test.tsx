@@ -255,3 +255,63 @@ describe('clients', () => {
     expect(screen.getByText('Xero sign-in was not completed (access_denied)')).toBeInTheDocument()
   })
 })
+
+describe('clients: SharePoint (decision 83)', () => {
+  const NOT_YET = {
+    configured: true, connected: false, needs_reconnect: false, reconnect_reason: null,
+    account_name: null, account_email: null, connected_by: null, connected_at: null,
+  }  // prettier-ignore
+  const CONNECTED_AS = {
+    ...NOT_YET, connected: true, account_name: 'Made-up Admin', account_email: 'admin@missan.test',
+    connected_by: 'admin@missan.test', connected_at: '2026-11-05T08:00:00Z',
+  }  // prettier-ignore
+
+  function withSharePoint(status: unknown, extra: Record<string, unknown> = {}) {
+    return mockApi({
+      '/health/ready': READY,
+      '/clients': CLIENTS,
+      '/clients/cafe-al-noor/accounting': NOT_CONNECTED,
+      '/clients/spice-route/accounting': NOT_CONNECTED,
+      '/sharepoint/status': status,
+      ...extra,
+    })
+  }
+
+  it('lets an admin connect SharePoint once, for every client', async () => {
+    withSharePoint(NOT_YET)
+    renderApp('/clients')
+
+    const card = await screen.findByRole('region', { name: 'SharePoint' })
+    expect(await within(card).findByRole('link', { name: 'Connect SharePoint' })).toHaveAttribute(
+      'href', '/api/sharepoint/connect?back=clients',
+    )  // prettier-ignore
+    expect(card).toHaveTextContent('never changes anything')
+  })
+
+  it('shows whose read-only access is used, and disconnects it', async () => {
+    let status: unknown = CONNECTED_AS
+    const api = withSharePoint(() => status, {
+      'POST /sharepoint/disconnect': () => {
+        status = NOT_YET
+        return NOT_YET
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const card = await screen.findByRole('region', { name: 'SharePoint' })
+    expect(await within(card).findByText(/Connected as Made-up Admin \(admin@missan.test\)/)).toBeInTheDocument()
+    await user.click(within(card).getByRole('button', { name: 'Disconnect' }))
+
+    expect(await within(card).findByRole('link', { name: 'Connect SharePoint' })).toBeInTheDocument()
+    expect(api.calls).toContain('POST /sharepoint/disconnect')
+  })
+
+  it('says it is connected after the sign-in, or why not', async () => {
+    withSharePoint(CONNECTED_AS)
+    renderApp('/clients?sharepoint_error=SharePoint+sign-in+was+not+completed+(access_denied)')
+
+    expect(await screen.findByText('SharePoint not connected')).toBeInTheDocument()
+    expect(screen.getByText('SharePoint sign-in was not completed (access_denied)')).toBeInTheDocument()
+  })
+})
