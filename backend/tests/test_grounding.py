@@ -107,6 +107,16 @@ def test_negative_amounts_on_credit_notes_match_printed_values() -> None:
     assert issues_for(credit) == []
 
 
+def test_a_vat_printed_without_its_leading_zero_is_grounded() -> None:
+    """A till's VAT table: "5% 13.70 .69"."""
+    printed = page("TRN 100025416700003\nTOT 14.39\nVAT% AMOUNT(excl VAT) VAT AMOUNT\n5% 13.70 .69")
+    read = invoice(invoice_number=None, invoice_date=None, due_date=None,
+                   vendor_trn="100025416700003", subtotal=Decimal("13.70"),
+                   vat=Decimal("0.69"), total=Decimal("14.39"))  # fmt: skip
+
+    assert issues_for(read, printed) == []
+
+
 def test_zero_vat_need_not_be_printed() -> None:
     printed = page("Invoice No: INV-00291 Date: 15 Oct 2026 Due: 14/11/2026 "
                    "TRN 100999000000001 Total 1,000.00")  # fmt: skip

@@ -89,6 +89,17 @@ def test_find_amounts_returns_every_number_unsigned() -> None:
     }
 
 
+def test_find_amounts_reads_an_amount_printed_without_its_leading_zero() -> None:
+    text = "VAT% AMOUNT(excl VAT) VAT AMOUNT\n5% 13.70 .69\nAED CHANGE .61"
+
+    assert {Decimal("0.69"), Decimal("0.61"), Decimal("13.70")} <= find_amounts(text)
+    assert Decimal(69) not in find_amounts(text)
+
+
+def test_a_dot_after_a_word_is_not_an_amount() -> None:
+    assert find_amounts("Inv No.12 Ref.34") == {Decimal(12), Decimal(34)}
+
+
 def test_find_amounts_reads_arabic_digits() -> None:
     assert Decimal("1050.10") in find_amounts(f"Total {arabic('1,050.10')}")
 

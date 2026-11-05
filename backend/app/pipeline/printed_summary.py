@@ -42,8 +42,12 @@ VAT_RATE = Decimal(5)  # "Vat % 5.00" in a receipt's VAT table
 MAX_ROUNDING = Decimal("0.24")  # cash is rounded to the nearest 0.25 at most
 ROUNDING = "Rounding"
 
-# Money as printed with two decimals ("1,050.10", "115.00"); not phone numbers or barcodes.
-MONEY = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+\.\d{2}(?!\d)|(?<![\d.,])\d+\.\d{2}(?!\d)")
+# Money as printed with two decimals ("1,050.10", "115.00", ".69" without its leading zero);
+# not phone numbers or barcodes.
+MONEY = re.compile(
+    r"(?<![\d.,])\d{1,3}(?:,\d{3})+\.\d{2}(?!\d)|(?<![\d.,])\d+\.\d{2}(?!\d)"
+    r"|(?<![\w.,])\.\d{2}(?![\d.,])"
+)
 
 _Summary = tuple[Decimal, Decimal, Decimal, Decimal]  # before VAT, VAT, total, rounding
 

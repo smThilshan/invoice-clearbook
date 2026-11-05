@@ -25,7 +25,9 @@ _TO_ASCII = str.maketrans(
     }
 )
 
-_NUMBER = re.compile(r"\d[\d,.]*\d|\d")
+# Also an amount printed without its leading zero (".69" on a till's VAT table), never a dot
+# after a word ("No.12").
+_NUMBER = re.compile(r"\d[\d,.]*\d|\d|(?<![\w.,])\.\d{2}(?![\d.,])")
 
 
 # Letters OCR mistakes for digits ("1,O5O.1O", "100S"), only when they touch a digit or a number

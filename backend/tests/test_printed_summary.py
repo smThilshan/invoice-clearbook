@@ -64,6 +64,17 @@ def test_cash_and_vat_copied_as_lines_go_and_the_summary_is_taken_from_the_page(
     assert summary(fixed) == ("105.98", "5.30", "111.28", AmountType.INCLUSIVE)
 
 
+def test_a_vat_printed_without_its_leading_zero_proves_the_summary() -> None:
+    """Carrefour's VAT table prints "5% 13.70 .69" under its labels."""
+    text = "WB HIGH FIBER SOUR 14.39\nTOT 14.39\nCash 15.00\nCHANGE .61\n5% 13.70 .69"
+    read = receipt("14.39", "15.00", vat=Decimal("0.69"), total=Decimal("14.39"))
+
+    fixed = apply_printed_summary(read, page(text))
+
+    assert amounts(fixed) == ["14.39"]
+    assert summary(fixed) == ("13.70", "0.69", "14.39", AmountType.INCLUSIVE)
+
+
 def test_summary_rows_after_the_item_go_and_the_item_stays() -> None:
     """Al Shahama: the item costs the same as the "Net Amount" row after it."""
     text = ("CABLE LOCK RUBBER TOP 1.00 11.00\nTotal Amount 10.48\nTotal Tax 0.52\n"
