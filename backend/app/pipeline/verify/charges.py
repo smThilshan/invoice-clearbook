@@ -182,7 +182,7 @@ def _explain(gap: Decimal, candidates: list[_Row]) -> list[Charge] | None:
             if abs(sum(amounts, Decimal(0)) - gap) <= CENT
         ]
         if len(fits) == 1:
-            return [Charge(row.label, amount) for row, amount in fits[0]]
+            return [Charge(_shown(row.label), amount) for row, amount in fits[0]]
         if len(fits) > 1:
             return None  # two explanations: do not guess
     return None
@@ -210,6 +210,13 @@ def _row(text: str) -> _Row | None:
     if "." not in match.group() and "," not in match.group() and abs(amount) >= 100:
         readings += (amount / 100,)  # "141" from a scanner that lost the point in "1.41"
     return _Row(label, amount, readings)
+
+
+def _shown(label: str) -> str:
+    """The label for the new line: on a two-language receipt ("Roundoff / نهاية الجولة") the
+    part before the slash, as OCR reads the Arabic half as noise ("Roundoff/ gaJl alei")."""
+    first = label.split("/", 1)[0].strip()
+    return first if re.search(r"[^\W\d_]{3,}", first) else label
 
 
 def _hint_pattern(words: Sequence[str]) -> re.Pattern[str] | None:

@@ -3,6 +3,7 @@ they explain the total exactly. Made-up receipts."""
 
 from decimal import Decimal
 
+from app.core.config import Settings
 from app.domain.enums import AmountType, DocumentType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.read import PageText, TextSpan
@@ -125,3 +126,20 @@ def test_lines_including_vat_have_no_gap_when_they_make_the_total() -> None:
                    total=Decimal("14.39"))  # fmt: skip
 
     assert total_gap(read) is None
+
+
+def test_a_till_s_round_off_explains_the_total_in_any_spelling() -> None:
+    """Dream Night 72175 as our OCR read it: the lines make "Total Amount", the till rounds
+    it down to "Net Amount"; its Arabic label half is read as noise."""
+    hints = Settings(_env_file=None).charge_hint_words
+    invoice = receipt("210.58", "210.50", vat="10.03").model_copy(
+        update={"amount_type": AmountType.INCLUSIVE}
+    )
+    rows = ["Total Amount /ll gla: 210.58", "Total Before VAT: 200.55",
+            "Roundoff/ gaJl alei: -0.08", "VAT/a0: 10.03", "Net Amount/aSwlaos 210.50",
+            "Pay By Carh/Isa,9u1: 211.00", "Balance/ujlg: 0.50"]  # fmt: skip
+
+    assert labels(find_charges(invoice, [[page(*rows)]], hints)) == [("Roundoff", "-0.08")]
+    for spelling in ("Round-off", "Rounded off", "Round Off"):
+        rows[2] = f"{spelling}: -0.08"
+        assert labels(find_charges(invoice, [[page(*rows)]], hints)) == [(spelling, "-0.08")]
