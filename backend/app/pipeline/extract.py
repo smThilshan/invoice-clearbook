@@ -39,6 +39,7 @@ from app.pipeline.no_vat import clear_unprinted_vat
 from app.pipeline.paid import receipt_when_paid
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
+from app.pipeline.subtotal import with_worked_out_subtotal
 from app.pipeline.totals_block import apply_totals_block
 from app.pipeline.vat_line import remove_vat_line
 from app.pipeline.verify.normalize import parse_date
@@ -173,7 +174,9 @@ def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     # Decision 60: the VAT copied as a line, proven by the model's own amounts.
     invoice = remove_vat_line(invoice)
     # Decision 61: a slip paid at the till (cash given - total = change printed) is a receipt.
-    return receipt_when_paid(invoice, pages)
+    invoice = receipt_when_paid(invoice, pages)
+    # Decision 81: the subtotal is the total less the VAT, not the model's copy.
+    return with_worked_out_subtotal(invoice)
 
 
 def parse_answer_dates(answer: dict[str, Any]) -> dict[str, Any]:

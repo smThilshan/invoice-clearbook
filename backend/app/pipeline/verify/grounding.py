@@ -1,4 +1,5 @@
-"""Grounding (task 3.3): every key value the model extracted must be printed on the document.
+"""Grounding (task 3.3): every key value the model extracted must be printed on the document
+(not the subtotal: worked out from the total and the VAT, decision 81).
 
 The page text from the Read step is the independent witness (rule 7: the model never checks
 itself). Values are compared after normalization (normalize.py), never as raw strings.
@@ -43,7 +44,8 @@ from app.pipeline.verify.normalize import (
 )
 from app.pipeline.verify.trn_finder import PrintedTrns, find_printed_trns
 
-_AMOUNT_FIELDS = {"total": "total", "subtotal": "subtotal", "vat": "VAT amount"}
+# Not the subtotal: it is worked out from these two (decision 81).
+_AMOUNT_FIELDS = {"total": "total", "vat": "VAT amount"}
 _DATE_FIELDS = {
     "invoice_date": ("document date", Severity.ERROR),
     "due_date": ("due date", Severity.WARNING),
@@ -120,26 +122,12 @@ def _amounts(invoice: Invoice, witness: _Witness) -> list[Issue]:
         value = getattr(invoice, field)
         if value is None or value == 0:  # zero VAT is often left blank
             continue
-        if abs(value) not in witness.amounts and not _worked_out(invoice, field, witness):
+        if abs(value) not in witness.amounts:
             if witness.unread_money:
                 issues.append(_unread(field, label, value, "money amount"))
             else:
                 issues.append(_not_found(field, label, value, Severity.ERROR))
     return issues
-
-
-def _worked_out(invoice: Invoice, field: str, witness: _Witness) -> bool:
-    """A subtotal that is the printed total less the printed VAT: the lines hold a charge the
-    printed subtotal leaves out, such as a cash rounding (decisions 49, 58)."""
-    total, vat = invoice.total, invoice.vat
-    return (
-        field == "subtotal"
-        and total is not None
-        and vat is not None
-        and abs(total) in witness.amounts
-        and abs(vat) in witness.amounts
-        and invoice.subtotal == total - vat
-    )
 
 
 def not_a_tax_invoice(invoice: Invoice, pages: Sequence[PageText]) -> bool:

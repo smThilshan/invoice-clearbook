@@ -28,6 +28,7 @@ from app.domain.invoice import Invoice
 from app.models import Document, Extraction
 from app.pipeline.extract import repair_answer, validate_answer
 from app.pipeline.read import load_page_texts
+from app.pipeline.subtotal import with_worked_out_subtotal
 from app.pipeline.verify.step import working_copy
 
 # Compared as values; names without case, spaces and punctuation ("AL SHAHAMA.SUPERMARKET").
@@ -93,7 +94,9 @@ def replay(session: Session, storage: Storage, document: Document) -> Invoice | 
 
 
 def differences(expected: Invoice, got: Invoice | None) -> dict[str, tuple[str, str]]:
-    """Field -> (expected, got), for every compared field that differs."""
+    """Field -> (expected, got), for every compared field that differs. The subtotal is worked
+    out the same way on both sides (decision 81), also in answers saved before it."""
+    expected = with_worked_out_subtotal(expected)
     return {
         field: (_show(field, expected), _show(field, got))
         for field in FIELDS

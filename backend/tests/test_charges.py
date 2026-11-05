@@ -3,7 +3,7 @@ they explain the total exactly. Made-up receipts."""
 
 from decimal import Decimal
 
-from app.domain.enums import DocumentType
+from app.domain.enums import AmountType, DocumentType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.read import PageText, TextSpan
 from app.pipeline.verify.charges import find_charges, total_gap
@@ -102,3 +102,26 @@ def test_a_total_that_adds_up_has_no_gap() -> None:
     assert total_gap(receipt("46.86", "46.86")) is None
     assert total_gap(receipt("46.86", "49.20", vat="2.34")) is None
     assert total_gap(receipt("46.86", "54.26")) == Decimal("7.40")
+
+
+def test_a_fee_left_out_of_the_lines_is_found_with_the_worked_out_subtotal() -> None:
+    """Decision 81: the subtotal is the total less the VAT (110.00), so it holds the fee; the
+    gap is measured from the lines."""
+    read = Invoice(document_type=DocumentType.BILL, amount_type=AmountType.EXCLUSIVE,
+                   lines=[Line(description="Groceries", amount=Decimal("100.00"))],
+                   subtotal=Decimal("110.00"), vat=Decimal("5.50"),
+                   total=Decimal("115.50"))  # fmt: skip
+    text = page("Groceries 100.00", "Items 100.00", "Delivery fee 10.00", "VAT 5% 5.50",
+                "Total 115.50")  # fmt: skip
+
+    assert total_gap(read) == Decimal("10.00")
+    assert labels(find_charges(read, [[text]], HINTS)) == [("Delivery fee", "10.00")]
+
+
+def test_lines_including_vat_have_no_gap_when_they_make_the_total() -> None:
+    read = Invoice(document_type=DocumentType.RECEIPT, amount_type=AmountType.INCLUSIVE,
+                   lines=[Line(description="Bread", amount=Decimal("14.39"))],
+                   subtotal=Decimal("13.70"), vat=Decimal("0.69"),
+                   total=Decimal("14.39"))  # fmt: skip
+
+    assert total_gap(read) is None

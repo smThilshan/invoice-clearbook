@@ -130,15 +130,19 @@ def test_credit_note_without_original_is_warned() -> None:
 # --- totals and line math ----------------------------------------------------------------
 
 
-def test_totals_within_one_fils_pass() -> None:
-    assert "totals_mismatch" not in codes(invoice(total=Decimal("1050.01")))
+def test_a_subtotal_read_wrong_raises_nothing() -> None:
+    """Decision 81: the subtotal is worked out from the total and the VAT, never checked."""
+    assert codes(invoice(subtotal=Decimal("1050.00"))) == codes(invoice())
 
 
-def test_totals_mismatch_is_an_error() -> None:
-    issue = only(invoice(total=Decimal("1060.00")), "totals_mismatch")
+def test_a_total_read_wrong_is_still_an_error() -> None:
+    """Without "subtotal + VAT = total": the VAT is no longer 5% of the total less the VAT,
+    and the lines no longer add up to it."""
+    found = {i.code: i for i in issues(invoice(total=Decimal("1060.00")))}
 
-    assert (issue.severity, issue.field) == (Severity.ERROR, "total")
-    assert "1050.00" in issue.message and "1060.00" in issue.message
+    assert found["vat_rate"].severity is Severity.ERROR
+    assert "1010.00" in found["vat_rate"].message
+    assert found["lines_sum_mismatch"].severity is Severity.WARNING
 
 
 def test_line_qty_times_price_mismatch_is_a_warning() -> None:
@@ -477,3 +481,25 @@ def test_5_percent_lines_on_a_document_with_vat_are_fine() -> None:
                           for line in invoice().lines])  # fmt: skip
 
     assert issues(bill) == []
+
+
+def test_a_total_read_as_the_amount_before_vat_points_at_the_total() -> None:
+    """Al Ain: 69.61 before VAT + VAT 3.48 = 73.09 printed; the model read 69.61 as the total."""
+    lines = [Line(description="Milk", amount=Decimal("69.61"))]
+    read = invoice(lines=lines, amount_type=AmountType.INCLUSIVE, vat=Decimal("3.48"),
+                   total=Decimal("69.61"))  # fmt: skip
+
+    issue = only(read, "total_before_vat", context("Sub total 69.61 VAT 3.48 Total 73.09"))
+
+    assert (issue.severity, issue.field, issue.suggestion) == (Severity.ERROR, "total", "73.09")
+    assert "vat_rate" not in codes(read)
+
+
+def test_the_right_total_is_only_offered_when_printed() -> None:
+    lines = [Line(description="Milk", amount=Decimal("69.61"))]
+    read = invoice(lines=lines, amount_type=AmountType.INCLUSIVE, vat=Decimal("3.48"),
+                   total=Decimal("69.61"))  # fmt: skip
+
+    issue = only(read, "total_before_vat", context("Total 69.61"))
+
+    assert issue.suggestion is None and "73.09" in issue.message

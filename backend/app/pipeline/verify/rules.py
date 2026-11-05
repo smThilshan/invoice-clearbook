@@ -13,9 +13,11 @@ from decimal import Decimal
 from app.core.config import Settings
 from app.domain.enums import AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice
+from app.pipeline.subtotal import worked_out_subtotal
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import (
     ISO_CURRENCY,
+    find_amounts,
     find_currencies,
     is_valid_trn,
     normalize_trn,
@@ -109,21 +111,6 @@ def check_required(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     return issues
 
 
-def check_totals(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
-    subtotal, vat, total = invoice.subtotal, invoice.vat, invoice.total
-    if subtotal is None or vat is None or total is None:
-        return []
-    if abs(subtotal + vat - total) <= CENT:
-        return []
-    return [
-        _error(
-            "totals_mismatch",
-            "total",
-            f"Subtotal {subtotal} + VAT {vat} = {subtotal + vat}, but the total is {total}.",
-        )
-    ]
-
-
 def check_line_math(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     issues = []
     for index, line in enumerate(invoice.lines):
@@ -213,7 +200,7 @@ def _vat_type_mismatch(invoice: Invoice) -> bool:
 
 def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     vat = invoice.vat
-    base = _amount_before_vat(invoice)
+    base = vat_base(invoice)
     if vat is None or base is None or base == 0:
         return []
     foreign = invoice.currency is not None and invoice.currency != HOME_CURRENCY
@@ -248,7 +235,15 @@ def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     issues = []
     expected = abs(base) * UAE_VAT_RATE
     tolerance = ctx.vat_tolerance_per_line * max(1, len(invoice.lines))
-    if abs(abs(vat) - expected) > tolerance:
+    total = invoice.total
+    if (
+        abs(abs(vat) - expected) > tolerance
+        and total is not None
+        and total != base
+        and (abs(abs(vat) - abs(total) * UAE_VAT_RATE) <= tolerance)
+    ):
+        issues.append(_total_before_vat(total, vat, ctx))
+    elif abs(abs(vat) - expected) > tolerance:
         rate = abs(vat) / abs(base) * 100
         issues.append(
             _error(
@@ -453,7 +448,6 @@ def check_original_ref(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
 
 RULES: tuple[Rule, ...] = (
     check_required,
-    check_totals,
     check_line_math,
     check_vat_type,
     check_vat,
@@ -488,21 +482,39 @@ def run_rules(
 
 def lines_target(invoice: Invoice) -> tuple[Decimal | None, str]:
     """What the line amounts should add up to."""
-    if invoice.amount_type is AmountType.INCLUSIVE:
-        return invoice.total, "total"
-    if invoice.subtotal is not None:
-        return invoice.subtotal, "subtotal"
-    if not invoice.vat:  # no VAT: subtotal and total are the same thing
-        return invoice.total, "total"
-    return None, ""
+    if invoice.amount_type is AmountType.INCLUSIVE or not invoice.vat:
+        return invoice.total, "total"  # no VAT: subtotal and total are the same thing
+    return worked_out_subtotal(invoice), "subtotal"
 
 
-def _amount_before_vat(invoice: Invoice) -> Decimal | None:
-    if invoice.subtotal is not None:
-        return invoice.subtotal
-    if invoice.total is not None and invoice.vat is not None:
-        return invoice.total - invoice.vat
-    return None
+def _total_before_vat(total: Decimal, vat: Decimal, ctx: RuleContext) -> Issue:
+    """The VAT is 5% of the total itself: the amount before VAT was read as the total. The
+    total it should be is offered when it is printed (rule 8: offered, never applied)."""
+    whole = total + vat
+    printed = abs(whole) in find_amounts(ctx.page_text)
+    where = "It is printed on the document." if printed else "Check it on the original."
+    return Issue(
+        "total_before_vat",
+        Severity.ERROR,
+        "total",
+        f"The VAT {vat} is 5% of the total {total}: that is the amount before VAT, so the total "
+        f"should be {whole:.2f}. {where}",
+        suggestion=f"{whole:.2f}" if printed else None,
+    )
+
+
+# Lines that carry no VAT: the VAT printed is not charged on them.
+_NO_VAT = frozenset({TaxType.ZERO, TaxType.EXEMPT, TaxType.REVERSE_CHARGE, TaxType.NONE})
+
+
+def vat_base(invoice: Invoice) -> Decimal | None:
+    """What the VAT is charged on: the total less the VAT (decision 81), less the lines that
+    carry no VAT (a cash rounding, a tip, a zero-rated item)."""
+    subtotal = worked_out_subtotal(invoice)
+    if subtotal is None:
+        return None
+    untaxed = (line.amount for line in invoice.lines if line.tax_type in _NO_VAT)
+    return subtotal - sum(untaxed, Decimal(0))
 
 
 def _names(codes: frozenset[str]) -> str:

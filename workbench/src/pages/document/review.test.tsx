@@ -263,20 +263,21 @@ describe('review screen', () => {
       .toBeInTheDocument()
   })
 
-  it('offers the subtotal when the lines already hold the charges (decision 49)', async () => {
-    const charged = detail({
-      issues: [{ code: 'subtotal_without_charges', severity: 'ERROR', field: 'subtotal',
-        message: 'The lines already include the charge Service fee 2.97, but the subtotal leaves it out.',
-        suggestion: '1002.97' }],
-    })  // prettier-ignore
-    const api = await open(backend(charged))
+  it('works out the subtotal from the total and the VAT; it is never typed (decision 81)', async () => {
+    const api = await open()
     const user = userEvent.setup()
+    const subtotal = screen.getByLabelText('Subtotal')
+    expect(subtotal).toHaveAttribute('readonly')
 
-    await user.click(screen.getByRole('button', { name: 'Use 1002.97' }))
+    await user.clear(screen.getByLabelText('Total'))
+    await user.type(screen.getByLabelText('Total'), '14.39')
+    await user.clear(screen.getByLabelText('VAT'))
+    await user.type(screen.getByLabelText('VAT'), '.69')
+
+    expect(subtotal).toHaveValue('13.70')
     await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
-
     await waitFor(() => expect(sent(api)).toBeDefined())
-    expect(sent(api).invoice.subtotal).toBe('1002.97')
+    expect(sent(api).invoice).toMatchObject({ subtotal: '13.70', vat: '.69', total: '14.39' })
   })
 
   it('offers the type the document shows and sends it (decision 48)', async () => {
@@ -324,7 +325,7 @@ describe('review screen', () => {
     await user.type(amount, '410')
 
     expect(totals).toHaveTextContent('1,010.00 vs 1,000.00, off by 10.00')
-    expect(totals).toHaveTextContent('Subtotal + VAT = total1,050.00')
+    expect(totals).not.toHaveTextContent('Subtotal + VAT')
   })
 
   it('adds and removes lines', async () => {

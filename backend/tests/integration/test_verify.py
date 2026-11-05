@@ -137,7 +137,7 @@ def test_any_error_goes_to_exception(session: Session, storage: LocalStorage) ->
     result = verify(session, storage, doc)
 
     assert result.queue is QueueCategory.EXCEPTION
-    assert {"totals_mismatch", "not_on_document"} <= codes(doc)
+    assert {"vat_rate", "not_on_document"} <= codes(doc)
     assert doc.status is S.IN_REVIEW
 
 
@@ -221,20 +221,25 @@ def test_charges_printed_outside_the_lines_explain_the_total(
     assert not codes(doc) & {"totals_mismatch", "lines_sum_mismatch"}
 
 
-def test_a_charge_already_read_as_a_line_offers_the_subtotal_not_a_second_line(
+def test_a_charge_already_read_as_a_line_needs_no_subtotal_and_no_second_line(
     session: Session, storage: LocalStorage
 ) -> None:
-    """Decision 49: the model put the delivery charge in the lines but kept the printed
-    subtotal; adding the charge again would count it twice."""
+    """Decision 81 (was 49): the model put the delivery charge in the lines; the subtotal is
+    the total less the VAT, so it holds the charge already. Nothing to add twice. The VAT
+    printed is 5% of the items only: the charge carries none, which its VAT type must say."""
     lines = [*bill().lines, Line(description="Delivery charge", amount=Decimal("15.99"))]
     doc = extracted(session, storage, bill(total=Decimal("1065.99"), lines=lines), WITH_DELIVERY)
 
     verify(session, storage, doc)
 
-    [issue] = [i for i in doc.issues or [] if i["code"] == "subtotal_without_charges"]
-    assert (issue["field"], issue["suggestion"]) == ("subtotal", "1015.99")
-    assert "Delivery charge 15.99" in issue["message"]
-    assert not codes(doc) & {"total_has_charges", "totals_mismatch", "lines_sum_mismatch"}
+    assert doc.invoice is not None and doc.invoice["subtotal"] == "1015.99"
+    assert not codes(doc) & {"total_has_charges", "lines_sum_mismatch", "not_on_document"}
+    assert "vat_rate" in codes(doc)  # the charge still counted as taxed
+    untaxed = [*bill().lines, Line(description="Delivery charge", amount=Decimal("15.99"),
+                                   tax_type=TaxType.NONE)]  # fmt: skip
+    doc.invoice = json.loads(bill(total=Decimal("1065.99"), lines=untaxed).model_dump_json())
+    recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+    assert "vat_rate" not in codes(doc)
 
 
 def test_our_own_ocr_reads_a_picture_whose_scanner_text_lost_the_charge(
@@ -265,5 +270,5 @@ def test_a_total_nothing_explains_keeps_its_error(session: Session, storage: Loc
     verify_document(session, storage, FakeCoder({"accounts": []}), doc, settings=SETTINGS,
                     today=TODAY, ocr=lambda: FakeOcr(["nothing useful"]))  # fmt: skip
 
-    assert "totals_mismatch" in codes(doc)
+    assert "vat_rate" in codes(doc)  # the error: VAT not 5% of the total less the VAT
     assert "total_has_charges" not in codes(doc)

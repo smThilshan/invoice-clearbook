@@ -76,6 +76,7 @@ function locateKind(spec: FieldSpec): ValueKind {
 interface FieldSpec {
   name: HeaderField
   kind?: 'text' | 'date' | 'amount' | 'code'
+  workedOut?: boolean  // shown, never typed: worked out from other fields (decision 81)
 }
 
 interface Section {
@@ -99,7 +100,7 @@ const AMOUNTS: Section = {
   title: 'Amounts',
   fields: [
     { name: 'currency', kind: 'code' },
-    { name: 'subtotal', kind: 'amount' },
+    { name: 'subtotal', kind: 'amount', workedOut: true },
     { name: 'vat', kind: 'amount' },
     { name: 'total', kind: 'amount' },
   ],
@@ -144,7 +145,7 @@ export function ReviewForm({
   linesNote?: string  // how the lines are sent to the accounting system (decision 73)
   actions?: ReactNode
 }) {
-  const { register, control, handleSubmit, setValue, getValues, formState } = useForm<FormValues>({
+  const { register, control, handleSubmit, setValue, formState } = useForm<FormValues>({
     defaultValues: toFormValues(document.invoice),
   })
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
@@ -152,6 +153,15 @@ export function ReviewForm({
   const verified = new Set(document.verified_fields)
   const corrected = new Map(document.corrections.map((c) => [c.field, c]))
   const documentType = useWatch({ control, name: 'document_type' })
+
+  // Decision 81: the subtotal is the total less the VAT, worked out as they are typed (the
+  // server works it out the same way on save).
+  const [totalText, vatText] = useWatch({ control, name: ['total', 'vat'] })
+  useEffect(() => {
+    const total = parseAmount(totalText)
+    const subtotal = total === null ? '' : formatScaled(total - (parseAmount(vatText) ?? 0n))
+    setValue('subtotal', subtotal.replace(/,/g, ''))
+  }, [totalText, vatText, setValue])
 
   const dirty = formState.isDirty || confirmed.size > 0
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange])
@@ -294,13 +304,6 @@ export function ReviewForm({
           setValue={setValue}
           issues={issues}
           charges={issues.byField.get('total')?.find((i) => i.code === 'total_has_charges')?.charges ?? []}
-          onChargesAdded={(added) => {
-            // The subtotal, as printed, left the charges out: it now covers the new lines too.
-            const subtotal = parseAmount(getValues('subtotal'))
-            if (subtotal !== null) {
-              setValue('subtotal', formatScaled(subtotal + added).replace(/,/g, ''), { shouldDirty: true })
-            }
-          }}
           options={options}
           coding={document.coding}
           cleaned={document.cleaned_descriptions}
@@ -380,13 +383,17 @@ function HeaderInput({
         type={spec.kind === 'date' ? 'date' : 'text'}
         inputMode={spec.kind === 'amount' ? 'decimal' : undefined}
         aria-invalid={level === 'ERROR' || undefined}
+        readOnly={spec.workedOut}
+        tabIndex={spec.workedOut ? -1 : undefined}
         className={cn(
           spec.kind === 'amount' && 'text-right tabular-nums',
+          spec.workedOut && 'bg-muted text-muted-foreground',
           level === 'WARNING' && 'border-warning/40 bg-warning-soft',
         )}
         onFocus={onFocus}
         {...register(spec.name)}
       />
+      {spec.workedOut && <p className="text-xs text-muted-foreground">Total less VAT, worked out</p>}
       {correction && <AiRead value={shown(correction.model_value, spec.kind)} />}
       {!correction && cleared && (
         // Decision 52: no supplier TRN and no VAT printed, so the VAT the AI read was cleared.
@@ -404,7 +411,7 @@ function HeaderInput({
               size="xs"
               onClick={() => setValue(spec.name, issue.suggestion ?? '', { shouldDirty: true })}
             >
-              {issue.code === 'subtotal_without_charges' ? 'Use' : 'Use printed value'} {issue.suggestion}
+              Use printed value {issue.suggestion}
             </Button>
           )}
         </IssueNote>
@@ -595,26 +602,25 @@ function FoldableSection({
 
 /** Live arithmetic while typing, with the server's ±0.01 tolerance; the server re-checks. */
 function Totals({ control }: { control: Control<FormValues> }) {
-  const [lines, subtotal, vat, total, amountType] = useWatch({
+  const [lines, vat, total, amountType] = useWatch({
     control,
-    name: ['lines', 'subtotal', 'vat', 'total', 'amount_type'],
+    name: ['lines', 'vat', 'total', 'amount_type'],
   })
   const rows: { label: string; ok: boolean | null; detail: string }[] = []
 
+  // As the server: VAT included (or none), the lines make the total; else the total less the
+  // VAT (decision 81). No "subtotal + VAT = total": the subtotal is worked out from them.
   const linesSum = lines.length ? sumAmounts(lines.map((line) => line.amount)) : null
-  const [target, targetName] = amountType === 'INCLUSIVE' || !subtotal.trim()
-    ? [total, 'total'] : [subtotal, 'subtotal']  // prettier-ignore
-  const targetValue = parseAmount(target)
+  const [all, tax] = [parseAmount(total), parseAmount(vat) ?? 0n]
+  const included = amountType === 'INCLUSIVE' || tax === 0n
+  const targetName = included ? 'total' : 'subtotal'
+  const targetValue = all === null ? null : included ? all : all - tax
   if (linesSum !== null && targetValue !== null) {
     rows.push(compare(`Lines add up to the ${targetName}`, linesSum, targetValue))
   } else if (lines.length) {
     rows.push({ label: 'Lines total', ok: null, detail: 'some amounts are empty or not numbers' })
   }
 
-  const [sub, tax, all] = [parseAmount(subtotal), parseAmount(vat), parseAmount(total)]
-  if (sub !== null && tax !== null && all !== null) {
-    rows.push(compare('Subtotal + VAT = total', sub + tax, all))
-  }
   if (rows.length === 0) return null
 
   return (
@@ -660,7 +666,6 @@ function Lines({
   editable,
   onFocusField,
   charges,
-  onChargesAdded,
   note,
 }: {
   control: Control<FormValues>
@@ -668,7 +673,6 @@ function Lines({
   setValue: UseFormSetValue<FormValues>
   issues: IssueMap
   charges: Charge[]
-  onChargesAdded: (total: bigint) => void
   options: CodingOptions | undefined
   coding: DocumentDetail['coding']
   cleaned: number
@@ -686,7 +690,6 @@ function Lines({
     for (const charge of charges) {
       append({ ...emptyLine(), description: charge.label, amount: charge.amount })
     }
-    onChargesAdded(sumAmounts(charges.map((c) => c.amount)) ?? 0n)
     setChargesAdded(true)
   }
   const lineValues = useWatch({ control, name: 'lines' })

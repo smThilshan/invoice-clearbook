@@ -54,7 +54,6 @@ def test_values_printed_on_the_document_are_grounded() -> None:
     ("field", "value"),
     [
         ("total", Decimal("1060.00")),
-        ("subtotal", Decimal("1010.00")),
         ("vat", Decimal("55.00")),
         ("invoice_date", date(2026, 10, 16)),
         ("invoice_number", "INV-00292"),
@@ -147,15 +146,9 @@ def test_text_layer_gets_no_ocr_tolerance() -> None:
     assert found == {"total", "invoice_number"}
 
 
-def test_a_subtotal_worked_out_as_total_less_vat_is_grounded() -> None:
-    """Decision 58: Total Amount 3.32 + Tax 0.16 + Rounding 0.02 = 3.50; the lines hold the
-    rounding, so the subtotal is 3.34, printed nowhere."""
-    printed = page(PRINTED.replace("1,000.00", "998.00").replace("1,050.00", "1,050.00 (rounded)"))
-
-    assert "subtotal" not in fields(invoice(subtotal=Decimal("1000.00")), printed)
-    assert "subtotal" in fields(invoice(subtotal=Decimal("999.00")), printed)
-    assert "subtotal" in fields(invoice(subtotal=Decimal("1000.00"), total=Decimal("1050.00"),
-                                        vat=Decimal("51.00")), printed)  # fmt: skip
+def test_the_subtotal_is_not_looked_for_on_the_page() -> None:
+    """Decision 81: worked out from the total and the VAT, which are."""
+    assert issues_for(invoice(subtotal=Decimal("999.00"))) == []
 
 
 @pytest.mark.parametrize("printed", ["Date :Ol-Aug-2025 10:22", "Dated I-Aug-25", "lO/Aug/2025"])
@@ -185,7 +178,7 @@ def test_values_ocr_could_not_read_at_all_are_warnings_to_check_on_the_image() -
     found = issues_for(inv, page(HANDWRITTEN, source="ocr"))
 
     assert {(i.field, i.severity) for i in found} == {
-        (field, Severity.WARNING) for field in ("invoice_date", "subtotal", "vat", "total")
+        (field, Severity.WARNING) for field in ("invoice_date", "vat", "total")
     }
     assert all("could not be checked" in i.message for i in found)
 

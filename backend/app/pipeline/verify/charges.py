@@ -29,6 +29,7 @@ from app.adapters.ocr import Image, OcrEngine
 from app.adapters.storage import Storage
 from app.adapters.storage.base import NotFoundError
 from app.adapters.storage.keys import charge_ocr_key, page_image_key
+from app.domain.enums import AmountType
 from app.domain.invoice import Invoice
 from app.models import Document
 from app.pipeline.read import PageText, ocr_page
@@ -68,17 +69,20 @@ class _Row:
 
 
 def total_gap(invoice: Invoice) -> Decimal | None:
-    """What the total holds beyond the lines (or subtotal) and VAT; None when it adds up or
-    cannot be told."""
-    if invoice.total is None:
+    """What the total holds beyond the lines (and the VAT, unless the lines include it); None
+    when it adds up or cannot be told. From the lines, not the subtotal: that is worked out
+    from the total (decision 81), so it holds the charges already."""
+    if invoice.total is None or not invoice.lines:
         return None
-    base = invoice.subtotal
-    if base is None:
-        if not invoice.lines:
-            return None
-        base = sum((line.amount for line in invoice.lines), Decimal(0))
-    gap = invoice.total - base - (invoice.vat or Decimal(0))
+    base = _lines(invoice)
+    if invoice.amount_type is not AmountType.INCLUSIVE:
+        base += invoice.vat or Decimal(0)
+    gap = invoice.total - base
     return gap if abs(gap) > CENT else None
+
+
+def _lines(invoice: Invoice) -> Decimal:
+    return sum((line.amount for line in invoice.lines), Decimal(0))
 
 
 def find_charges(
@@ -149,9 +153,12 @@ def _charge_pages(storage: Storage, document: Document) -> Iterator[PageText]:
 
 
 def _summary_area(rows: list[_Row], invoice: Invoice) -> list[_Row]:
-    """Charge rows between the subtotal line and the total line (first such pair)."""
+    """Charge rows between the subtotal line and the total line (first such pair). The printed
+    subtotal is the items' sum: the lines (VAT on top) or the lines less the VAT."""
+    vat = invoice.vat or Decimal(0)
+    items = _lines(invoice) - (vat if invoice.amount_type is AmountType.INCLUSIVE else 0)
     for start, row in enumerate(rows):
-        if not (_SUBTOTAL.search(row.label) or _same(row.amount, invoice.subtotal)):
+        if not (_SUBTOTAL.search(row.label) or _same(row.amount, items)):
             continue
         for end in range(start + 1, len(rows)):
             if (

@@ -25,7 +25,10 @@ from app.domain.invoice import Invoice, Line
 from app.models import Correction, Document, Extraction
 from app.pipeline.verify.step import working_copy
 
-HEADER_FIELDS = tuple(name for name in Invoice.model_fields if name not in ("lines", "evidence"))
+# Not the subtotal: worked out from the total and the VAT, never typed (decision 81).
+HEADER_FIELDS = tuple(
+    name for name in Invoice.model_fields if name not in ("lines", "evidence", "subtotal")
+)
 LINE_VALUE_FIELDS = ("description", "qty", "unit_price", "amount")
 LINE_CODE_FIELDS = ("account_code", "tax_type")  # suggested by coding, not extracted
 

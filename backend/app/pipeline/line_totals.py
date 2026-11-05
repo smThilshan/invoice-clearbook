@@ -4,7 +4,9 @@ price is worked out in code, only when the document itself proves it, and never 
 
 - the quantity is not 1, and the unit price read equals the line amount;
 - "N x" at the start of the description says the same quantity (two readings agree);
-- the line amounts add up to the printed subtotal (or total): they are line totals;
+- the line amounts add up to the printed subtotal (or total): they are line totals. The model's
+  own subtotal is that witness here: this runs right after extraction, before it is replaced
+  by the worked-out one (decision 81), and only an exact match proves anything;
 - amount / quantity is exact to the fils.
 
 Otherwise the line stays as read and the line check keeps warning. Only the unit price changes,
@@ -16,14 +18,15 @@ import json
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.domain.enums import AmountType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.descriptions import QTY_PREFIX
-from app.pipeline.verify.rules import CENT, lines_target
+from app.pipeline.verify.rules import CENT
 
 
 def repair_unit_prices(invoice: Invoice) -> tuple[Invoice, int]:
     """(invoice with unit prices worked out, how many lines changed)."""
-    target, _ = lines_target(invoice)
+    target = _printed_items(invoice)
     if target is None or not invoice.lines:
         return invoice, 0
     if abs(sum((line.amount for line in invoice.lines), Decimal(0)) - target) > CENT:
@@ -33,6 +36,16 @@ def repair_unit_prices(invoice: Invoice) -> tuple[Invoice, int]:
     if not changed:
         return invoice, 0
     return invoice.model_copy(update={"lines": lines}), changed
+
+
+def _printed_items(invoice: Invoice) -> Decimal | None:
+    """What the line totals add up to: the total (VAT included, or no VAT), else the subtotal
+    as read (an online order prints its items' sum before the fees)."""
+    if invoice.amount_type is AmountType.INCLUSIVE:
+        return invoice.total
+    if invoice.subtotal is not None:
+        return invoice.subtotal
+    return invoice.total if not invoice.vat else None
 
 
 def _repaired(line: Line) -> Line:

@@ -23,7 +23,6 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
-from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import ValidationError
@@ -35,18 +34,19 @@ from app.adapters.llm import ExtractionClient
 from app.adapters.ocr import OcrEngine
 from app.adapters.storage import Storage
 from app.core.config import Settings
-from app.domain.enums import AccountingProvider, AmountType, DocumentStatus, QueueCategory
-from app.domain.invoice import Invoice
+from app.domain.enums import AccountingProvider, DocumentStatus, QueueCategory, TaxType
+from app.domain.invoice import Invoice, Line
 from app.domain.state_machine import transition
 from app.models import Client, Document, Extraction
 from app.pipeline import coding
 from app.pipeline.page_quality import quality_issues
 from app.pipeline.read import PageText, decode_image, load_page_texts
+from app.pipeline.subtotal import with_worked_out_subtotal
 from app.pipeline.verify.charges import ensure_charge_text, find_charges, load_charge_text
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_key
 from app.pipeline.verify.grounding import check_grounding
 from app.pipeline.verify.issues import Issue, Severity
-from app.pipeline.verify.rules import RuleContext, run_rules
+from app.pipeline.verify.rules import RuleContext, check_vat, run_rules
 from app.pipeline.verify.type_check import check_document_type
 from app.pipeline.verify.vendor_match import match_vendor
 
@@ -237,6 +237,8 @@ def assess(
 ) -> Assessment:
     """Every deterministic check on `invoice`; saves invoice, issues, queue, supplier and keys
     on the document."""
+    if invoice is not None:  # decision 81: also for documents saved before it
+        invoice = with_worked_out_subtotal(invoice)
     pages = load_page_texts(storage, document)
     verified = frozenset(document.verified_fields or ())
     context = RuleContext.from_settings(
@@ -291,7 +293,7 @@ def assess(
         park = types.park
 
     if invoice is not None:
-        issues = _explain_total(storage, document, invoice, pages, issues, settings)
+        issues = _explain_total(storage, document, invoice, pages, issues, settings, context)
 
     errors = sum(issue.severity is Severity.ERROR for issue in issues)
     warnings = len(issues) - errors
@@ -307,7 +309,8 @@ def assess(
     return Assessment(queue, errors, warnings, park)
 
 
-TOTAL_GAP_CODES = frozenset({"totals_mismatch", "lines_sum_mismatch"})
+TOTAL_GAP_CODES = frozenset({"lines_sum_mismatch"})
+VAT_CODES = frozenset({"vat_rate", "total_before_vat"})  # the VAT is not 5% of the amount
 
 
 def require_number(issues: list[Issue], provider: AccountingProvider) -> list[Issue]:
@@ -338,14 +341,18 @@ def _explain_total(
     pages: list[PageText],
     issues: list[Issue],
     settings: Settings,
+    context: RuleContext,
 ) -> list[Issue]:
     """Task 4.13: a total that does not add up because of charges printed outside the lines
     (delivery fee, service fee, discount...) gets one error naming them, with the charges to
-    add as lines; when nothing explains it, the totals issues stay as they are.
+    add as lines; when nothing explains it, the totals issues stay as they are. (Decision 49's
+    "the subtotal leaves out charges the lines hold" cannot happen since the subtotal is worked
+    out from the total: decision 81.)
 
-    When the lines already hold the charges (the model read them as lines) and only the printed
-    subtotal leaves them out, adding them again would count them twice: the subtotal the lines
-    give is offered instead, as severe as the issues it replaces (decision 49)."""
+    The VAT is checked on the total less the VAT and the lines without VAT: a charge printed
+    outside the lines without VAT (a tip) makes it look wrong until it is added as a line. When
+    counting the charges as such lines puts the VAT right, that VAT error goes too: one error,
+    the charges to add."""
     if not any(issue.code in TOTAL_GAP_CODES for issue in issues):
         return issues
     charges = find_charges(invoice, [pages, load_charge_text(storage, document)],
@@ -354,23 +361,12 @@ def _explain_total(
         return issues
     named = " + ".join(f"{c.label} {c.amount:.2f}" for c in charges)
     kind = "charge" if len(charges) == 1 else "charges"
-    others = [i for i in issues if i.code not in TOTAL_GAP_CODES]
-    if _lines_hold_the_total(invoice) and invoice.total is not None:
-        replaced = [i.severity for i in issues if i.code in TOTAL_GAP_CODES]
-        severity = Severity.ERROR if Severity.ERROR in replaced else Severity.WARNING
-        subtotal = invoice.total - (invoice.vat or Decimal(0))
-        return [
-            *others,
-            Issue(
-                "subtotal_without_charges",
-                severity,
-                "subtotal",
-                f"The lines already include the {kind} {named}, but the subtotal "
-                f"{invoice.subtotal} leaves {'it' if len(charges) == 1 else 'them'} out. "
-                f"Set the subtotal to {subtotal:.2f}.",
-                suggestion=f"{subtotal:.2f}",
-            ),
-        ]
+    replaced = TOTAL_GAP_CODES
+    untaxed = [Line(description=c.label, amount=c.amount, tax_type=TaxType.NONE) for c in charges]
+    with_charges = invoice.model_copy(update={"lines": [*invoice.lines, *untaxed]})
+    if not any(i.code in VAT_CODES for i in check_vat(with_charges, context)):
+        replaced = replaced | VAT_CODES
+    others = [i for i in issues if i.code not in replaced]
     return [
         *others,
         Issue(
@@ -382,16 +378,6 @@ def _explain_total(
             charges=[{"label": c.label, "amount": f"{c.amount:.2f}"} for c in charges],
         ),
     ]
-
-
-def _lines_hold_the_total(invoice: Invoice) -> bool:
-    """The lines (with the VAT, unless they include it) already add up to the total."""
-    if not invoice.lines or invoice.total is None:
-        return False
-    lines = sum((line.amount for line in invoice.lines), Decimal(0))
-    if invoice.amount_type is not AmountType.INCLUSIVE:
-        lines += invoice.vat or Decimal(0)
-    return abs(lines - invoice.total) <= Decimal("0.01")
 
 
 def working_copy(document: Document) -> Invoice | None:
