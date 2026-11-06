@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.domain.enums import AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice
 from app.pipeline.subtotal import worked_out_subtotal
+from app.pipeline.total_line import total_line
 from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.normalize import (
     ISO_CURRENCY,
@@ -136,15 +137,30 @@ def check_line_math(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
             and abs(lines_sum - target) > CENT
             and not _vat_type_mismatch(invoice)
         ):
-            issues.append(  # an error: the accounting system builds the bill from the lines
-                _error(
-                    "lines_sum_mismatch",
-                    "lines",
-                    f"The lines add up to {lines_sum}, but the {label} is {target}: "
-                    "a missing line, a discount or rounding?",
-                )
-            )
+            issues.append(_lines_sum_issue(invoice, lines_sum, target, label))
     return issues
+
+
+def _lines_sum_issue(invoice: Invoice, lines_sum: Decimal, target: Decimal, label: str) -> Issue:
+    """An error: the accounting system builds the bill from the lines (decision 82). Unless the
+    printed total and VAT can be sent as one line instead (decision 86): then a warning."""
+    gap = f"The lines add up to {lines_sum:.2f}, but the {label} is {target:.2f}"
+    sent = total_line(invoice)
+    if sent is None:
+        return _error(
+            "lines_sum_mismatch", "lines", f"{gap}: a missing line, a discount or rounding?"
+        )
+    vat = invoice.vat or Decimal(0)
+    one_line = (
+        f"{sent.amount:.2f} + {vat:.2f} VAT = {sent.amount + vat:.2f}"
+        if sent.amount_type is AmountType.EXCLUSIVE
+        else f"{sent.amount:.2f} including {vat:.2f} VAT"
+    )
+    return _warning(
+        "total_line",
+        "lines",
+        f"{gap}. It will be sent as one line: {one_line}. Fix the lines to send them item by item.",
+    )
 
 
 # What the amounts show, for the VAT type messages (decision 34).
@@ -164,8 +180,8 @@ def check_vat_type(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
     from_amounts = vat_type_from_amounts(invoice)
     suggestion = from_amounts.value if from_amounts else None
     if invoice.amount_type is None:
-        if not invoice.vat:
-            return []  # no VAT: whether amounts include it does not matter
+        if not invoice.vat or total_line(invoice) is not None:
+            return []  # no VAT, or sent as one total line (decision 86): it does not matter
         reason = (
             _VAT_TYPE_REASONS[from_amounts] + " "
             if from_amounts

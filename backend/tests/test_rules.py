@@ -158,15 +158,41 @@ def test_line_qty_times_price_mismatch_is_a_warning() -> None:
     assert (issue.severity, issue.field) == (Severity.WARNING, "lines[0].amount")
 
 
+# A line is missing, and the two left are on different accounts: they cannot be one total line.
+SHORT_LINES = [
+    Line(description="Rice", amount=Decimal("400.00"), account_code="429"),
+    Line(description="Oil", amount=Decimal("200.00"), account_code="310"),
+]
+
+
 def test_lines_not_adding_up_to_subtotal_is_an_error() -> None:
     """Decision 82: the accounting system builds the bill from the lines, so its total would
     not be the printed one."""
-    lines = [Line(description="Rice", amount=Decimal("600.00"))]
-
-    issue = only(invoice(lines=lines), "lines_sum_mismatch")
+    issue = only(invoice(lines=SHORT_LINES), "lines_sum_mismatch")
 
     assert issue.severity is Severity.ERROR
     assert "discount" in issue.message
+
+
+def test_lines_not_adding_up_are_a_warning_when_the_totals_can_be_sent_as_one_line() -> None:
+    """Decision 86: 5% of 1000.00 is the 50.00 printed, so the bill can give the printed total
+    and VAT exactly; the accountant sees how it will be sent before approving."""
+    lines = [Line(description="Rice", amount=Decimal("600.00"))]
+
+    found = {i.code: i for i in issues(invoice(lines=lines, amount_type=None))}
+
+    assert "lines_sum_mismatch" not in found
+    assert "vat_type_missing" not in found  # the totals decide, not the lines' VAT type
+    assert (found["total_line"].severity, found["total_line"].field) == (Severity.WARNING, "lines")
+    assert "one line: 1000.00 + 50.00 VAT = 1050.00" in found["total_line"].message
+    assert "item by item" in found["total_line"].message
+
+
+def test_the_total_line_message_says_when_the_vat_is_included() -> None:
+    lines = [Line(description="Tea", amount=Decimal("9.00"))]
+    inv = invoice(lines=lines, subtotal=None, vat=Decimal("0.48"), total=Decimal("10.18"))
+
+    assert "one line: 10.18 including 0.48 VAT" in only(inv, "total_line").message
 
 
 def test_inclusive_lines_are_compared_with_the_total() -> None:
@@ -421,9 +447,7 @@ def test_missing_vat_type_with_vat_is_an_error_with_a_suggestion() -> None:
 
 
 def test_missing_vat_type_the_amounts_cannot_explain_has_no_suggestion() -> None:
-    lines = [Line(description="Rice", amount=Decimal("600.00"))]  # a line is missing
-
-    issue = only(invoice(amount_type=None, lines=lines), "vat_type_missing")
+    issue = only(invoice(amount_type=None, lines=SHORT_LINES), "vat_type_missing")
 
     assert issue.suggestion is None
     assert "could not be worked out" in issue.message

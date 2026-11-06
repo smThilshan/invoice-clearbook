@@ -67,6 +67,7 @@ from app.domain.state_machine import transition
 from app.models import AccountingConnection, Client, Contact, Document, Outbox
 from app.models.outbox import ACTIVE_OUTBOX, OutboxStatus
 from app.pipeline.coding import ChartOfAccounts, load_chart
+from app.pipeline.total_line import TotalLine, total_line
 from app.pipeline.verify.step import working_copy
 from app.services.accounting_connections import (
     AccountingConnectionError,
@@ -551,6 +552,9 @@ def _bill(
     sees anything)."""
     if invoice is None:
         return None, "the document has no valid data to send"
+    whole = total_line(invoice)
+    if whole is not None:
+        invoice = _as_total_line(invoice, whole)
     problems = []
     if not invoice.vendor_name:
         problems.append("supplier name is missing")
@@ -622,11 +626,28 @@ def group_lines(lines: Sequence[PostingLine]) -> list[PostingLine]:
             grouped.append(members[0])
             continue
         amount = sum((m.quantity * m.unit_amount for m in members), Decimal(0))
-        names = "; ".join(m.description for m in members if m.description)
-        if len(names) > MAX_DESCRIPTION:
-            names = names[: MAX_DESCRIPTION - 1] + "…"
-        grouped.append(PostingLine(names or None, Decimal(1), amount, account_code, tax_code))
+        names = _joined([m.description for m in members])
+        grouped.append(PostingLine(names, Decimal(1), amount, account_code, tax_code))
     return grouped
+
+
+def _as_total_line(invoice: Invoice, whole: TotalLine) -> Invoice:
+    """Decision 86: lines that do not add up are sent as one line giving the printed total and
+    VAT, described by the items read."""
+    line = Line(
+        description=_joined([line.description for line in invoice.lines]),
+        amount=whole.amount,
+        account_code=whole.account_code,
+        tax_type=TaxType.STANDARD_5,
+    )
+    return invoice.model_copy(update={"amount_type": whole.amount_type, "lines": [line]})
+
+
+def _joined(descriptions: Sequence[str | None]) -> str | None:
+    names = "; ".join(d for d in descriptions if d)
+    if len(names) > MAX_DESCRIPTION:
+        names = names[: MAX_DESCRIPTION - 1] + "…"
+    return names or None
 
 
 # The VAT the accounting system works out on a line, by our VAT type (UAE: 5% or none).

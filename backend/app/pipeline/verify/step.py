@@ -52,6 +52,7 @@ from app.pipeline.folders import folder_year_known
 from app.pipeline.page_quality import quality_issues
 from app.pipeline.read import PageText, decode_image, load_page_texts
 from app.pipeline.subtotal import with_worked_out_subtotal
+from app.pipeline.total_line import total_line
 from app.pipeline.verify.charges import ensure_charge_text, find_charges, load_charge_text
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_key
 from app.pipeline.verify.grounding import check_grounding
@@ -332,7 +333,7 @@ def assess(
     return Assessment(queue, errors, warnings, park)
 
 
-TOTAL_GAP_CODES = frozenset({"lines_sum_mismatch"})
+TOTAL_GAP_CODES = frozenset({"lines_sum_mismatch", "total_line"})  # charges explain either
 VAT_CODES = frozenset({"vat_rate", "total_before_vat"})  # the VAT is not 5% of the amount
 
 
@@ -350,6 +351,8 @@ def _likely_vat_type(
     with a warning, which stays until the accountant confirms or changes it."""
     if "amount_type" in verified or vat_type_from_amounts(invoice) is not None:
         return invoice, []
+    if total_line(invoice) is not None:
+        return invoice, []  # sent as one total line (decision 86): the type does not matter
     unset = invoice.model_copy(update={"amount_type": None})
     likely = likely_vat_type(unset, history.vat_type)
     if likely is None or invoice.amount_type not in (None, likely.amount_type):

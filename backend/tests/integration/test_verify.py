@@ -283,6 +283,11 @@ HALFWAY = [Line(description="Rice 5kg", amount=Decimal("625.00")),
 # 1025.00: 25.00 from the total and from the amount before VAT, so the amounts prove nothing
 
 
+def halfway_bill(**changes: Any) -> Invoice:
+    """VAT a fils off 5%: the totals cannot be sent as one line either (decision 86)."""
+    return bill(lines=HALFWAY, vat=Decimal("50.01"), **changes)
+
+
 def earlier(session: Session, invoice: Invoice, **fields: Any) -> Document:
     """Another document of the same supplier, already checked."""
     return make_document(session, status=S.IN_REVIEW, vendor_key=f"TRN:{TRN}",
@@ -294,7 +299,7 @@ def test_the_supplier_s_proven_vat_type_fills_an_empty_one_with_a_warning(
 ) -> None:
     gross = [Line(description="Rice 5kg", amount=Decimal("1050.00"))]
     earlier(session, bill(lines=gross, amount_type=AmountType.INCLUSIVE))  # its amounts prove it
-    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+    doc = extracted(session, storage, halfway_bill(amount_type=None))
 
     verify(session, storage, doc)
 
@@ -307,8 +312,8 @@ def test_the_supplier_s_proven_vat_type_fills_an_empty_one_with_a_warning(
 def test_a_likely_type_is_never_proof_for_the_next_document(
     session: Session, storage: LocalStorage
 ) -> None:
-    earlier(session, bill(lines=HALFWAY, amount_type=AmountType.INCLUSIVE))  # chosen, unproven
-    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+    earlier(session, halfway_bill(amount_type=AmountType.INCLUSIVE))  # chosen, unproven
+    doc = extracted(session, storage, halfway_bill(amount_type=None))
 
     verify(session, storage, doc)
 
@@ -319,9 +324,9 @@ def test_a_likely_type_is_never_proof_for_the_next_document(
 def test_an_approved_or_accountant_chosen_type_is_proof(
     session: Session, storage: LocalStorage
 ) -> None:
-    earlier(session, bill(lines=HALFWAY, amount_type=AmountType.EXCLUSIVE),
+    earlier(session, halfway_bill(amount_type=AmountType.EXCLUSIVE),
             verified_fields=["amount_type"])  # fmt: skip
-    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+    doc = extracted(session, storage, halfway_bill(amount_type=None))
 
     verify(session, storage, doc)
 
@@ -333,7 +338,7 @@ def test_the_warning_goes_once_the_accountant_confirms_the_type(
 ) -> None:
     earlier(session, bill(lines=[Line(description="Rice", amount=Decimal("1050.00"))],
                           amount_type=AmountType.INCLUSIVE))  # fmt: skip
-    doc = extracted(session, storage, bill(lines=HALFWAY, amount_type=None))
+    doc = extracted(session, storage, halfway_bill(amount_type=None))
     verify(session, storage, doc)
     assert "vat_type_likely" in codes(doc)
 

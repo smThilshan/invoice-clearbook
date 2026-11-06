@@ -171,6 +171,27 @@ def test_an_approved_bill_is_posted_and_its_supplier_remembered(
     assert send(session, xero) is None  # nothing left
 
 
+def test_lines_that_do_not_add_up_are_sent_as_one_line_of_the_printed_amounts(
+    session: Session, xero: FakePosting
+) -> None:
+    """Decision 86: the oil read as 500.00 (1100.00 in all), 1000.00 + 50.00 VAT printed. No
+    VAT type was chosen: the totals decide it."""
+    coded: dict[str, Any] = {"account_code": "429", "tax_type": TaxType.STANDARD_5}
+    lines = [Line(description="Rice 5kg", amount=Decimal("600.00"), **coded),
+             Line(description="Cooking oil", amount=Decimal("500.00"), **coded)]  # fmt: skip
+    approved(session, lines=lines, amount_type=None)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "posted"
+    (bill,) = xero.bills
+    assert bill.amount_type is AmountType.EXCLUSIVE
+    assert [(line.description, line.quantity, line.unit_amount, line.account_code, line.tax_code)
+            for line in bill.lines] == [
+        ("Rice 5kg; Cooking oil", Decimal(1), Decimal("1000.00"), "429", "INPUT"),
+    ]  # fmt: skip
+
+
 def test_an_account_not_in_xero_sends_it_back_to_review_without_calling_xero(
     session: Session, xero: FakePosting
 ) -> None:
