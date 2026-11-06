@@ -39,7 +39,8 @@ class PaddleOcrEngine:
         self._ocr: Any = PaddleOCR(
             text_detection_model_name=detection_model,
             text_recognition_model_name=recognition_model,
-            # Off: page rotation is fixed before OCR, and these add seconds per page on CPU.
+            # Off: these add seconds per page on CPU. Pages are turned upright before OCR (EXIF),
+            # and a page read poorly is read again turned (pipeline/read.py, decision 87).
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,

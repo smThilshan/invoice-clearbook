@@ -30,6 +30,9 @@ SHARPNESS_MIN = 500.0
 BRIGHTNESS_MIN = 110.0
 UNEVEN_LIGHT_FLAG = 100.0  # warn: a visible shadow
 UNEVEN_LIGHT_FIX = 60.0  # even out the light before OCR
+# Decision 87: our OCR's confidence, per character, below which a page is read again turned and,
+# if no turn reads it, flagged. March 2026: 76 upright photos 0.81-0.98, the sideways one 0.47.
+READABLE_CONFIDENCE = 0.7
 
 _TILE = 64  # px, on the rendered page (longest side 1500)
 _INK_STD = 20.0  # a tile whose grey levels vary this much holds text or lines
@@ -40,6 +43,7 @@ class PageQuality:
     sharpness: float | None  # None: no text on the page to judge
     brightness: float
     uneven_light: float
+    text_confidence: float | None = None  # our OCR's (decision 87); None = not read by our OCR
 
     @property
     def blurry(self) -> bool:
@@ -52,6 +56,10 @@ class PageQuality:
     @property
     def shadowed(self) -> bool:
         return self.uneven_light > UNEVEN_LIGHT_FLAG
+
+    @property
+    def hard_to_read(self) -> bool:
+        return self.text_confidence is not None and self.text_confidence < READABLE_CONFIDENCE
 
     def to_json(self) -> dict[str, Any]:
         return {k: None if v is None else round(v, 1) for k, v in asdict(self).items()}
@@ -90,6 +98,7 @@ def quality_issues(qualities: Sequence[tuple[int, PageQuality | None]]) -> list[
                 ("blurry", quality.blurry),
                 ("too dark", quality.dark),
                 ("in shadow", quality.shadowed),
+                ("hard to read", quality.hard_to_read),
             )
             if bad
         ]

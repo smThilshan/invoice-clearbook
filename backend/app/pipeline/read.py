@@ -5,8 +5,10 @@
   text is used, but it is OCR text, with OCR mistakes (S for 5), so it is marked "ocr" and the
   checks allow for them (decision 29).
 - Scanned page or photo: OCR on the page image. Photos are turned upright from their EXIF
-  orientation first (phone photos of receipts are often sideways). A few degrees off level is
-  measured, not turned (decision 67): words are grouped into lines as if level.
+  orientation first (phone photos of receipts are often sideways). A page OCR still reads poorly
+  is read again turned a quarter, the other quarter and half way round, and the first turn that
+  reads well is kept (decision 87): a photo saved inside a PDF has no EXIF. A few degrees off
+  level is measured, not turned (decision 67): words are grouped into lines as if level.
 Per page, Storage gets a PNG (for the model and the Workbench viewer) and a JSON with text spans
 and boxes as fractions of the page (0-1), so the Workbench can highlight at any zoom.
 
@@ -41,7 +43,7 @@ from app.adapters.storage.keys import ocr_key, page_image_key
 from app.domain.enums import DocumentStatus
 from app.domain.state_machine import transition
 from app.models import Document
-from app.pipeline.page_quality import PageQuality, measure, prepare_for_ocr
+from app.pipeline.page_quality import READABLE_CONFIDENCE, PageQuality, measure, prepare_for_ocr
 from app.pipeline.tilt import find_tilt
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ class PageText:
     spans: list[TextSpan] = field(default_factory=list)
     quality: PageQuality | None = None  # pictures only (photo or scan); None = digital page
     tilt: float = 0.0  # degrees our OCR's photo is off level (decision 67); 0 = level or unknown
+    turned: int = 0  # degrees clockwise our OCR turned the picture to read it (decision 87)
 
     @property
     def text(self) -> str:
@@ -218,7 +221,7 @@ def read_pages(
     ):
         text = _text_layer(page, image, number, min_text_chars) if page is not None else None
         if text is None:
-            text = ocr_page(ocr(), image, number)
+            image, text = read_upright(ocr(), image, number)
         elif text.source == "ocr":  # a scanner's text over the page picture
             text.quality = measure(image)
         result.append((image, text))
@@ -238,9 +241,53 @@ def ocr_page(engine: OcrEngine, image: Image, number: int) -> PageText:
     and the photo's tilt measured for grouping its words into lines (decision 67)."""
     quality = measure(image)
     text = _ocr(engine, prepare_for_ocr(image, quality), number)
-    text.quality = quality
+    text.quality = replace(quality, text_confidence=text_confidence(text.spans))
     text.tilt = find_tilt(image)
     return text
+
+
+# --- pages turned upright (decision 87) ---------------------------------------------------
+
+# Most likely first: a phone held sideways is turned a quarter either way far more often than
+# upside down. Clockwise degrees, OpenCV rotation.
+_TURNS = (
+    (90, cv2.ROTATE_90_CLOCKWISE),
+    (270, cv2.ROTATE_90_COUNTERCLOCKWISE),
+    (180, cv2.ROTATE_180),
+)
+
+
+def read_upright(engine: OcrEngine, image: Image, number: int) -> tuple[Image, PageText]:
+    """(page image, its text), turned upright when OCR reads the page as it is poorly. A page
+    read well costs one OCR pass, as before; only a poorly read one is read again, turned, and
+    the first turn that reads well is kept. If none does, the page stays as it is: its warning
+    (hard to read) tells the accountant, nothing is turned on a guess."""
+    text = ocr_page(engine, image, number)
+    if _reads_well(text):
+        return image, text
+    for degrees, rotation in _TURNS:
+        turned = np.ascontiguousarray(cv2.rotate(image, rotation), dtype=np.uint8)
+        reading = ocr_page(engine, turned, number)
+        if _reads_well(reading):
+            reading.turned = degrees
+            return turned, reading
+    return image, text
+
+
+def text_confidence(spans: list[TextSpan]) -> float | None:
+    """OCR confidence per character read (a long word counts more than a stray mark); None when
+    nothing was read with a confidence."""
+    scored = [(len(span.text), span.confidence) for span in spans if span.confidence is not None]
+    characters = sum(length for length, _ in scored)
+    if not characters:
+        return None
+    return round(sum(length * confidence for length, confidence in scored) / characters, 4)
+
+
+def _reads_well(text: PageText) -> bool:
+    """Nothing read is not judged: a blank page is no better turned."""
+    confidence = text.quality.text_confidence if text.quality else None
+    return confidence is None or confidence >= READABLE_CONFIDENCE
 
 
 def load_page_texts(storage: Storage, document: Document) -> list[PageText]:

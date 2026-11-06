@@ -72,6 +72,22 @@ def test_poor_pages_get_one_warning_each_naming_the_problems() -> None:
     assert issue.message.startswith("Page 2 looks blurry and too dark")
 
 
+@pytest.mark.parametrize(
+    ("confidence", "warned"), [(0.5, True), (0.7, False), (0.95, False), (None, False)]
+)
+def test_a_page_our_ocr_reads_poorly_is_hard_to_read(
+    confidence: float | None, warned: bool
+) -> None:
+    quality = PageQuality(sharpness=5000, brightness=225, uneven_light=20,
+                          text_confidence=confidence)  # fmt: skip
+
+    issues = quality_issues([(1, quality)])
+
+    assert [issue.message.split(":")[0] for issue in issues] == (
+        ["Page 1 looks hard to read"] if warned else []
+    )
+
+
 def test_pictures_are_measured_digital_pages_are_not() -> None:
     def read(data: bytes, mime: str) -> PageText:
         [(_, text)] = read_pages(data, mime, lambda: FakeOcr(), max_pages=5, max_side=1500,
