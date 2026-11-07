@@ -37,11 +37,11 @@ _TYPE_NAMES = {
     DocumentType.BILL: "bill",
     DocumentType.CREDIT_NOTE: "credit note",
     DocumentType.DEBIT_NOTE: "debit note",
-    DocumentType.RECEIPT: "receipt",
+    DocumentType.RECEIPT: "expense",
     DocumentType.SALES_INVOICE: "sales invoice",
     DocumentType.NON_POSTABLE: "non-postable document",
 }
-# Decision 17: what every postable document needs. Receipts may lack a number (warning only).
+# Decision 17: what every postable document needs. An expense may lack a number (decision 88).
 _REQUIRED = {
     "vendor_name": "supplier name",
     "invoice_number": "document number",
@@ -90,7 +90,7 @@ def check_required(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
                 _warning(
                     "receipt_number_missing",
                     field,
-                    "No receipt number found. Allowed for receipts; duplicates are checked by "
+                    "No number found. Allowed for an expense; duplicates are checked by "
                     "supplier, date and total instead.",
                 )
             )

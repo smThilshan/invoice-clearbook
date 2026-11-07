@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus as S
+from app.domain.enums import DocumentType as T
 from app.domain.enums import LineGrouping, Role, TaxType
 from app.models import AuditLog, Document, Outbox, OutboxStatus, VendorMapping
 from tests.integration.factories import CLIENT
@@ -210,3 +211,67 @@ def test_only_an_admin_changes_how_lines_are_sent(api: TestClient) -> None:  # n
 
     assert refused.status_code == 403
     assert api.patch("/clients/nobody", json={"line_grouping": "BY_ITEM"}).status_code == 403
+
+
+# --- bill or expense (decision 88) ------------------------------------------------------
+
+
+def test_approval_teaches_the_suppliers_bill_or_expense(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage)  # "Due: 14/11/2026" printed: a bill
+
+    ok(approve(api, doc))
+
+    assert (mapping(session).payment_type, mapping(session).payment_approvals) == (T.BILL, 1)
+
+
+def test_the_accountants_own_choice_is_trusted_at_once(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage)
+    ok(patch(api, doc, document_type="RECEIPT"))
+
+    ok(approve(api, doc))
+
+    assert (mapping(session).payment_type, mapping(session).payment_approvals) == (T.RECEIPT, 2)
+
+
+def test_the_suppliers_memory_chooses_for_its_next_documents(
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    mapping(session).payment_type, mapping(session).payment_approvals = T.RECEIPT, 2
+    session.flush()
+
+    doc = in_review(session, storage)  # a due date printed, but the accountant said expense
+
+    assert doc.document_type is T.RECEIPT
+    assert "bill_or_expense" not in {issue["code"] for issue in doc.issues or []}
+
+
+def test_one_approval_is_not_yet_a_memory(
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    mapping(session).payment_type, mapping(session).payment_approvals = T.RECEIPT, 1
+    session.flush()
+
+    assert in_review(session, storage).document_type is T.BILL
+
+
+def test_the_accountants_type_is_never_chosen_again(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    doc = in_review(session, storage)  # a bill by its due date
+    ok(patch(api, doc, document_type="RECEIPT"))
+
+    body = ok(patch(api, doc, invoice_number="INV-00292"))  # checked again after another edit
+
+    assert (body["document_type"], doc.document_type) == ("RECEIPT", T.RECEIPT)

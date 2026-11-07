@@ -93,7 +93,8 @@ def test_receipt_without_number_is_only_a_warning() -> None:
     assert "required_missing" not in codes(receipt)
 
 
-def test_receipt_without_number_is_an_error_where_every_bill_needs_one() -> None:
+def test_expense_without_number_is_fine_unless_every_bill_needs_one() -> None:
+    """Decision 88: an expense needs no number; Zoho takes no bill without one (decision 74)."""
     receipt = invoice(document_type=DocumentType.RECEIPT, invoice_number=None, due_date=None)
 
     zoho = require_number(issues(receipt), AccountingProvider.ZOHO)
@@ -103,7 +104,7 @@ def test_receipt_without_number_is_an_error_where_every_bill_needs_one() -> None
     assert (needed.severity, needed.field) == (Severity.ERROR, "invoice_number")
     assert "Zoho Books needs one" in needed.message
     assert "receipt_number_missing" not in {i.code for i in zoho}
-    assert {i.code for i in xero} == codes(receipt)  # Xero takes a bill without a number
+    assert {i.code for i in xero} == codes(receipt) - {"receipt_number_missing"}  # nothing said
 
 
 def test_receipt_still_needs_total() -> None:

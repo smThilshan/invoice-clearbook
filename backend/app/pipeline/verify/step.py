@@ -13,7 +13,8 @@ accountant typed or confirmed are no longer grounded (decision 24).
 
 Nothing here changes an extracted value (rule 8); the coded invoice only adds account and tax
 codes to the lines; an empty VAT type may get a likely one (decision 84) and the date the one
-every clue agrees on (decision 85), each with a warning.
+every clue agrees on (decision 85), each with a warning; a bill or expense is chosen from the
+page and the supplier's memory (decision 88), with a warning when not sure.
 An unreadable extraction still goes to review (Exception, "enter it by hand"). If the model is
 down, coding leaves accounts for review with a warning; verification itself never needs the
 model to succeed.
@@ -40,16 +41,18 @@ from app.domain.enums import (
     AccountingProvider,
     AmountType,
     DocumentStatus,
+    DocumentType,
     QueueCategory,
     TaxType,
 )
 from app.domain.invoice import Invoice, Line
 from app.domain.state_machine import transition
-from app.models import Client, Document, Extraction
+from app.models import Client, Document, Extraction, VendorMapping
 from app.pipeline import coding
 from app.pipeline.dates import DateLimits, folder_for, photo_date, resolve_date
 from app.pipeline.folders import folder_year_known
 from app.pipeline.page_quality import quality_issues
+from app.pipeline.payment import PURCHASES, decide_payment, payment_issue
 from app.pipeline.read import PageText, decode_image, load_page_texts
 from app.pipeline.subtotal import with_worked_out_subtotal
 from app.pipeline.total_line import total_line
@@ -261,6 +264,12 @@ def assess(
         invoice, dated = _resolved_date(session, document, invoice, pages, verified, history,
                                         settings=settings, today=today)  # fmt: skip
         filled += dated
+    payment = None
+    if invoice is not None and "document_type" not in verified:  # the accountant's choice stays
+        remembered = _remembered_type(session, document.client_id, vendor_key(invoice), settings)
+        payment = decide_payment(invoice, pages, remembered=remembered)
+        if payment is not None and payment.document_type is not invoice.document_type:
+            invoice = invoice.model_copy(update={"document_type": payment.document_type})
     issued = invoice.invoice_date if invoice else None
     folder = folder_for(issued, document.folder_date,
                         known=folder_year_known(document.source_path))  # fmt: skip
@@ -315,6 +324,8 @@ def assess(
         types = check_document_type(invoice, pages, confirmed="document_type" in verified)
         issues += types.issues
         park = types.park
+        if payment is not None and not types.issues:
+            issues += payment_issue(payment, _model_type(session, document))
 
     if invoice is not None:
         issues = _explain_total(storage, document, invoice, pages, issues, settings, context)
@@ -415,20 +426,54 @@ def _model_answer(session: Session, document: Document) -> Invoice | None:
         return None
 
 
+def _remembered_type(
+    session: Session, client_id: str, key: str | None, settings: Settings
+) -> DocumentType | None:
+    """Bill or expense as the accountant approved it for this supplier (decision 88)."""
+    if key is None:
+        return None
+    mapping = session.scalars(
+        select(VendorMapping).where(
+            VendorMapping.client_id == client_id, VendorMapping.vendor_key == key
+        )
+    ).first()
+    if mapping is None or mapping.payment_approvals < settings.coding_min_consistent_approvals:
+        return None
+    return mapping.payment_type
+
+
+def _model_type(session: Session, document: Document) -> DocumentType | None:
+    """The type the model itself read (its raw answer: extraction may have changed it)."""
+    raw = session.scalars(
+        select(Extraction.raw_output)
+        .where(Extraction.document_id == document.id)
+        .order_by(Extraction.attempt.desc())
+        .limit(1)
+    ).first()
+    try:
+        answer = json.loads(raw) if raw else None
+        value = answer.get("document_type") if isinstance(answer, dict) else None
+        kind = DocumentType(value) if isinstance(value, str) else None
+    except ValueError:  # not JSON (cut off), or no type we know
+        return None
+    return kind if kind in PURCHASES else None
+
+
 def require_number(issues: list[Issue], provider: AccountingProvider) -> list[Issue]:
-    """A receipt without a number may be posted (a warning), unless the client's accounting
-    system takes no bill without one (Zoho Books): then it is an error, so the accountant types
-    the number before approving rather than having the bill sent back (option B, decision 74)."""
+    """An expense needs no number (decision 88), unless the client's accounting system takes no
+    bill without one (Zoho Books), and expenses are still sent as bills there (decision 50): then
+    it is an error, so the accountant types the number before approving rather than having the
+    bill sent back (option B, decision 74)."""
     entry = PROVIDERS.get(provider)
     if entry is None or not entry.number_required:
-        return issues
+        return [issue for issue in issues if issue.code != "receipt_number_missing"]
     return [
         Issue(
             "receipt_number_needed",
             Severity.ERROR,
             issue.field,
-            f"No receipt number found. {entry.name} needs one: type the number printed on the "
-            "receipt (for example a booking or trip number).",
+            f"No number found. {entry.name} needs one on every expense: type the number printed "
+            "on it (for example a receipt, booking or trip number).",
         )
         if issue.code == "receipt_number_missing"
         else issue

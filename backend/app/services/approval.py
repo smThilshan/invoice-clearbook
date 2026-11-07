@@ -26,6 +26,7 @@ from app.domain.enums import DocumentStatus, LineGrouping, TaxType
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
 from app.models import Client, Document, Outbox, VendorMapping
+from app.pipeline.payment import PURCHASES
 from app.pipeline.verify.step import recheck_document, working_copy
 from app.services.corrections import sync_corrections
 from app.services.review import NotEditableError, ReviewError
@@ -74,6 +75,8 @@ def approve_document(
     session.add(outbox)
     if not approved_before:  # one document is one approval for the supplier's coding
         _learn_supplier_coding(session, document, invoice)
+        trusted_after = settings.coding_min_consistent_approvals
+        _learn_supplier_payment(session, document, invoice, trusted_after)
     session.flush()
     return outbox
 
@@ -86,6 +89,34 @@ def _learn_supplier_coding(session: Session, document: Document, invoice: Invoic
     (account,), (tax_type,) = accounts, tax_types
     if account is None:
         return
+    mapping = _mapping(session, document)
+    if _same_choice(mapping, account, tax_type):
+        mapping.consistent_approvals += 1
+    else:
+        mapping.account_code, mapping.tax_type, mapping.consistent_approvals = account, tax_type, 1
+    mapping.last_approved_at = datetime.now(UTC)
+
+
+def _learn_supplier_payment(
+    session: Session, document: Document, invoice: Invoice, trusted_after: int
+) -> None:
+    """Bill or expense for this supplier (decision 88). The accountant's own choice counts at
+    once; the type chosen by the checks after two approvals in a row, like its coding."""
+    kind = invoice.document_type
+    if document.vendor_key is None or kind not in PURCHASES:
+        return
+    mapping = _mapping(session, document)
+    chosen = "document_type" in (document.verified_fields or ())
+    if mapping.payment_type is kind and mapping.payment_approvals > 0:
+        mapping.payment_approvals += 1
+    else:
+        mapping.payment_type, mapping.payment_approvals = kind, 1
+    if chosen:
+        mapping.payment_approvals = max(mapping.payment_approvals, trusted_after)
+    mapping.last_approved_at = datetime.now(UTC)
+
+
+def _mapping(session: Session, document: Document) -> VendorMapping:
     mapping = session.scalars(
         select(VendorMapping).where(
             VendorMapping.client_id == document.client_id,
@@ -93,16 +124,15 @@ def _learn_supplier_coding(session: Session, document: Document, invoice: Invoic
         )
     ).first()
     if mapping is None:
-        # The column default only applies on insert: count from 0 here, before the first save.
+        # The column defaults only apply on insert: count from 0 here, before the first save.
         mapping = VendorMapping(
-            client_id=document.client_id, vendor_key=document.vendor_key, consistent_approvals=0
+            client_id=document.client_id,
+            vendor_key=document.vendor_key,
+            consistent_approvals=0,
+            payment_approvals=0,
         )
         session.add(mapping)
-    if _same_choice(mapping, account, tax_type):
-        mapping.consistent_approvals += 1
-    else:
-        mapping.account_code, mapping.tax_type, mapping.consistent_approvals = account, tax_type, 1
-    mapping.last_approved_at = datetime.now(UTC)
+    return mapping
 
 
 def _same_choice(mapping: VendorMapping, account: str, tax_type: TaxType | None) -> bool:

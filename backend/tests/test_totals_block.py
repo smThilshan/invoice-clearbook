@@ -7,7 +7,7 @@ import pytest
 
 from app.domain.enums import AmountType, DocumentType, TaxType
 from app.domain.invoice import Invoice, Line
-from app.pipeline.paid import receipt_when_paid
+from app.pipeline.paid import Proof, proven_payment
 from app.pipeline.read import PageText, TextSpan
 from app.pipeline.totals_block import apply_totals_block, read_totals_block
 
@@ -202,16 +202,15 @@ def test_labels_name_the_rows_and_numbers_are_not_rates_or_codes() -> None:
 @pytest.mark.parametrize(
     ("payment", "expected"),
     [
-        ("Tendered Amount 18.25\nBalance Amount 0.00", DocumentType.RECEIPT),  # exact cash
-        ("Tendered Amount 18.25", DocumentType.RECEIPT),  # money given = the total
-        ("Tendered Amount 0.00\nBalance Amount 18.25", DocumentType.BILL),  # misread: no proof
+        ("Tendered Amount 18.25\nBalance Amount 0.00", Proof.LABEL),  # exact cash
+        ("Tendered Amount 18.25", Proof.LABEL),  # money given = the total
+        ("Tendered Amount 0.00\nBalance Amount 18.25", None),  # misread: no proof
     ],
 )
-def test_a_labelled_payment_proves_a_receipt(payment: str, expected: DocumentType) -> None:
+def test_a_labelled_payment_proves_the_payment(payment: str, expected: Proof | None) -> None:
     text = AVOCADO.replace("Tendered Amount 50.00\nBalance Amount 31.75", payment)
 
-    assert receipt_when_paid(receipt("18.37", total=Decimal("18.25")), [page(text)]).document_type \
-        is expected  # fmt: skip
+    assert proven_payment(receipt("18.37", total=Decimal("18.25")), [page(text)]) is expected
 
 
 # Gifts Village: "Bill Amount" is the total; the cash handed over was read as an item and as

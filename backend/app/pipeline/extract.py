@@ -37,7 +37,7 @@ from app.pipeline.item_codes import attach_item_codes
 from app.pipeline.line_totals import repair_unit_prices
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.no_vat import clear_unprinted_vat
-from app.pipeline.paid import receipt_when_paid
+from app.pipeline.payment import decide_payment
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.reconcile_lines import reconcile_lines
@@ -175,14 +175,21 @@ def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     invoice = clear_unprinted_vat(invoice, pages)
     # Decision 60: the VAT copied as a line, proven by the model's own amounts.
     invoice = remove_vat_line(invoice)
-    # Decision 61: a slip paid at the till (cash given - total = change printed) is a receipt.
-    invoice = receipt_when_paid(invoice, pages)
+    # Decision 88: bill or expense, from what the page proves (the supplier's memory: checks).
+    invoice = with_payment_type(invoice, pages)
     # Decision 82: lines still not adding up to the proven total, readings tried together.
     invoice = reconcile_lines(invoice, pages)
     # Decision 82: each item's printed barcode, once the lines are final.
     invoice = attach_item_codes(invoice, pages)
     # Decision 81: the subtotal is the total less the VAT, not the model's copy.
     return with_worked_out_subtotal(invoice)
+
+
+def with_payment_type(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
+    decision = decide_payment(invoice, pages)
+    if decision is None or decision.document_type is invoice.document_type:
+        return invoice
+    return invoice.model_copy(update={"document_type": decision.document_type})
 
 
 def parse_answer_dates(answer: dict[str, Any]) -> dict[str, Any]:

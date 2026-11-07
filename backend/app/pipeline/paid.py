@@ -1,11 +1,9 @@
-"""Paid on the spot (decision 61): a shop slip titled "TAX INVOICE" is read as a bill (the prompt:
-BILL = supplier tax invoice), although it was paid in cash at the till. When the page proves the
-payment, right after extraction, the type becomes RECEIPT: posted the same way (decision 50), due
-on its own date.
+"""Paid on the spot (decision 61), proven by the printed numbers: one of the proofs of payment
+that make a document an expense (decision 88, `pipeline/payment.py`).
 
-Proven means all of these (otherwise nothing changes and the type check asks, with one click):
-- The model read a bill with a total, and the page shows a payment word (the type check's own:
-  cash, tendered, paid, change, card ...).
+Proven means all of these:
+- A total was read, and the page shows a payment word (the type check's own: cash, tendered,
+  paid, change, card ...).
 - After the total, the page prints the cash given and the change, with cash given - total =
   change exactly ("Net Amount 4.50 / Tendered 5.00 / Balance 0.50"). Change is only given on
   money paid. Found by their numbers only: OCR garbles the labels, not the numbers.
@@ -13,14 +11,14 @@ Proven means all of these (otherwise nothing changes and the type check asks, wi
 Or, from the labelled totals block (decision 64), whose total is the one read: an amount
 labelled as money given (Tendered, Cash, Card, Paid) equal to the total ("Tendered 7.00"), or
 above it with one labelled as change (Balance, Change) equal to the difference, 0.00 included
-("Tendered 3.50 / Balance 0.00": exact cash). Otherwise (a payment word alone) the type check asks.
-The model's own answer stays in `extractions.raw_output`.
+("Tendered 3.50 / Balance 0.00": exact cash): weaker, as account suppliers print the total as
+money given too ("PAYMENT DETAILS CASH: 49.35", Al Ain).
 """
 
 from collections.abc import Sequence
 from decimal import Decimal
+from enum import StrEnum
 
-from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
 from app.pipeline.printed_summary import MONEY
 from app.pipeline.read import PageText
@@ -29,15 +27,18 @@ from app.pipeline.verify.normalize import fold_ocr_digits, to_ascii_digits
 from app.pipeline.verify.type_check import shows_payment
 
 
-def receipt_when_paid(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
+class Proof(StrEnum):
+    CHANGE = "cash given and change printed"
+    LABEL = "money given printed"
+
+
+def proven_payment(invoice: Invoice, pages: Sequence[PageText]) -> Proof | None:
     total = invoice.total
-    if invoice.document_type is not DocumentType.BILL or not total or total < 0:
-        return invoice
-    if not shows_payment(pages):
-        return invoice
-    if not (_change_given(total, _money_in_order(pages)) or _paid_by_label(total, pages)):
-        return invoice
-    return invoice.model_copy(update={"document_type": DocumentType.RECEIPT})
+    if not total or total < 0 or not shows_payment(pages):
+        return None
+    if _change_given(total, _money_in_order(pages)):
+        return Proof.CHANGE
+    return Proof.LABEL if _paid_by_label(total, pages) else None
 
 
 def _paid_by_label(total: Decimal, pages: Sequence[PageText]) -> bool:

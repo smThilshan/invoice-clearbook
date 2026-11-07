@@ -8,11 +8,8 @@ be issued for returns" on a bill is not mistaken for a title.
 - Model and title both say non-postable (quote, statement, ...): parked, never posted.
 - Only one of them says non-postable, or bill vs credit note disagree: error (Exception).
 - Debit notes and sales invoices: not in the MVP scope, error with the reason.
-- Bill vs receipt (paid or owed?) unclear: warning only; UAE shop slips are often titled
-  "TAX INVOICE" too.
-The type itself is never changed here (rule 8): the accountant decides, and bill vs receipt
-offers the other type with one click. (A payment proven by the printed numbers already made it
-a receipt right after extraction: decision 61, `pipeline/paid.py`.) When the model says
+- Bill or expense (paid or owed?) is not decided here: `pipeline/payment.py` (decision 88).
+The type itself is never changed here (rule 8). When the model says
 non-postable but nothing confirms it, the error offers the type the document shows: a
 receipt when it shows a payment (an app's order screen: "Order Details", "Payment method
 Cash", "Amount Paid"; decision 48), else the type its title names.
@@ -60,7 +57,7 @@ _NAMES = {
     DocumentType.BILL: "a bill/invoice",
     DocumentType.CREDIT_NOTE: "a credit note",
     DocumentType.DEBIT_NOTE: "a debit note",
-    DocumentType.RECEIPT: "a receipt",
+    DocumentType.RECEIPT: "an expense",
     DocumentType.SALES_INVOICE: "a sales invoice",
     DocumentType.NON_POSTABLE: "a non-postable document (quote, order, statement, ...)",
 }
@@ -100,7 +97,7 @@ def check_document_type(
                 [
                     _conflict(
                         f"The model read it as {_NAMES[model]}, {reason} and it shows a "
-                        "payment (cash/card/paid): it looks like a receipt.",
+                        "payment (cash/card/paid): it looks like an expense.",
                         suggestion=DocumentType.RECEIPT,
                     )
                 ],
@@ -143,40 +140,11 @@ def check_document_type(
                 f"{_NAMES[named or DocumentType.BILL]}."
             )
         )
-    else:
-        issues += _paid_or_owed(invoice, pages)
     return TypeCheck(issues, park=False)
 
 
 def shows_payment(pages: Sequence[PageText]) -> bool:
     return any(_PAYMENT_MARKS.search(page.text) for page in pages)
-
-
-def _paid_or_owed(invoice: Invoice, pages: Sequence[PageText]) -> list[Issue]:
-    paid = shows_payment(pages)
-    if invoice.document_type is DocumentType.BILL and paid:
-        return [
-            Issue(
-                "type_maybe_receipt",
-                Severity.WARNING,
-                "document_type",
-                "Read as a bill to pay, but the document shows a payment (cash/card/"
-                "paid): is it a receipt (already paid)?",
-                suggestion=DocumentType.RECEIPT,
-            )
-        ]
-    if invoice.document_type is DocumentType.RECEIPT and not paid:
-        return [
-            Issue(
-                "type_maybe_bill",
-                Severity.WARNING,
-                "document_type",
-                "Read as a receipt (already paid), but no payment is shown: is it a "
-                "bill still to pay?",
-                suggestion=DocumentType.BILL,
-            )
-        ]
-    return []
 
 
 def _strongest(titles: set[DocumentType]) -> DocumentType | None:

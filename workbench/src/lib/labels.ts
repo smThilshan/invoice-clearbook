@@ -23,11 +23,12 @@ export const STATUS_LABELS: Record<FileStatusCode, string> = {
   FAILED: 'Failed',
 }
 
+/** Decision 88: a purchase is a bill (on account) or an expense (paid); RECEIPT is the expense. */
 export const TYPE_LABELS: Record<DocumentType, string> = {
   BILL: 'Bill',
+  RECEIPT: 'Expense',
   CREDIT_NOTE: 'Credit note',
   DEBIT_NOTE: 'Debit note',
-  RECEIPT: 'Receipt',
   SALES_INVOICE: 'Sales invoice',
   NON_POSTABLE: 'Not postable',
 }

@@ -100,32 +100,13 @@ def test_out_of_scope_types_are_errors(model: T) -> None:
     assert check(model, "DEBIT NOTE") == ({"type_out_of_scope"}, False)
 
 
-def test_bill_that_shows_a_payment_may_be_a_receipt() -> None:
-    codes, _ = check(T.BILL, "TAX INVOICE", "Total 90.00 VISA ****1234 PAID")
-
-    assert codes == {"type_maybe_receipt"}
-
-
-def test_receipt_without_any_payment_may_be_a_bill() -> None:
-    codes, _ = check(T.RECEIPT, "TAX INVOICE", "Total 90.00 Payment due in 30 days")
-
-    assert codes == {"type_maybe_bill"}
-
-
 @pytest.mark.parametrize(
-    ("model", "body", "offered"),
-    [
-        (T.BILL, "Total 90.00 VISA ****1234 PAID", T.RECEIPT),
-        (T.RECEIPT, "Total 90.00 Payment due in 30 days", T.BILL),
-    ],
+    ("model", "body"),
+    [(T.BILL, "Total 90.00 VISA ****1234 PAID"), (T.RECEIPT, "Total 90.00 Payment due in 30 days")],
 )
-def test_bill_or_receipt_offers_the_other_type_with_one_click(
-    model: T, body: str, offered: T
-) -> None:
-    result = check_document_type(Invoice(document_type=model), [page("TAX INVOICE", body)])
-
-    [issue] = result.issues
-    assert (issue.severity, issue.suggestion) == (Severity.WARNING, offered)
+def test_bill_or_expense_is_not_asked_here(model: T, body: str) -> None:
+    """Decision 88: `pipeline/payment.py` chooses and asks (tests/test_payment.py)."""
+    assert check(model, "TAX INVOICE", body) == (set(), False)
 
 
 def test_shop_slip_titled_tax_invoice_with_cash_payment_is_a_fine_receipt() -> None:

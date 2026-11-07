@@ -5,7 +5,7 @@ import pytest
 
 from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
-from app.pipeline.paid import receipt_when_paid
+from app.pipeline.paid import Proof, proven_payment
 from app.pipeline.read import PageText, TextSpan
 
 # Al Shahama, as our OCR read it: titled TAX INVOICE, paid in cash at the till.
@@ -34,15 +34,15 @@ def bill(**changes: Any) -> Invoice:
     return Invoice(**fields)
 
 
-def test_cash_given_less_the_total_printed_as_the_change_makes_it_a_receipt() -> None:
+def test_cash_given_less_the_total_printed_as_the_change_proves_the_payment() -> None:
     """5.00 given - 4.50 = 0.50 change, all printed after the total."""
-    assert receipt_when_paid(bill(), pages(SHAHAMA)).document_type is DocumentType.RECEIPT
+    assert proven_payment(bill(), pages(SHAHAMA)) is Proof.CHANGE
 
 
 def test_ocr_digit_misreads_are_read_as_digits() -> None:
     text = SHAHAMA.replace("Tendered Amount 5.00", "Tendered Amount S.OO")
 
-    assert receipt_when_paid(bill(), pages(text)).document_type is DocumentType.RECEIPT
+    assert proven_payment(bill(), pages(text)) is Proof.CHANGE
 
 
 @pytest.mark.parametrize(
@@ -72,24 +72,17 @@ def test_ocr_digit_misreads_are_read_as_digits() -> None:
         ),
     ],
 )
-def test_nothing_changes_without_proof(text: str, why: str) -> None:
-    assert receipt_when_paid(bill(), pages(text)).document_type is DocumentType.BILL, why
+def test_nothing_is_proven_without_proof(text: str, why: str) -> None:
+    assert proven_payment(bill(), pages(text)) is None, why
 
 
-@pytest.mark.parametrize(
-    "invoice",
-    [
-        bill(total=None),
-        bill(document_type=DocumentType.CREDIT_NOTE),
-        bill(document_type=DocumentType.NON_POSTABLE),
-    ],
-)
-def test_only_a_bill_with_a_total_is_changed(invoice: Invoice) -> None:
-    assert receipt_when_paid(invoice, pages(SHAHAMA)) == invoice
+@pytest.mark.parametrize("total", [None, Decimal("-4.50")])
+def test_only_a_total_read_can_be_proven_paid(total: Decimal | None) -> None:
+    assert proven_payment(bill(total=total), pages(SHAHAMA)) is None
 
 
-def test_exact_cash_with_its_labels_is_a_receipt() -> None:
+def test_exact_cash_with_its_labels_is_proven_by_label() -> None:
     """Decision 64: "Tendered 4.50 / Balance 0.00", labelled, under a proven totals block."""
     text = SHAHAMA.replace("5.00\nBalance Amount 0.50", "4.50\nBalance Amount 0.00")
 
-    assert receipt_when_paid(bill(), pages(text)).document_type is DocumentType.RECEIPT
+    assert proven_payment(bill(), pages(text)) is Proof.LABEL

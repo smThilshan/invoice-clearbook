@@ -325,7 +325,7 @@ describe('review screen', () => {
     const api = await open(backend(order))
     const user = userEvent.setup()
 
-    await user.click(screen.getByRole('button', { name: 'Use: Receipt' }))
+    await user.click(screen.getByRole('button', { name: 'Use: Expense' }))
     await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
 
     await waitFor(() => expect(sent(api)).toBeDefined())

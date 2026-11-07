@@ -86,7 +86,8 @@ def test_valid_answer_becomes_working_copy(session: Session, storage: LocalStora
 
     assert (result.outcome, result.attempt) == (ExtractOutcome.EXTRACTED, 1)
     assert doc.status is DocumentStatus.EXTRACTED
-    assert doc.document_type is DocumentType.BILL
+    # Decision 88: the model said bill; a hypermarket with no account or credit terms printed
+    assert doc.document_type is DocumentType.RECEIPT
     assert doc.invoice is not None
     assert Decimal(doc.invoice["total"]) == Decimal("1050.10")  # stored as exact text, no float
     [row] = extractions(session, doc)
