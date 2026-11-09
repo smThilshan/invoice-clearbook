@@ -478,13 +478,13 @@ describe('review screen', () => {
     const failed = detail({
       status: 'POSTING',
       sending: { state: 'failed', reason: 'unexpected error (RuntimeError)', next_try_at: null,
-                 can_send_back: false },
+                 can_send_back: false, as_expense: false },
     })  // prettier-ignore
     const api = mockApi({
       '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
       [`/documents/${ID}`]: failed,
       [`POST /documents/${ID}/send-again`]: detail({
-        status: 'POSTING', sending: { state: 'waiting', reason: null, next_try_at: null, can_send_back: false },
+        status: 'POSTING', sending: { state: 'waiting', reason: null, next_try_at: null, can_send_back: false, as_expense: false },
       }),
     })  // prettier-ignore
     const user = userEvent.setup()
@@ -505,7 +505,7 @@ describe('review screen', () => {
       '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
       [`/documents/${ID}`]: detail({
         status: 'POSTING',
-        sending: { state: 'failed', reason: 'made-up error', next_try_at: null, can_send_back: true },
+        sending: { state: 'failed', reason: 'made-up error', next_try_at: null, can_send_back: true, as_expense: false },
       }),
       [`POST /documents/${ID}/send-back`]: detail({
         failure_reason: 'Sent back after it could not be sent: made-up error',
@@ -582,7 +582,7 @@ describe('review screen', () => {
       '/clients/cafe/accounting': { provider_name: 'Xero' },
       [`/documents/${ID}`]: detail({
         status: 'POSTED',
-        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false },
+        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false, as_expense: false },
         external_url: 'https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=bill-1',
       }),
     })  // prettier-ignore
@@ -595,13 +595,32 @@ describe('review screen', () => {
     )  // prettier-ignore
   })
 
+  it('says a posted expense went as an expense, and links to it there (decision 89)', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      '/clients/cafe/accounting': { provider_name: 'Zoho Books' },
+      [`/documents/${ID}`]: detail({
+        status: 'POSTED',
+        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false, as_expense: true },
+        external_url: 'https://books.zoho.ae/app/905001#/expenses/4800',
+      }),
+    })  // prettier-ignore
+    await open(api)
+
+    const status = screen.getByRole('status', { name: 'Sending' })
+    await waitFor(() => expect(status).toHaveTextContent('Posted to Zoho Books as an expense.'))
+    expect(within(status).getByRole('link', { name: 'Open in Zoho Books' })).toHaveAttribute(
+      'href', 'https://books.zoho.ae/app/905001#/expenses/4800',
+    )  // prettier-ignore
+  })
+
   it('sends a posted bill again once the accounting system says it was deleted (decision 76)', async () => {
     const api = mockApi({
       '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
       '/clients/cafe/accounting': { provider_name: 'Zoho Books' },
       [`/documents/${ID}`]: detail({
         status: 'POSTED',
-        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false },
+        sending: { state: 'posted', reason: null, next_try_at: null, can_send_back: false, as_expense: false },
       }),
       [`POST /documents/${ID}/reopen-deleted`]: detail({ status: 'IN_REVIEW', sending: null }),
     })  // prettier-ignore
@@ -617,7 +636,7 @@ describe('review screen', () => {
     await open(backend(detail({
       status: 'POSTING',
       sending: { state: 'paused', reason: 'Xero access was withdrawn (invalid_grant)', next_try_at: null,
-                 can_send_back: false },
+                 can_send_back: false, as_expense: false },
     })))  // prettier-ignore
 
     const status = screen.getByRole('status', { name: 'Sending' })

@@ -14,11 +14,13 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import (
+    PAYS,
     AccessRevoked,
     ConnectorError,
     Posted,
     PostingAccessDenied,
     PostingBill,
+    PostingExpense,
     PostingRefused,
     PostingUnavailable,
 )
@@ -27,6 +29,7 @@ from app.domain.enums import (
     AccountingProvider,
     AmountType,
     DocumentType,
+    ExpensesSentAs,
     LineGrouping,
     TaxType,
 )
@@ -49,10 +52,12 @@ class FakePosting:
 
     def __init__(self) -> None:
         self.bills: list[PostingBill] = []
+        self.expenses: list[PostingExpense] = []
         self.started_with: list[dict[str, Any]] = []
         self.outcome: Exception | None = None
         self.gone: bool | Exception = True  # what is_deleted answers
         self.asked: list[str] = []
+        self.asked_expense: list[bool] = []
 
     def system(self, token: str, tenant_id: str) -> "FakePosting":
         assert (token, tenant_id) == ("access-1", "t2")
@@ -74,8 +79,22 @@ class FakePosting:
             raise self.outcome
         return Posted("xero-bill-1", Decimal("1050.00"), progress["contact_id"], True)
 
-    def is_deleted(self, external_id: str) -> bool:
+    def post_expense(
+        self,
+        expense: PostingExpense,
+        *,
+        key: str,
+        progress: MutableMapping[str, Any],
+        save: Callable[[str], None],
+    ) -> Posted:
+        self.expenses.append(expense)
+        if self.outcome:
+            raise self.outcome
+        return Posted("zoho-expense-1", Decimal("1050.00"), "xero-contact", False)
+
+    def is_deleted(self, external_id: str, *, expense: bool = False) -> bool:
         self.asked.append(external_id)
+        self.asked_expense.append(expense)
         if isinstance(self.gone, Exception):
             raise self.gone
         return self.gone
@@ -109,7 +128,9 @@ def xero(session: Session, tmp_path: Path) -> FakePosting:
     return FakePosting()
 
 
-def approved(session: Session, **changes: Any) -> tuple[Document, Outbox]:
+def approved(
+    session: Session, sent_as: ExpensesSentAs = ExpensesSentAs.BILL, **changes: Any
+) -> tuple[Document, Outbox]:
     coded: dict[str, Any] = {"account_code": "429", "tax_type": TaxType.STANDARD_5}
     lines = [
         Line(description="Rice 5kg", qty=Decimal("2"), unit_price=Decimal("300.00"),
@@ -126,7 +147,7 @@ def approved(session: Session, **changes: Any) -> tuple[Document, Outbox]:
     })  # fmt: skip
     doc = make_document(session, status=S.APPROVED, document_type=DocumentType.BILL,
                         invoice=json.loads(invoice.model_dump_json()))  # fmt: skip
-    outbox = Outbox(client_id=CLIENT, document_id=doc.id)
+    outbox = Outbox(client_id=CLIENT, document_id=doc.id, sent_as=sent_as)
     session.add(outbox)
     session.flush()
     return doc, outbox
@@ -564,7 +585,7 @@ def test_the_review_screen_tries_again_or_sends_back_through_the_api(
         not_failed = api.post(f"/documents/{sent_create.id}/send-again")
 
     assert failed == {"state": "failed", "reason": "unexpected error (RuntimeError)",
-                      "next_try_at": None, "can_send_back": False}  # fmt: skip
+                      "next_try_at": None, "can_send_back": False, "as_expense": False}  # fmt: skip
     assert refused.status_code == 409 and "use Try again" in refused.json()["detail"]
     assert again.status_code == 200 and again.json()["sending"]["state"] == "waiting"
     assert len(asked) == 1  # the worker was asked to send that row
@@ -778,3 +799,117 @@ def test_only_a_posted_document_can_be_sent_again(session: Session, xero: FakePo
         reopen(session, xero, doc)
 
     assert xero.asked == []
+
+
+# --- expenses sent as expenses (decision 89) ---------------------------------------------
+
+PETTY_CASH = "090"
+
+
+def an_expense(session: Session, **changes: Any) -> tuple[Document, Outbox]:
+    """Approved as an expense (decided at approval), paid through petty cash."""
+    session.add(LedgerAccount(client_id=CLIENT, provider=AccountingProvider.XERO,
+                              external_id="pc", code=PETTY_CASH, name="Petty Cash",
+                              account_class=AccountClass.ASSET, raw={PAYS: "Cash"}))  # fmt: skip
+    fields: dict[str, Any] = {"document_type": DocumentType.RECEIPT, "paid_through": PETTY_CASH}
+    return approved(session, ExpensesSentAs.EXPENSE, **(fields | changes))
+
+
+def test_an_expense_is_sent_as_an_expense_paid_through_its_account(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, _ = an_expense(session)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "posted"
+    assert not xero.bills
+    (expense,) = xero.expenses
+    assert (expense.paid_through, expense.vat, expense.reference, expense.supplier_name) == (
+        PETTY_CASH, Decimal("50.00"), "INV-7", "Made-up Foods LLC")  # fmt: skip
+    assert [(line.description, line.unit_amount) for line in expense.lines] == [
+        ("Rice 5kg; Cooking oil", Decimal("1000.00")),  # one line per account and VAT
+    ]
+    assert expense.attachment is not None
+    session.refresh(doc)
+    assert (doc.status, doc.external_id) == (S.POSTED, "zoho-expense-1")
+    posted = session.scalars(
+        select(AuditLog).where(AuditLog.document_id == doc.id, AuditLog.to_status == S.POSTED)
+    ).one()
+    assert posted.details["sent_as"] == "EXPENSE"
+    sending = posting.sending_of(session, doc)
+    assert sending is not None and (sending.state, sending.as_expense) == ("posted", True)
+
+
+@pytest.mark.parametrize(
+    ("printed_vat", "layout"),
+    [("0.11", ["Tea; Coffee; Water"]),  # the VAT of the sum: one line
+     ("0.12", ["Tea", "Coffee", "Water"])],  # the shop rounded each item: item by item
+)  # fmt: skip
+def test_the_lines_go_as_the_layout_whose_vat_is_the_printed_vat(
+    session: Session, xero: FakePosting, printed_vat: str, layout: list[str]
+) -> None:
+    coded: dict[str, Any] = {"account_code": "429", "tax_type": TaxType.STANDARD_5}
+    lines = [Line(description=name, amount=Decimal("0.75"), **coded)
+             for name in ("Tea", "Coffee", "Water")]  # fmt: skip
+    an_expense(session, lines=lines, amount_type=AmountType.INCLUSIVE, vat=Decimal(printed_vat),
+               subtotal=None, total=Decimal("2.25"))  # fmt: skip
+
+    send(session, xero)
+
+    (expense,) = xero.expenses
+    assert [line.description for line in expense.lines] == layout
+
+
+def test_an_expense_with_no_account_to_pay_it_goes_back_without_calling_the_system(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, _ = an_expense(session, paid_through=None)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "refused"
+    assert not xero.expenses and not xero.bills
+    session.refresh(doc)
+    assert doc.status is S.IN_REVIEW
+    assert "choose the Xero account it was paid through" in (doc.failure_reason or "")
+
+
+def test_a_receipt_approved_as_a_bill_is_still_sent_as_a_bill(
+    session: Session, xero: FakePosting
+) -> None:
+    approved(session, document_type=DocumentType.RECEIPT, paid_through=PETTY_CASH)
+
+    send(session, xero)
+
+    assert len(xero.bills) == 1 and not xero.expenses
+
+
+def test_an_expense_deleted_there_is_asked_about_as_an_expense(
+    session: Session, xero: FakePosting
+) -> None:
+    doc, _ = an_expense(session)
+    send(session, xero)
+    session.refresh(doc)
+
+    reopen(session, xero, doc)
+
+    assert (xero.asked, xero.asked_expense) == (["zoho-expense-1"], [True])
+    assert doc.status is S.IN_REVIEW
+
+
+def test_a_posted_expense_links_to_the_expense_screen(session: Session, xero: FakePosting) -> None:
+    from dataclasses import replace
+
+    doc, _ = an_expense(session)
+    send(session, xero)
+    session.refresh(doc)
+    fake_xero = FakeXero()
+    entries = {
+        provider: replace(entry, expense_url=lambda _ref, found: f"expense/{found}")
+        for provider, entry in registry(fake_xero).items()
+    }
+
+    links = posting.document_links(session, entries, [doc])
+
+    assert links == {doc.id: "expense/zoho-expense-1"}

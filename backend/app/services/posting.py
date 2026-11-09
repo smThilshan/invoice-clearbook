@@ -13,8 +13,11 @@ A row left IN_PROGRESS by a crashed worker is claimed again after STALE_AFTER an
 its saved progress. Bills and receipts for now (credit notes 5.7), and only for clients
 connected to an accounting system (the export, 5.2, comes later): other rows wait. A receipt is
 posted as a bill, due on its own date (decision 50): it stays Awaiting Approval like every bill,
-and its payment is recorded in the accounting system. The client's
-provider comes from the registry (decision 43): nothing here names one.
+and its payment is recorded in the accounting system. For a client whose expenses go as
+expenses (decision 89; decided at approval, `outbox.sent_as`), an expense is sent as an expense
+paid through its account instead: final there, its lines laid out so the VAT the system works
+out is the printed VAT. The client's provider comes from the registry (decision 43): nothing
+here names one.
 
 A connection whose access is gone for good (decision 68: withdrawn, a permission missing) pauses
 the client's rows: nothing is sent, no attempt is counted, until someone connects again. An
@@ -46,6 +49,7 @@ from app.adapters.accounting.base import (
     Attachment,
     PostingAccessDenied,
     PostingBill,
+    PostingExpense,
     PostingLine,
     PostingRefused,
     PostingUnavailable,
@@ -59,6 +63,7 @@ from app.domain.enums import (
     AmountType,
     DocumentStatus,
     DocumentType,
+    ExpensesSentAs,
     LineGrouping,
     TaxType,
 )
@@ -87,7 +92,8 @@ MAX_WAIT_SECONDS = 30 * 60
 NOTE = "Created by Missan invoice automation after review and approval in the Review Workbench."
 TOLERANCE = Decimal("0.01")
 MAX_DESCRIPTION = 4000  # the shortest line-description limit of the systems we post to
-# Sent as bills (decision 50): a receipt is a bill already paid.
+# Sent as bills (decision 50: a receipt is a bill already paid), or an expense as an expense
+# (decision 89).
 POSTED_AS_BILLS = frozenset({DocumentType.BILL, DocumentType.RECEIPT})
 SENDABLE = (DocumentStatus.APPROVED, DocumentStatus.POSTING)
 POSTED_STATUSES = (DocumentStatus.POSTED, DocumentStatus.SYNCED)
@@ -114,6 +120,7 @@ class Sending:
     reason: str | None = None  # why it is retrying, paused or failed
     next_try_at: datetime | None = None  # retrying: when
     can_send_back: bool = False  # failed, and the create request was never sent
+    as_expense: bool = False  # sent (or being sent) as an expense, final there (decision 89)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +138,7 @@ class _Claim:
     total: Decimal | None
     unavailable: str | None = None
     paused: str | None = None  # the connection needs a new sign-in: why
+    expense: PostingExpense | None = None  # sent as an expense instead of `bill` (decision 89)
 
 
 def send_next(
@@ -155,17 +163,17 @@ def send_next(
         return _paused(sessions, claim, claim.paused)
     if claim.unavailable is not None:
         return _unavailable(sessions, claim, PostingUnavailable(claim.unavailable))
-    assert claim.bill and claim.token and claim.tenant_id  # noqa: S101 - set together in _claim
+    assert (claim.bill or claim.expense) and claim.token and claim.tenant_id  # noqa: S101
 
     progress = dict(claim.progress)
     try:
-        posted = (
-            registry[claim.provider]
-            .system(claim.token, claim.tenant_id, claim.region)
-            .post_bill(
-                claim.bill, key=claim.key, progress=progress, save=_saver(sessions, claim, progress)
-            )
-        )
+        system = registry[claim.provider].system(claim.token, claim.tenant_id, claim.region)
+        save = _saver(sessions, claim, progress)
+        if claim.expense is not None:
+            posted = system.post_expense(claim.expense, key=claim.key, progress=progress, save=save)
+        else:
+            assert claim.bill  # noqa: S101 - one of the two, set in _claim
+            posted = system.post_bill(claim.bill, key=claim.key, progress=progress, save=save)
     except PostingRefused as exc:
         return _refused(sessions, claim, str(exc))
     except PostingAccessDenied as exc:
@@ -192,6 +200,7 @@ def send_next(
             "contact_created": posted.contact_created,
             "due_date_from": posted.due_date_from,
             "attached": posted.attached,
+            "sent_as": ExpensesSentAs.EXPENSE.value if claim.expense else ExpensesSentAs.BILL.value,
             "total_matches": matches,  # flag, never fix (rule 8): their total is not changed
         })  # fmt: skip
         outbox.status, outbox.step, outbox.last_error = OutboxStatus.DONE, "posted", None
@@ -207,19 +216,28 @@ def sending_states(session: Session, documents: Sequence[Document]) -> dict[uuid
     """Where each approved document is (a queue page at a time): one query for the outbox rows,
     one per client for a paused connection, whatever the number of documents."""
     approved = [d for d in documents if d.status in SENDABLE or d.status in POSTED_STATUSES]
-    rows: dict[uuid.UUID, Outbox] = {}
-    for outbox in session.scalars(
-        select(Outbox)
-        .where(Outbox.document_id.in_([d.id for d in approved if d.status in SENDABLE]))
-        .order_by(Outbox.created_at)
-    ):
-        rows[outbox.document_id] = outbox  # the latest row of each document wins
+    rows = _latest_rows(session, [d.id for d in approved])
     paused = {c: _paused_because(session, c) for c in {d.client_id for d in approved}}
     now = datetime.now(UTC)
     return {d.id: _state(d, rows.get(d.id), paused[d.client_id], now) for d in approved}
 
 
+def _latest_rows(session: Session, document_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Outbox]:
+    """Each document's latest outbox row (one query)."""
+    rows: dict[uuid.UUID, Outbox] = {}
+    for outbox in session.scalars(
+        select(Outbox).where(Outbox.document_id.in_(document_ids)).order_by(Outbox.created_at)
+    ):
+        rows[outbox.document_id] = outbox  # the latest row of each document wins
+    return rows
+
+
 def _state(document: Document, outbox: Outbox | None, paused: str | None, now: datetime) -> Sending:
+    as_expense = outbox is not None and outbox.sent_as is ExpensesSentAs.EXPENSE
+    return replace(_where(document, outbox, paused, now), as_expense=as_expense)
+
+
+def _where(document: Document, outbox: Outbox | None, paused: str | None, now: datetime) -> Sending:
     if document.status in POSTED_STATUSES:
         return Sending("posted")
     if outbox is None:
@@ -241,6 +259,7 @@ def document_links(
 ) -> dict[uuid.UUID, str]:
     """Each posted document in its accounting system's own screens (decision 70)."""
     posted = [d for d in documents if d.external_id]
+    rows = _latest_rows(session, [d.id for d in posted])
     links: dict[uuid.UUID, str] = {}
     for client_id in {d.client_id for d in posted}:
         client = session.scalars(select(Client).where(Client.client_id == client_id)).one()
@@ -252,7 +271,10 @@ def document_links(
             continue
         org_ref = connection.org_ref if connection else None
         for document in (d for d in posted if d.client_id == client_id):
-            if url := entry.document_url(org_ref, document.external_id or ""):
+            row = rows.get(document.id)
+            as_expense = row is not None and row.sent_as is ExpensesSentAs.EXPENSE
+            url_of = entry.expense_url if as_expense else entry.document_url
+            if url := url_of(org_ref, document.external_id or ""):
                 links[document.id] = url
     return links
 
@@ -303,10 +325,12 @@ def reopen_deleted(
     if connection is None:
         raise SendError("this client is not connected to an accounting system: connect it first")
     entry = registry[connection.provider]
+    row = _latest_row(session, document.id)
+    as_expense = row is not None and row.sent_as is ExpensesSentAs.EXPENSE
     try:
         token = access_token(session, settings, registry, document.client_id)
         system = entry.system(token, connection.tenant_id, connection.region)
-        gone = system.is_deleted(document.external_id)
+        gone = system.is_deleted(document.external_id, expense=as_expense)
     except (AccountingConnectionError, PostingUnavailable) as exc:
         raise SendError(f"{entry.name} could not be asked if it is still there ({exc})") from exc
     if not gone:
@@ -505,11 +529,19 @@ def _claim(
 
     invoice = working_copy(document)
     chart = load_chart(session, client_id=outbox.client_id, provider=provider)
-    bill, refusal = _bill(session, document, invoice, chart, provider, name, outbox.line_grouping)
-    if bill is not None:
-        bill = replace(bill, attachment=_original(storage, document))
+    bill = expense = None
+    if outbox.sent_as is ExpensesSentAs.EXPENSE:
+        expense, refusal = _expense(session, document, invoice, chart, provider, name)
+        if expense is not None:
+            expense = replace(expense, attachment=_original(storage, document))
+    else:
+        bill, refusal = _bill(
+            session, document, invoice, chart, provider, name, outbox.line_grouping
+        )
+        if bill is not None:
+            bill = replace(bill, attachment=_original(storage, document))
     token = tenant_id = region = unavailable = paused = None
-    if bill is not None:
+    if bill is not None or expense is not None:
         try:
             token = access_token(session, settings, registry, outbox.client_id)
             connection = session.scalars(
@@ -537,6 +569,7 @@ def _claim(
         total=invoice.total if invoice else None,
         unavailable=unavailable,
         paused=paused,
+        expense=expense,
     )
 
 
@@ -559,32 +592,7 @@ def _bill(
     problems = []
     if not invoice.vendor_name:
         problems.append("supplier name is missing")
-    if invoice.amount_type is None:
-        problems.append("VAT type (included / added / no VAT) is missing")
-    if not invoice.lines:
-        problems.append("there are no lines")
-    lines = []
-    for number, line in enumerate(invoice.lines, start=1):
-        if not line.account_code or line.account_code not in chart.accounts:
-            problems.append(
-                f"line {number}: account {line.account_code or '(none)'} is not in {name}'s "
-                "chart of accounts: choose another"
-            )
-        tax_code = chart.tax_codes.get(line.tax_type) if line.tax_type else None
-        if tax_code is None:
-            problems.append(f"line {number}: no {name} VAT rate for this line's VAT type")
-        if not problems:
-            quantity, unit = _quantity_and_unit(line)
-            lines.append(
-                PostingLine(
-                    line.description,
-                    quantity,
-                    unit,
-                    line.account_code or "",
-                    tax_code or "",
-                    line.item_code,
-                )
-            )
+    lines = _posting_lines(invoice, chart, name, problems)
     if problems or invoice.amount_type is None or not invoice.vendor_name:
         return None, "; ".join(problems)
     if grouping is LineGrouping.BY_ITEM:
@@ -611,6 +619,100 @@ def _bill(
         ),
         None,
     )
+
+
+def _expense(
+    session: Session,
+    document: Document,
+    invoice: Invoice | None,
+    chart: ChartOfAccounts,
+    provider: AccountingProvider,
+    name: str,
+) -> tuple[PostingExpense | None, str | None]:
+    """The expense to send (decision 89), or why it cannot be sent. Its lines go as the layout
+    whose VAT, worked out line by line as the accounting system does, is the printed VAT: one
+    line per account and VAT, else item by item (shops that round VAT per item), else as read.
+    None fits: one per account, and the adapter says what VAT it would make."""
+    if invoice is None:
+        return None, "the document has no valid data to send"
+    whole = total_line(invoice)
+    if whole is not None:
+        invoice = _as_total_line(invoice, whole)
+    problems = []
+    if invoice.invoice_date is None:
+        problems.append("date is missing")
+    payable = {account.code for account in chart.payment_accounts()}
+    if not invoice.paid_through or invoice.paid_through not in payable:
+        problems.append(f"choose the {name} account it was paid through")
+    lines = _posting_lines(invoice, chart, name, problems)
+    if problems or invoice.amount_type is None or invoice.invoice_date is None:
+        return None, "; ".join(problems)
+    vat = invoice.vat or Decimal(0)
+    rates = {
+        code: VAT_RATES.get(tax_type, Decimal(0)) for tax_type, code in chart.tax_codes.items()
+    }
+    layouts = [group_lines(lines), combine_items(lines, rates, invoice.amount_type), lines]
+    sent = next(
+        (layout for layout in layouts if _vat(layout, rates, invoice.amount_type) == vat),
+        layouts[0],
+    )
+    return (
+        PostingExpense(
+            supplier_name=invoice.vendor_name,
+            supplier_tax_number=invoice.vendor_trn,
+            supplier_external_id=_known_contact(session, document, provider),
+            reference=invoice.invoice_number,
+            expense_date=invoice.invoice_date,
+            amount_type=invoice.amount_type,
+            lines=sent,
+            paid_through=invoice.paid_through or "",
+            vat=vat,
+            note=NOTE,
+        ),
+        None,
+    )
+
+
+def _vat(
+    lines: Sequence[PostingLine], rates: Mapping[str, Decimal], amount_type: AmountType
+) -> Decimal:
+    """The VAT the accounting system works out for these lines: each line rounded to the fils."""
+    vats = (_line_vat(line, rates.get(line.tax_code, Decimal(0)), amount_type) for line in lines)
+    return sum(vats, Decimal(0))
+
+
+def _posting_lines(
+    invoice: Invoice, chart: ChartOfAccounts, name: str, problems: list[str]
+) -> list[PostingLine]:
+    """The lines as the accounting system takes them; what stops them is added to `problems`
+    (then the lines are not to be sent)."""
+    if invoice.amount_type is None:
+        problems.append("VAT type (included / added / no VAT) is missing")
+    if not invoice.lines:
+        problems.append("there are no lines")
+    lines = []
+    for number, line in enumerate(invoice.lines, start=1):
+        if not line.account_code or line.account_code not in chart.accounts:
+            problems.append(
+                f"line {number}: account {line.account_code or '(none)'} is not in {name}'s "
+                "chart of accounts: choose another"
+            )
+        tax_code = chart.tax_codes.get(line.tax_type) if line.tax_type else None
+        if tax_code is None:
+            problems.append(f"line {number}: no {name} VAT rate for this line's VAT type")
+        if not problems:
+            quantity, unit = _quantity_and_unit(line)
+            lines.append(
+                PostingLine(
+                    line.description,
+                    quantity,
+                    unit,
+                    line.account_code or "",
+                    tax_code or "",
+                    line.item_code,
+                )
+            )
+    return lines
 
 
 def group_lines(lines: Sequence[PostingLine]) -> list[PostingLine]:
@@ -818,8 +920,8 @@ def _remember_contact(
     session: Session, document: Document, claim: _Claim, external_id: str
 ) -> None:
     """The supplier's contact there, kept in master data so the next bill finds it directly."""
-    assert claim.bill  # noqa: S101 - posted, so there was a bill
-    bill = claim.bill
+    sent = claim.bill or claim.expense
+    assert sent  # noqa: S101 - posted, so there was a bill or an expense
     contact = session.scalars(
         select(Contact).where(
             Contact.client_id == document.client_id,
@@ -832,8 +934,8 @@ def _remember_contact(
             client_id=document.client_id,
             provider=claim.provider,
             external_id=external_id,
-            name=bill.supplier_name,
-            tax_number=bill.supplier_tax_number,
+            name=sent.supplier_name or "",
+            tax_number=sent.supplier_tax_number,
             is_supplier=True,
         )
         session.add(contact)

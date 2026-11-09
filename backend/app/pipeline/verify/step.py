@@ -272,7 +272,7 @@ def assess(
         payment = decide_payment(invoice, pages, remembered=remembered)
         if payment is not None and payment.document_type is not invoice.document_type:
             invoice = invoice.model_copy(update={"document_type": payment.document_type})
-    as_expenses, usual_account = _expense_sending(session, document.client_id)
+    as_expenses, usual_account = expense_sending(session, document.client_id)
     if invoice is not None and as_expenses:
         sources = PaidThrough(
             _remembered_paid_through(session, document.client_id, vendor_key(invoice)),
@@ -454,9 +454,10 @@ def _remembered_type(
     return mapping.payment_type
 
 
-def _expense_sending(session: Session, client_id: str) -> tuple[bool, str | None]:
+def expense_sending(session: Session, client_id: str) -> tuple[bool, str | None]:
     """Decision 89: (sent as expenses, the client's usual paid-through account). Sent as
-    expenses when the client chose so and its connection allows it; else as bills."""
+    expenses when the client chose so and its connection allows it; else as bills. The checks
+    and approval ask the same question, so an expense is approved as it was checked."""
     client = session.scalars(select(Client).where(Client.client_id == client_id)).first()
     if client is None or client.expenses_sent_as is not ExpensesSentAs.EXPENSE:
         return False, None

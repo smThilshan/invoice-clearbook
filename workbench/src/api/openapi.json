@@ -2825,6 +2825,10 @@
       "SendingOut": {
         "description": "Where an approved document is on its way to the accounting system (decision 69).",
         "properties": {
+          "as_expense": {
+            "title": "As Expense",
+            "type": "boolean"
+          },
           "can_send_back": {
             "title": "Can Send Back",
             "type": "boolean"
@@ -2869,7 +2873,8 @@
           "state",
           "reason",
           "next_try_at",
-          "can_send_back"
+          "can_send_back",
+          "as_expense"
         ],
         "title": "SendingOut",
         "type": "object"

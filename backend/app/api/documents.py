@@ -71,6 +71,7 @@ class SendingOut(BaseModel):
     reason: str | None  # why it is retrying, paused or failed
     next_try_at: datetime | None
     can_send_back: bool  # failed before the create request was sent
+    as_expense: bool  # sent as an expense, final there (decision 89)
 
 
 class DocumentSummary(BaseModel):

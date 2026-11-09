@@ -298,10 +298,10 @@ describe('approved documents (decision 70)', () => {
     ...PAGE, total: 2, counts: {},
     documents: [
       doc('p1', { status: 'POSTED', sending: { state: 'posted', reason: null, next_try_at: null,
-                  can_send_back: false },
+                  can_send_back: false, as_expense: false },
                   external_url: 'https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=bill-1' }),
       doc('f1', { status: 'POSTING', sending: { state: 'failed', reason: 'made-up error',
-                  next_try_at: null, can_send_back: true } }),
+                  next_try_at: null, can_send_back: true, as_expense: false } }),
     ],
   }  // prettier-ignore
 

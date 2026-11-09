@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus as S
 from app.domain.enums import DocumentType as T
-from app.domain.enums import LineGrouping, Role, TaxType
+from app.domain.enums import ExpensesSentAs, LineGrouping, Role, TaxType
 from app.models import AuditLog, Document, Outbox, OutboxStatus, VendorMapping
 from tests.integration.factories import CLIENT
 from tests.integration.test_review_api import (  # noqa: F401  (fixtures)
@@ -316,3 +316,27 @@ def test_the_accountant_s_paid_through_account_survives_a_save(
     assert "paid_through" in body["verified_fields"]
     assert again["invoice"]["paid_through"] == PETTY_CASH
     assert "paid_through_missing" not in {issue["code"] for issue in again["issues"]}
+
+
+@pytest.mark.parametrize(
+    ("kind", "scopes", "sent_as"),
+    [("RECEIPT", "", ExpensesSentAs.EXPENSE),
+     ("BILL", "", ExpensesSentAs.BILL),
+     ("RECEIPT", "ZohoBooks.bills.ALL", ExpensesSentAs.BILL)],  # not allowed: still a bill
+)  # fmt: skip
+def test_approval_decides_once_if_it_goes_as_an_expense(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+    kind: str,
+    scopes: str,
+    sent_as: ExpensesSentAs,
+) -> None:
+    sends_expenses(session, scopes=scopes)
+    doc = in_review(session, storage)
+    ok(patch(api, doc, document_type=kind))
+
+    ok(approve(api, doc))
+
+    [row] = outbox_rows(session, doc)
+    assert row.sent_as is sent_as

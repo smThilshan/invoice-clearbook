@@ -22,12 +22,12 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
 from app.core.config import Settings
-from app.domain.enums import DocumentStatus, LineGrouping, TaxType
+from app.domain.enums import DocumentStatus, ExpensesSentAs, LineGrouping, TaxType
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
 from app.models import Client, Document, Outbox, VendorMapping
 from app.pipeline.payment import EXPENSE, PURCHASES
-from app.pipeline.verify.step import recheck_document, working_copy
+from app.pipeline.verify.step import expense_sending, recheck_document, working_copy
 from app.services.corrections import sync_corrections
 from app.services.review import NotEditableError, ReviewError
 
@@ -71,7 +71,14 @@ def approve_document(
     approved_before = session.scalar(
         select(exists().where(Outbox.document_id == document.id))
     )  # sent back, or deleted in the accounting system and sent again (decision 76)
-    outbox = Outbox(client_id=document.client_id, document_id=document.id, line_grouping=grouping)
+    as_expenses, _ = expense_sending(session, document.client_id)
+    sent_as = (
+        ExpensesSentAs.EXPENSE
+        if as_expenses and invoice.document_type is EXPENSE
+        else ExpensesSentAs.BILL
+    )  # decision 89: as it was checked; every retry sends it the same way
+    outbox = Outbox(client_id=document.client_id, document_id=document.id,
+                    line_grouping=grouping, sent_as=sent_as)  # fmt: skip
     session.add(outbox)
     if not approved_before:  # one document is one approval for the supplier's coding
         _learn_supplier_coding(session, document, invoice)

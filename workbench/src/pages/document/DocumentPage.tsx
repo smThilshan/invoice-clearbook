@@ -396,7 +396,12 @@ function SendingStatus({ document }: { document: DocumentDetail }) {
 
 function sendingText(sending: Sending, system: string): [string, ReactNode] {
   if (sending.state === "posted")
-    return ["text-success", `Posted to ${system}, waiting for approval there.`];
+    return [
+      "text-success",
+      sending.as_expense
+        ? `Posted to ${system} as an expense.`
+        : `Posted to ${system}, waiting for approval there.`,
+    ];
   if (sending.state === "paused") {
     return [
       "text-destructive",

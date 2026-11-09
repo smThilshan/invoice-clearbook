@@ -1871,6 +1871,8 @@ export interface components {
          * @description Where an approved document is on its way to the accounting system (decision 69).
          */
         SendingOut: {
+            /** As Expense */
+            as_expense: boolean;
             /** Can Send Back */
             can_send_back: boolean;
             /** Next Try At */

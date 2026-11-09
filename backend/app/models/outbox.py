@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import ForeignKey, Index, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.enums import LineGrouping
+from app.domain.enums import ExpensesSentAs, LineGrouping
 from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
@@ -43,6 +43,12 @@ class Outbox(UuidPk, ClientScoped, Timestamps, Base):
         str_enum(LineGrouping, "line_grouping"),
         default=LineGrouping.BY_ITEM,
         server_default=LineGrouping.BY_ITEM.value,
+    )
+    # Sent as a bill or as an expense (decision 89), decided at approval like `line_grouping`.
+    sent_as: Mapped[ExpensesSentAs] = mapped_column(
+        str_enum(ExpensesSentAs, "outbox_sent_as"),
+        default=ExpensesSentAs.BILL,
+        server_default=ExpensesSentAs.BILL.value,
     )
 
     __table_args__ = (
