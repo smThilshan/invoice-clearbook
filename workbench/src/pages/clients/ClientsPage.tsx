@@ -420,6 +420,11 @@ function ExpensesSent({
           )}
         </div>
       )}
+      {asExpenses && options.isSuccess && accounts.length === 0 && (
+        <p className="text-muted-foreground">
+          No accounts to pay through yet: sync from {system} first.
+        </p>
+      )}
       {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
     </div>
   )

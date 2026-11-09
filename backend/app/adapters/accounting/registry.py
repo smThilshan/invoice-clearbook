@@ -5,6 +5,7 @@ worker and the API find a client's provider here and never name it. A provider =
 a Connector and a ConnectedSystem, and one entry below.
 """
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
@@ -62,6 +63,18 @@ PROVIDERS: Registry = {
         expense_scope=EXPENSE_SCOPE,
     ),
 }
+
+
+def expenses_blocked_by(entry: ProviderEntry | None, scopes: str | None) -> str | None:
+    """Why expenses cannot be sent as expenses (decision 89) through this connected system
+    with these granted permissions; None = they can. No entry: nothing connected."""
+    if entry is None:
+        return "connect an accounting system first"
+    if entry.expense_scope is None:
+        return f"{entry.name} cannot take expenses yet: they are sent as bills"
+    if entry.expense_scope not in re.split(r"[\s,]+", scopes or ""):
+        return f"connect {entry.name} again to allow sending expenses"
+    return None
 
 
 def by_slug(registry: Registry, slug: str) -> ProviderEntry | None:

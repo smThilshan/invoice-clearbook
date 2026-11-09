@@ -113,6 +113,20 @@ describe('clients', () => {
     )
   })
 
+  it('asks for a sync when no account to pay through is known yet', async () => {
+    const zoho: AccountingStatus = {
+      ...CONNECTED, provider: 'ZOHO', provider_name: 'Zoho Books', expenses_blocked: null,
+    }  // prettier-ignore
+    mockApi({
+      '/health/ready': READY, '/clients': [{ ...CLIENTS[0], expenses_sent_as: 'EXPENSE' }],
+      '/clients/cafe-al-noor/accounting': zoho,
+      '/clients/cafe-al-noor/coding-options': { accounts: [], tax_types: [], paid_through: [] },
+    })  // prettier-ignore
+    renderApp('/clients')
+
+    expect(await screen.findByText('No accounts to pay through yet: sync from Zoho Books first.')).toBeInTheDocument()
+  })
+
   it('says why expenses still go as bills', async () => {
     mockApi({
       '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,

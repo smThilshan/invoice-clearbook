@@ -28,7 +28,9 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -133,6 +135,7 @@ export function ReviewForm({
   onDirtyChange,
   onTarget,
   linesNote,
+  expensesTo,
   actions,
 }: {
   document: DocumentDetail
@@ -143,6 +146,7 @@ export function ReviewForm({
   onDirtyChange?: (dirty: boolean) => void
   onTarget?: (target: FieldTarget | null) => void
   linesNote?: string  // how the lines are sent to the accounting system (decision 73)
+  expensesTo?: string  // the system expenses are sent to as expenses (decision 89); else unset
   actions?: ReactNode
 }) {
   const { register, control, handleSubmit, setValue, formState } = useForm<FormValues>({
@@ -298,6 +302,15 @@ export function ReviewForm({
               )}
             />
           </SelectField>
+          {documentType === 'RECEIPT' && expensesTo && (
+            <PaidThroughField
+              control={control}
+              accounts={options?.paid_through ?? []}
+              issues={issues.byField.get('paid_through')}
+              system={expensesTo}
+              editable={editable}
+            />
+          )}
         </section>
 
         {renderSection(DOCUMENT)}
@@ -435,6 +448,55 @@ function HeaderInput({
 interface Suggest {
   label: (value: string) => string
   apply: (value: string) => void
+}
+
+/** Decision 89: the account an expense was paid through, from the client's synced payment
+ * accounts, grouped as its accounting system groups them. Chosen by the checks (the supplier's
+ * last account, else the client's usual one) until the accountant picks one. */
+function PaidThroughField({
+  control,
+  accounts,
+  issues,
+  system,
+  editable,
+}: {
+  control: Control<FormValues>
+  accounts: CodingOptions['paid_through']
+  issues: Issue[] | undefined
+  system: string
+  editable: boolean
+}) {
+  const groups = [...new Set(accounts.map((a) => a.group))]
+  return (
+    <SelectField label={FIELD_LABELS.paid_through ?? ''} field="paid_through" issues={issues}>
+      <Controller
+        control={control}
+        name="paid_through"
+        render={({ field }) => (
+          <Select value={field.value || NONE} disabled={!editable}
+            onValueChange={(v) => field.onChange(v === NONE ? '' : v)}>
+            <SelectTrigger aria-label="Paid through" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Not chosen</SelectItem>
+              {groups.map((group) => (
+                <SelectGroup key={group}>
+                  <SelectLabel>{group}</SelectLabel>
+                  {accounts.filter((a) => a.group === group).map((a) => (
+                    <SelectItem key={a.code} value={a.code}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      />
+      <p className="text-xs text-muted-foreground">Sent to {system} as an expense paid from this account.</p>
+    </SelectField>
+  )
 }
 
 function SelectField({

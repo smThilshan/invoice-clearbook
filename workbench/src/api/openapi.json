@@ -1365,6 +1365,17 @@
             "description": "Credit/debit notes: number of the invoice being adjusted.",
             "title": "Original Invoice Ref"
           },
+          "paid_through": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Through"
+          },
           "po_number": {
             "anyOf": [
               {
@@ -1559,6 +1570,17 @@
             ],
             "description": "Credit/debit notes: number of the invoice being adjusted.",
             "title": "Original Invoice Ref"
+          },
+          "paid_through": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Through"
           },
           "po_number": {
             "anyOf": [

@@ -23,6 +23,7 @@ import {
 } from "react-router";
 
 import {
+  type CodingOptions,
   type DocumentDetail,
   type DocumentStatus,
   type Sending,
@@ -83,6 +84,7 @@ export function DocumentPage() {
   const document = useDocument(documentId);
   const options = useCodingOptions(document.data?.client_id);
   const linesNote = useLinesNote(document.data?.client_id ?? "");
+  const expensesTo = useExpensesTo(document.data?.client_id ?? "");
   const save = useUpdateDocument();
   const approve = useApproveDocument();
   const reextract = useReextractDocument();
@@ -251,6 +253,7 @@ export function DocumentPage() {
           onDirtyChange={onDirtyChange}
           onTarget={onTarget}
           linesNote={editable ? linesNote : undefined}
+          expensesTo={expensesTo}
           actions={
             editable && (
               <>
@@ -267,6 +270,7 @@ export function DocumentPage() {
                       pending={approve.isPending}
                       label={next ? "Approve & next" : "Approve"}
                       onApprove={approveAndContinue}
+                      note={finalNote(doc, expensesTo, options.data)}
                     />
                     <RejectDialog documentId={doc.document_id} />
                   </>
@@ -312,6 +316,27 @@ function useLinesNote(clientId: string): string | undefined {
   return client.line_grouping === "BY_ITEM"
     ? `Sent to ${system} item by item: identical items as one line, their quantity added.`
     : `Sent to ${system} as one line per account and VAT.`;
+}
+
+/** Decision 89: the system this client's expenses go to as expenses, or undefined while they
+ * go as bills (the setting, or a connection not allowed to send them). */
+function useExpensesTo(clientId: string): string | undefined {
+  const accounting = useAccounting(clientId, false).data;
+  const client = useClients().data?.find((c) => c.client_id === clientId);
+  if (!accounting?.connected || accounting.expenses_blocked || client?.expenses_sent_as !== "EXPENSE")
+    return undefined;
+  return accounting.provider_name ?? "the accounting system";
+}
+
+/** An expense sent as an expense is final there once approved (decision 89): said by Approve. */
+function finalNote(
+  doc: DocumentDetail,
+  expensesTo: string | undefined,
+  options: CodingOptions | undefined,
+): string | undefined {
+  if (!expensesTo || doc.invoice?.document_type !== "RECEIPT") return undefined;
+  const account = options?.paid_through.find((a) => a.code === doc.invoice?.paid_through);
+  return `Final in ${expensesTo} once approved${account ? `: paid through ${account.label}` : ""}.`;
 }
 
 /**
@@ -632,11 +657,13 @@ function ApproveButton({
   pending,
   label,
   onApprove,
+  note,
 }: {
   blockedBy: string | null;
   pending: boolean;
   label: string;
   onApprove: () => void;
+  note?: string; // what approving does, when it is not the usual (decision 89)
 }) {
   return (
     <>
@@ -649,8 +676,10 @@ function ApproveButton({
         <CircleCheck aria-hidden />
         {pending ? "Approving…" : label}
       </Button>
-      {blockedBy && (
+      {blockedBy ? (
         <span className="text-sm text-muted-foreground">{blockedBy}</span>
+      ) : (
+        note && <span className="text-sm text-muted-foreground">{note}</span>
       )}
     </>
   );

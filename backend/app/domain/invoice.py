@@ -64,6 +64,9 @@ class Invoice(_Schema):
     amount_type: AmountType | None = None
     subtotal: Money | None = None
     vat: Money | None = None
+    # An expense's payment account (decision 89): a ledger account code the client's system
+    # marks `PAYS`. Chosen by our code or the accountant, never asked of the model.
+    paid_through: str | None = None
 
     lines: list[Line] = Field(default_factory=list)
     evidence: dict[str, str] = Field(

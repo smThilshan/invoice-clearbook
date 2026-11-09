@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.registry import Registry
+from app.adapters.accounting.registry import Registry, expenses_blocked_by
 from app.domain.enums import AccountingProvider, ExpensesSentAs
 from app.models import Client, Run
 from app.pipeline import coding
@@ -112,13 +112,8 @@ def expenses_blocked(session: Session, registry: Registry, client_id: str) -> st
     """Why the client's expenses cannot be sent as expenses now; None = they can."""
     connection = connection_of(session, client_id)
     if connection is None:
-        return "connect an accounting system first"
-    entry = registry[connection.provider]
-    if entry.expense_scope is None:
-        return f"{entry.name} cannot take expenses yet: they are sent as bills"
-    if entry.expense_scope not in re.split(r"[\s,]+", connection.scopes):
-        return f"connect {entry.name} again to allow sending expenses"
-    return None
+        return expenses_blocked_by(None, None)
+    return expenses_blocked_by(registry[connection.provider], connection.scopes)
 
 
 def client_root(client: Client) -> Path:

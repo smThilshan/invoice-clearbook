@@ -107,6 +107,15 @@ def test_expense_without_number_is_fine_unless_every_bill_needs_one() -> None:
     assert {i.code for i in xero} == codes(receipt) - {"receipt_number_missing"}  # nothing said
 
 
+def test_an_expense_sent_as_an_expense_needs_no_number_in_zoho_either() -> None:
+    """Decision 89: a Zoho expense takes no bill number."""
+    receipt = invoice(document_type=DocumentType.RECEIPT, invoice_number=None, due_date=None)
+
+    zoho = require_number(issues(receipt), AccountingProvider.ZOHO, expenses=True)
+
+    assert {i.code for i in zoho} == codes(receipt) - {"receipt_number_missing"}
+
+
 def test_receipt_still_needs_total() -> None:
     receipt = invoice(document_type=DocumentType.RECEIPT, total=None)
 

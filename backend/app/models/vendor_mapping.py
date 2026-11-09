@@ -8,8 +8,9 @@ from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
 class VendorMapping(UuidPk, ClientScoped, Timestamps, Base):
-    """Learned from approvals: vendor -> account + tax type (architecture §9, source 1), and
-    whether its documents are bills or expenses (decision 88)."""
+    """Learned from approvals: vendor -> account + tax type (architecture §9, source 1),
+    whether its documents are bills or expenses (decision 88), and the account its expenses
+    were last paid through (decision 89)."""
 
     __tablename__ = "vendor_mappings"
 
@@ -22,5 +23,6 @@ class VendorMapping(UuidPk, ClientScoped, Timestamps, Base):
         str_enum(DocumentType, "vendor_payment_type")
     )
     payment_approvals: Mapped[int] = mapped_column(default=0, server_default="0")
+    paid_through: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (UniqueConstraint("client_id", "vendor_key"),)

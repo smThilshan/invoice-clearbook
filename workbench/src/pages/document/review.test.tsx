@@ -533,6 +533,49 @@ describe('review screen', () => {
     )).toBeInTheDocument()  // prettier-ignore
   })
 
+  it('chooses the account an expense was paid through, and says Approve makes it final (decision 89)', async () => {
+    const expense = detail({
+      document_type: 'RECEIPT', errors: 0, warnings: 0, issues: [],
+      invoice: { ...detail().invoice!, document_type: 'RECEIPT', paid_through: '4600361' },
+    })  // prettier-ignore
+    const api = mockApi({
+      '/health/ready': READY, [`/documents/${ID}`]: expense, [`PATCH /documents/${ID}`]: expense,
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'EXPENSE', paid_through: '4600361' }],
+      '/clients/cafe/accounting': { connected: true, provider_name: 'Zoho Books', expenses_blocked: null },
+      '/clients/cafe/coding-options': { ...OPTIONS, paid_through: [
+        { code: '4600361', label: 'Petty Cash', group: 'Cash' },
+        { code: '4600370', label: 'Employee Reimbursements', group: 'Other Current Liability' },
+      ] },
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    await open(api)
+
+    const paid = await screen.findByRole('combobox', { name: 'Paid through' })
+    expect(paid).toHaveTextContent('Petty Cash')
+    expect(await screen.findByText('Final in Zoho Books once approved: paid through Petty Cash.')).toBeInTheDocument()
+    await user.click(paid)
+    await user.click(await screen.findByRole('option', { name: 'Employee Reimbursements' }))
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+
+    await waitFor(() => expect(sent(api).invoice.paid_through).toBe('4600370'))
+  })
+
+  it('asks for no paid-through account on a bill, or while expenses go as bills', async () => {
+    const api = mockApi({
+      '/health/ready': READY, [`/documents/${ID}`]: detail(), [`PATCH /documents/${ID}`]: detail(),
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'EXPENSE', paid_through: null }],
+      '/clients/cafe/accounting': { connected: true, provider_name: 'Zoho Books', expenses_blocked: null },
+      '/clients/cafe/coding-options': OPTIONS,
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    await open(api)
+
+    expect(screen.queryByRole('combobox', { name: 'Paid through' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('combobox', { name: 'Document type' }))
+    await user.click(await screen.findByRole('option', { name: 'Expense' }))
+    expect(await screen.findByRole('combobox', { name: 'Paid through' })).toHaveTextContent('Not chosen')
+  })
+
   it('links a posted document to the bill in the accounting system', async () => {
     const api = mockApi({
       '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,

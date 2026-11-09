@@ -26,7 +26,7 @@ from app.domain.enums import DocumentStatus, LineGrouping, TaxType
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
 from app.models import Client, Document, Outbox, VendorMapping
-from app.pipeline.payment import PURCHASES
+from app.pipeline.payment import EXPENSE, PURCHASES
 from app.pipeline.verify.step import recheck_document, working_copy
 from app.services.corrections import sync_corrections
 from app.services.review import NotEditableError, ReviewError
@@ -77,6 +77,7 @@ def approve_document(
         _learn_supplier_coding(session, document, invoice)
         trusted_after = settings.coding_min_consistent_approvals
         _learn_supplier_payment(session, document, invoice, trusted_after)
+        _learn_paid_through(session, document, invoice)
     session.flush()
     return outbox
 
@@ -114,6 +115,15 @@ def _learn_supplier_payment(
     if chosen:
         mapping.payment_approvals = max(mapping.payment_approvals, trusted_after)
     mapping.last_approved_at = datetime.now(UTC)
+
+
+def _learn_paid_through(session: Session, document: Document, invoice: Invoice) -> None:
+    """The account this supplier's expense was paid through (decision 89): the next one starts
+    from it. An approved choice is the accountant's, so it counts at once."""
+    if document.vendor_key is None or invoice.document_type is not EXPENSE:
+        return
+    if invoice.paid_through is not None:
+        _mapping(session, document).paid_through = invoice.paid_through
 
 
 def _mapping(session: Session, document: Document) -> VendorMapping:

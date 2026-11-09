@@ -1400,6 +1400,8 @@ export interface components {
              * @description Credit/debit notes: number of the invoice being adjusted.
              */
             original_invoice_ref?: string | null;
+            /** Paid Through */
+            paid_through?: string | null;
             /** Po Number */
             po_number?: string | null;
             /** Recipient Name */
@@ -1449,6 +1451,8 @@ export interface components {
              * @description Credit/debit notes: number of the invoice being adjusted.
              */
             original_invoice_ref?: string | null;
+            /** Paid Through */
+            paid_through?: string | null;
             /** Po Number */
             po_number?: string | null;
             /** Recipient Name */

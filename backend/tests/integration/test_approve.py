@@ -20,7 +20,13 @@ from tests.integration.test_review_api import (  # noqa: F401  (fixtures)
     ok,
     patch,
 )
-from tests.integration.test_verify import TRN, master_data, storage  # noqa: F401
+from tests.integration.test_verify import (  # noqa: F401
+    PETTY_CASH,
+    TRN,
+    master_data,
+    sends_expenses,
+    storage,
+)
 from tests.login import log_in
 
 pytestmark = pytest.mark.integration
@@ -275,3 +281,38 @@ def test_the_accountants_type_is_never_chosen_again(
     body = ok(patch(api, doc, invoice_number="INV-00292"))  # checked again after another edit
 
     assert (body["document_type"], doc.document_type) == ("RECEIPT", T.RECEIPT)
+
+
+# --- paid through (decision 89) ---------------------------------------------------------
+
+
+def test_approval_teaches_the_supplier_s_paid_through_account(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    sends_expenses(session)
+    doc = in_review(session, storage)
+    body = ok(patch(api, doc, document_type="RECEIPT"))
+    assert body["invoice"]["paid_through"] == PETTY_CASH  # the client's usual account
+
+    ok(approve(api, doc))
+
+    assert mapping(session).paid_through == PETTY_CASH
+
+
+def test_the_accountant_s_paid_through_account_survives_a_save(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    sends_expenses(session, usual=None)
+    doc = in_review(session, storage)
+    ok(patch(api, doc, document_type="RECEIPT"))
+
+    body = ok(patch(api, doc, paid_through=PETTY_CASH))
+    again = ok(patch(api, doc, invoice_number="INV-00292"))
+
+    assert "paid_through" in body["verified_fields"]
+    assert again["invoice"]["paid_through"] == PETTY_CASH
+    assert "paid_through_missing" not in {issue["code"] for issue in again["issues"]}

@@ -38,10 +38,11 @@ export interface FormValues {
   recipient_trn: string
   po_number: string
   original_invoice_ref: string
+  paid_through: string  // an expense's payment account (decision 89); kept even when not shown
   lines: LineValues[]
 }
 
-export type HeaderField = Exclude<keyof FormValues, 'lines' | 'document_type' | 'amount_type'>
+export type HeaderField = Exclude<keyof FormValues, 'lines' | 'document_type' | 'amount_type' | 'paid_through'>
 
 export const FIELD_LABELS: Record<string, string> = {
   document_type: 'Document type',
@@ -59,6 +60,7 @@ export const FIELD_LABELS: Record<string, string> = {
   recipient_trn: 'Customer TRN',
   po_number: 'PO number',
   original_invoice_ref: 'Original invoice',
+  paid_through: 'Paid through',
   lines: 'Lines',
 }
 
@@ -101,6 +103,7 @@ export function toFormValues(invoice: Invoice | null | undefined): FormValues {
     recipient_trn: text(invoice?.recipient_trn),
     po_number: text(invoice?.po_number),
     original_invoice_ref: text(invoice?.original_invoice_ref),
+    paid_through: text(invoice?.paid_through),
     lines: (invoice?.lines ?? []).map((line) => ({
       description: text(line.description),
       qty: text(line.qty),
@@ -133,6 +136,7 @@ export function toInvoiceInput(values: FormValues): InvoiceInput {
     recipient_trn: value(values.recipient_trn),
     po_number: value(values.po_number),
     original_invoice_ref: value(values.original_invoice_ref),
+    paid_through: value(values.paid_through),
     lines: values.lines.map((line) => ({
       description: value(line.description),
       qty: amount(line.qty),

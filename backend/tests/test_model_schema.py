@@ -54,6 +54,12 @@ def test_the_item_code_is_never_asked_of_the_model() -> None:
         assert "item_code" not in schema["properties"]["lines"]["items"]["properties"]
 
 
+def test_the_paid_through_account_is_never_asked_of_the_model() -> None:
+    """Decision 89: chosen by our code or the accountant; the model's prompt stays as it was."""
+    for schema in (build_model_schema(), build_model_schema(line_coding=False)):
+        assert "paid_through" not in schema["properties"]
+
+
 def test_field_types(schema: dict[str, Any]) -> None:
     props = schema["properties"]
     line = props["lines"]["items"]["properties"]

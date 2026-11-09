@@ -32,7 +32,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.registry import PROVIDERS
+from app.adapters.accounting.registry import PROVIDERS, expenses_blocked_by
 from app.adapters.llm import ExtractionClient
 from app.adapters.ocr import OcrEngine
 from app.adapters.storage import Storage
@@ -42,12 +42,13 @@ from app.domain.enums import (
     AmountType,
     DocumentStatus,
     DocumentType,
+    ExpensesSentAs,
     QueueCategory,
     TaxType,
 )
 from app.domain.invoice import Invoice, Line
 from app.domain.state_machine import transition
-from app.models import Client, Document, Extraction, VendorMapping
+from app.models import AccountingConnection, Client, Document, Extraction, VendorMapping
 from app.pipeline import coding
 from app.pipeline.dates import DateLimits, folder_for, photo_date, resolve_date
 from app.pipeline.folders import folder_year_known
@@ -60,6 +61,7 @@ from app.pipeline.verify.charges import ensure_charge_text, find_charges, load_c
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_key
 from app.pipeline.verify.grounding import check_grounding
 from app.pipeline.verify.issues import Issue, Severity
+from app.pipeline.verify.paid_through import PaidThrough, choose_paid_through
 from app.pipeline.verify.rules import RuleContext, check_vat, run_rules
 from app.pipeline.verify.supplier_history import SupplierHistory, load_supplier_history
 from app.pipeline.verify.type_check import check_document_type
@@ -270,6 +272,14 @@ def assess(
         payment = decide_payment(invoice, pages, remembered=remembered)
         if payment is not None and payment.document_type is not invoice.document_type:
             invoice = invoice.model_copy(update={"document_type": payment.document_type})
+    as_expenses, usual_account = _expense_sending(session, document.client_id)
+    if invoice is not None and as_expenses:
+        sources = PaidThrough(
+            _remembered_paid_through(session, document.client_id, vendor_key(invoice)),
+            usual_account,
+        )
+        invoice, paid = choose_paid_through(invoice, chart, sources, verified=verified)
+        filled += paid
     issued = invoice.invoice_date if invoice else None
     folder = folder_for(issued, document.folder_date,
                         known=folder_year_known(document.source_path))  # fmt: skip
@@ -281,7 +291,9 @@ def assess(
     )
 
     error = _last_extraction_error(session, document) if invoice is None else None
-    issues = require_number(run_rules(invoice, context, extraction_error=error), provider)
+    issues = require_number(
+        run_rules(invoice, context, extraction_error=error), provider, expenses=as_expenses
+    )
     issues += quality_issues([(page.page, page.quality) for page in pages])
     issues += filled
     park = False
@@ -442,6 +454,34 @@ def _remembered_type(
     return mapping.payment_type
 
 
+def _expense_sending(session: Session, client_id: str) -> tuple[bool, str | None]:
+    """Decision 89: (sent as expenses, the client's usual paid-through account). Sent as
+    expenses when the client chose so and its connection allows it; else as bills."""
+    client = session.scalars(select(Client).where(Client.client_id == client_id)).first()
+    if client is None or client.expenses_sent_as is not ExpensesSentAs.EXPENSE:
+        return False, None
+    connection = session.scalars(
+        select(AccountingConnection)
+        .where(AccountingConnection.client_id == client_id)
+        .order_by(AccountingConnection.created_at.desc())
+    ).first()
+    entry = PROVIDERS.get(connection.provider) if connection else None
+    if expenses_blocked_by(entry, connection.scopes if connection else None):
+        return False, None
+    return True, client.paid_through
+
+
+def _remembered_paid_through(session: Session, client_id: str, key: str | None) -> str | None:
+    """The account this supplier's last approved expense was paid through (decision 89)."""
+    if key is None:
+        return None
+    return session.scalars(
+        select(VendorMapping.paid_through).where(
+            VendorMapping.client_id == client_id, VendorMapping.vendor_key == key
+        )
+    ).first()
+
+
 def _model_type(session: Session, document: Document) -> DocumentType | None:
     """The type the model itself read (its raw answer: extraction may have changed it)."""
     raw = session.scalars(
@@ -459,13 +499,15 @@ def _model_type(session: Session, document: Document) -> DocumentType | None:
     return kind if kind in PURCHASES else None
 
 
-def require_number(issues: list[Issue], provider: AccountingProvider) -> list[Issue]:
+def require_number(
+    issues: list[Issue], provider: AccountingProvider, *, expenses: bool = False
+) -> list[Issue]:
     """An expense needs no number (decision 88), unless the client's accounting system takes no
-    bill without one (Zoho Books), and expenses are still sent as bills there (decision 50): then
+    bill without one (Zoho Books) and its expenses are sent there as bills (decision 50): then
     it is an error, so the accountant types the number before approving rather than having the
-    bill sent back (option B, decision 74)."""
+    bill sent back (option B, decision 74). `expenses`: sent as expenses (decision 89)."""
     entry = PROVIDERS.get(provider)
-    if entry is None or not entry.number_required:
+    if entry is None or not entry.number_required or expenses:
         return [issue for issue in issues if issue.code != "receipt_number_missing"]
     return [
         Issue(

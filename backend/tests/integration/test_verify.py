@@ -1,7 +1,7 @@
 """The verify step end to end: every Phase 3 check, saved results, queue and status."""
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -11,15 +11,36 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.accounting.base import PAYS
 from app.adapters.accounting.manual import ManualAccountingSystem
+from app.adapters.accounting.zoho.auth import EXPENSE_SCOPE
 from app.adapters.ocr.base import RecognizedText
 from app.adapters.storage.keys import ocr_key, page_image_key
 from app.adapters.storage.local import LocalStorage
 from app.core.config import Settings
-from app.domain.enums import AmountType, Direction, DocumentType, QueueCategory, TaxType
+from app.domain.enums import (
+    AccountClass,
+    AccountingProvider,
+    AmountType,
+    Direction,
+    DocumentType,
+    ExpensesSentAs,
+    QueueCategory,
+    TaxType,
+)
 from app.domain.enums import DocumentStatus as S
 from app.domain.invoice import Invoice, Line
-from app.models import AuditLog, Correction, Document, Extraction, Run, VendorMapping
+from app.models import (
+    AccountingConnection,
+    AuditLog,
+    Client,
+    Correction,
+    Document,
+    Extraction,
+    LedgerAccount,
+    Run,
+    VendorMapping,
+)
 from app.pipeline.read import PageText, TextSpan, encode_png
 from app.pipeline.verify.step import (
     VerifyOutcome,
@@ -421,3 +442,96 @@ def test_recheck_gives_documents_in_review_their_own_folder_date(
     assert (checked, moved) == (1, 1)
     assert doc.folder_date == date(2026, 10, 16)
     assert doc.issues == []  # checked again with it: 15 October is just before the folder
+
+
+# --- paid through (decision 89) ---------------------------------------------------------
+
+PETTY_CASH = "1090"
+
+
+def sends_expenses(session: Session, *, usual: str | None = PETTY_CASH, scopes: str = "") -> None:
+    """The client sends expenses as expenses, connected to Zoho with the permission for it
+    (unless `scopes` says otherwise), and has a petty cash account to pay them through."""
+    session.add(LedgerAccount(client_id=CLIENT, provider=AccountingProvider.MANUAL,
+                              external_id="pc", code=PETTY_CASH, name="Petty Cash",
+                              account_class=AccountClass.ASSET, raw={PAYS: "Cash"}))  # fmt: skip
+    session.add(AccountingConnection(
+        client_id=CLIENT, provider=AccountingProvider.ZOHO, tenant_id="905001",
+        tenant_name="Made-up Trading", access_token="x", refresh_token="x",
+        expires_at=datetime.now(UTC), scopes=scopes or f"ZohoBooks.bills.ALL {EXPENSE_SCOPE}",
+    ))  # fmt: skip
+    client = session.scalars(select(Client).where(Client.client_id == CLIENT)).first()
+    if client is None:
+        client = Client(client_id=CLIENT, name="Cafe Al Noor")
+        session.add(client)
+    client.expenses_sent_as, client.paid_through = ExpensesSentAs.EXPENSE, usual
+    session.flush()
+
+
+def an_expense(session: Session, storage: LocalStorage, **changes: Any) -> Document:
+    doc = extracted(session, storage, bill(document_type=DocumentType.RECEIPT, due_date=None,
+                                           **changes))  # fmt: skip
+    doc.verified_fields = ["document_type"]  # the accountant's own choice: an expense
+    return doc
+
+
+def test_an_expense_is_paid_through_the_clients_usual_account(
+    session: Session, storage: LocalStorage
+) -> None:
+    sends_expenses(session)
+    doc = an_expense(session, storage)
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["paid_through"] == PETTY_CASH
+    assert not codes(doc) & {"paid_through_missing", "paid_through_invalid"}
+
+
+def test_an_expense_with_no_account_to_pay_it_cannot_be_approved(
+    session: Session, storage: LocalStorage
+) -> None:
+    sends_expenses(session, usual=None)
+    doc = an_expense(session, storage)
+
+    verify(session, storage, doc)
+
+    assert "paid_through_missing" in codes(doc)
+    assert doc.queue is QueueCategory.EXCEPTION
+
+
+def test_the_suppliers_last_account_comes_first(session: Session, storage: LocalStorage) -> None:
+    sends_expenses(session, usual=None)
+    mapping = session.scalars(select(VendorMapping)).one()
+    mapping.paid_through = PETTY_CASH
+    doc = an_expense(session, storage)
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["paid_through"] == PETTY_CASH
+
+
+def test_without_the_permission_expenses_stay_bills_with_no_account(
+    session: Session, storage: LocalStorage
+) -> None:
+    sends_expenses(session, scopes="ZohoBooks.bills.ALL")
+    doc = an_expense(session, storage)
+
+    verify(session, storage, doc)
+
+    assert doc.invoice is not None and doc.invoice["paid_through"] is None
+    assert "paid_through_missing" not in codes(doc)
+
+
+def test_the_paid_through_account_is_never_the_model_s_correction(
+    session: Session, storage: LocalStorage
+) -> None:
+    sends_expenses(session)
+    doc = an_expense(session, storage)
+    with_model_answer(session, doc, bill(document_type=DocumentType.RECEIPT, due_date=None))
+    verify(session, storage, doc)
+    doc.verified_fields = ["document_type", "paid_through"]
+
+    sync_corrections(session, doc, corrected_by="accountant@example.com")
+
+    fields = {c.field for c in session.scalars(select(Correction))}
+    assert "paid_through" not in fields
