@@ -12,7 +12,7 @@ from app.adapters.accounting.base import ConnectedSystem, Connector
 from app.adapters.accounting.xero.auth import XeroAuth
 from app.adapters.accounting.xero.links import bill_url
 from app.adapters.accounting.xero.master_data import XeroAccountingSystem
-from app.adapters.accounting.zoho.auth import ZohoAuth
+from app.adapters.accounting.zoho.auth import EXPENSE_SCOPE, ZohoAuth
 from app.adapters.accounting.zoho.books import ZohoBooks
 from app.adapters.accounting.zoho.links import bill_url as zoho_bill_url
 from app.core.config import Settings
@@ -33,6 +33,9 @@ class ProviderEntry:
     # Every bill must carry a number (Zoho): a receipt printed without one is an error in review,
     # so the accountant types it before approving (option B, decision 74).
     number_required: bool = False
+    # Can send expenses as expenses (decision 89), with the permission a connection needs for
+    # it; None = expenses are sent as bills.
+    expense_scope: str | None = None
 
 
 Registry = Mapping[AccountingProvider, ProviderEntry]
@@ -56,6 +59,7 @@ PROVIDERS: Registry = {
         system=ZohoBooks,
         document_url=zoho_bill_url,
         number_required=True,
+        expense_scope=EXPENSE_SCOPE,
     ),
 }
 

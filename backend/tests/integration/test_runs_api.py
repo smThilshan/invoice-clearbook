@@ -170,7 +170,8 @@ def test_a_client_is_created_from_a_name(anywhere: TestClient) -> None:
 
     assert first.status_code == 201
     assert first.json() == {"client_id": "blue-sky-trading-llc", "name": "Blue Sky Trading LLC",
-                            "line_grouping": "BY_ITEM"}  # fmt: skip
+                            "line_grouping": "BY_ITEM", "expenses_sent_as": "BILL",
+                            "paid_through": None}  # fmt: skip
     assert second.json()["client_id"] == "blue-sky-trading-llc-2"
     assert anywhere.post("/clients", json={"name": ""}).status_code == 422
 

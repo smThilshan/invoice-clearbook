@@ -15,6 +15,8 @@ export type ModelStatus = Schemas['ModelStatus']
 export type Client = Schemas['ClientOut']
 export type ClientCreate = Schemas['ClientCreate']
 export type LineGrouping = Schemas['LineGrouping']
+export type ExpensesSentAs = Schemas['ExpensesSentAs']
+export type ClientSettings = Schemas['ClientSettings']
 export type AccountingStatus = Schemas['AccountingStatus']
 export type SyncResult = Schemas['SyncOut']
 export type PostingSummary = Schemas['PostingOut']
@@ -154,6 +156,9 @@ export const api = {
   /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
   setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),
+  /** Decision 89: how expenses are sent and the account usually paid through (admin only). */
+  setExpenseSending: (clientId: string, settings: Pick<ClientSettings, 'expenses_sent_as' | 'paid_through'>) =>
+    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, settings),
   /** Missan's SharePoint sign-in (decision 83): read only, made once by an admin. */
   sharePointStatus: () => request<SharePointStatus>('/sharepoint/status'),
   disconnectSharePoint: () => sendJson<SharePointStatus>('POST', '/sharepoint/disconnect', {}),

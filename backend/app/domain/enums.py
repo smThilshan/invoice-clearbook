@@ -60,6 +60,13 @@ class LineGrouping(StrEnum):
     BY_ACCOUNT = "BY_ACCOUNT"  # every item with the same account and VAT code in one line
 
 
+class ExpensesSentAs(StrEnum):
+    """How a client's expenses (paid when bought, decision 88) are sent (decision 89)."""
+
+    BILL = "BILL"  # the default: as a bill, approved again in the accounting system
+    EXPENSE = "EXPENSE"  # as an expense, paid through an account: final once approved here
+
+
 class AmountType(StrEnum):
     """Whether line amounts include VAT."""
 

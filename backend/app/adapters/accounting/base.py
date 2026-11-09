@@ -20,6 +20,10 @@ CODE_IS_REFERENCE = "code_is_reference"
 # In `LedgerAccountRecord.raw`: the provider refuses this account on a bill line (cash, bank,
 # receivables, payables, tax accounts), so it is never offered for coding.
 NOT_FOR_LINES = "not_for_lines"
+# In `LedgerAccountRecord.raw`: an expense may be paid through this account (decision 89); the
+# value is its group as the provider's own list shows it ("Cash", "Bank", "Equity"). Absent:
+# not a payment account.
+PAYS = "pays"
 
 
 @dataclass(frozen=True, slots=True)

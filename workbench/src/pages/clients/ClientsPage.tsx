@@ -12,13 +12,15 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
-import type { Client, LineGrouping, PostingSummary, SyncResult } from '@/api/client'
+import type { Client, ExpensesSentAs, LineGrouping, PostingSummary, SyncResult } from '@/api/client'
 import {
   useAccounting,
   useClients,
+  useCodingOptions,
   useMe,
   useDisconnectAccounting,
   useSendWaiting,
+  useSetExpenseSending,
   useSetLineGrouping,
   useSyncAccounting,
 } from '@/api/queries'
@@ -28,9 +30,17 @@ import { SharePointConnection } from '@/components/SharePointConnection'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatDateTime, LINE_GROUPING_LABELS } from '@/lib/labels'
+import { EXPENSES_SENT_AS_LABELS, formatDateTime, LINE_GROUPING_LABELS } from '@/lib/labels'
 import { TAX_TYPE_LABELS } from '@/pages/document/formModel'
 import { usePageTitle } from '@/lib/usePageTitle'
 
@@ -160,6 +170,14 @@ function ClientRow({ client }: { client: Client }) {
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
           <LinesSent client={client} system={system} admin={admin} />
+          {connected && (
+            <ExpensesSent
+              client={client}
+              system={system}
+              admin={admin}
+              blocked={status.data?.expenses_blocked ?? null}
+            />
+          )}
           {summary && (
             <PostingLines
               summary={summary}
@@ -306,6 +324,101 @@ function LinesSent({ client, system, admin }: { client: Client; system: string; 
         </Select>
       ) : (
         <span>{LINE_GROUPING_LABELS[client.line_grouping]}</span>
+      )}
+      {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
+    </div>
+  )
+}
+
+const EACH_TIME = 'each-time' // no default: the account is chosen on each expense
+
+/** Decision 89: expenses (paid when bought) go as expenses, paid through an account, or as
+ * bills as before. `blocked`: why they cannot go as expenses now (the system cannot take them,
+ * or its connection must be made again). */
+function ExpensesSent({
+  client,
+  system,
+  admin,
+  blocked,
+}: {
+  client: Client
+  system: string
+  admin: boolean
+  blocked: string | null
+}) {
+  const change = useSetExpenseSending()
+  const options = useCodingOptions(client.client_id)
+  const accounts = options.data?.paid_through ?? []
+  const groups = [...new Set(accounts.map((a) => a.group))]
+  const label = `Expenses sent to ${system}`
+  const payLabel = 'Usually paid through'
+  const asExpenses = client.expenses_sent_as === 'EXPENSE'
+  const paidThrough = accounts.find((a) => a.code === client.paid_through)?.label ?? 'Chosen on each expense'
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground">{label}:</span>
+        {admin ? (
+          <Select
+            value={client.expenses_sent_as}
+            disabled={change.isPending || (Boolean(blocked) && !asExpenses)}
+            onValueChange={(value) =>
+              change.mutate({ clientId: client.client_id, settings: { expenses_sent_as: value as ExpensesSentAs } })
+            }
+          >
+            <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={label}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(EXPENSES_SENT_AS_LABELS).map(([value, text]) => (
+                <SelectItem key={value} value={value}>
+                  {text(system)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span>{EXPENSES_SENT_AS_LABELS[client.expenses_sent_as](system)}</span>
+        )}
+      </div>
+      {blocked && <p className="text-muted-foreground">Expenses go as bills: {blocked}.</p>}
+      {asExpenses && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground">{payLabel}:</span>
+          {admin ? (
+            <Select
+              value={client.paid_through ?? EACH_TIME}
+              disabled={change.isPending}
+              onValueChange={(value) =>
+                change.mutate({
+                  clientId: client.client_id,
+                  settings: { paid_through: value === EACH_TIME ? null : value },
+                })
+              }
+            >
+              <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={payLabel}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={EACH_TIME}>Chosen on each expense</SelectItem>
+                {groups.map((group) => (
+                  <SelectGroup key={group}>
+                    <SelectLabel>{group}</SelectLabel>
+                    {accounts
+                      .filter((a) => a.group === group)
+                      .map((a) => (
+                        <SelectItem key={a.code} value={a.code}>
+                          {a.label}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <span>{paidThrough}</span>
+          )}
+        </div>
       )}
       {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
     </div>

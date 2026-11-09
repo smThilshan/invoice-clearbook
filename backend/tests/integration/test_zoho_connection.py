@@ -63,6 +63,8 @@ class FakeZoho:
                  "account_type": "cost_of_goods_sold", "account_code": "5000", "is_active": True},
                 {"account_id": "4600402", "account_name": "Advertising",
                  "account_type": "expense", "account_code": "", "is_active": True},
+                {"account_id": "4600361", "account_name": "Petty Cash",
+                 "account_type": "cash", "account_code": "", "is_active": True},
             ]})  # fmt: skip
         if request.url.path == "/books/v3/settings/taxes":
             return httpx.Response(200, json={"code": 0, "taxes": [
@@ -186,6 +188,56 @@ def test_sync_brings_in_accounts_without_numbers_by_name(api: TestClient, zoho: 
         "STANDARD_5": "46001",
         "NONE": "NO_VAT",
     }
+
+
+def test_expenses_are_sent_as_expenses_paid_through_a_synced_account(
+    api: TestClient, session: Session
+) -> None:
+    """Decision 89: an admin switches a client; the default account is one Zoho pays through."""
+    refused = api.patch(f"/clients/{CLIENT}", json={"expenses_sent_as": "EXPENSE"})
+    assert refused.status_code == 422  # nothing connected yet
+    assert "connect an accounting system first" in refused.text
+    sign_in(api)
+    api.post(f"/clients/{CLIENT}/accounting/sync")
+
+    options = api.get(f"/clients/{CLIENT}/coding-options").json()
+    status = api.get(f"/clients/{CLIENT}/accounting").json()
+    switched = api.patch(
+        f"/clients/{CLIENT}", json={"expenses_sent_as": "EXPENSE", "paid_through": "4600361"}
+    )
+    not_a_payment_account = api.patch(f"/clients/{CLIENT}", json={"paid_through": "4600400"})
+    each_time = api.patch(f"/clients/{CLIENT}", json={"paid_through": None})
+
+    assert options["paid_through"] == [{"code": "4600361", "label": "Petty Cash", "group": "Cash"}]
+    assert status["expenses_blocked"] is None
+    assert switched.status_code == 200, switched.text
+    assert (switched.json()["expenses_sent_as"], switched.json()["paid_through"]) == (
+        "EXPENSE", "4600361",
+    )  # fmt: skip
+    assert not_a_payment_account.status_code == 422
+    assert "cannot be paid through that account" in not_a_payment_account.text
+    assert (each_time.json()["expenses_sent_as"], each_time.json()["paid_through"]) == (
+        "EXPENSE", None,
+    )  # fmt: skip
+    assert each_time.json()["line_grouping"] == "BY_ITEM"  # settings not sent stay as they are
+
+
+def test_a_connection_made_before_expenses_must_connect_again_to_send_them(
+    api: TestClient, session: Session
+) -> None:
+    sign_in(api)
+    connection = connections.connection_of(session, CLIENT)
+    assert connection is not None
+    connection.scopes = "ZohoBooks.bills.ALL ZohoBooks.contacts.ALL ZohoBooks.settings.READ"
+    session.flush()
+
+    status = api.get(f"/clients/{CLIENT}/accounting").json()
+    refused = api.patch(f"/clients/{CLIENT}", json={"expenses_sent_as": "EXPENSE"})
+    as_bills = api.patch(f"/clients/{CLIENT}", json={"expenses_sent_as": "BILL"})
+
+    assert status["expenses_blocked"] == "connect Zoho Books again to allow sending expenses"
+    assert refused.status_code == 422
+    assert as_bills.status_code == 200
 
 
 def test_zoho_without_its_app_keys_says_where_they_go(session: Session, tmp_path: Path) -> None:

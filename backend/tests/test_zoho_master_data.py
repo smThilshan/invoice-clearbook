@@ -6,7 +6,12 @@ from typing import Any
 import httpx
 import pytest
 
-from app.adapters.accounting.base import CODE_IS_REFERENCE, NOT_FOR_LINES, AccountingSystemError
+from app.adapters.accounting.base import (
+    CODE_IS_REFERENCE,
+    NOT_FOR_LINES,
+    PAYS,
+    AccountingSystemError,
+)
 from app.adapters.accounting.zoho.books import ZohoBooks
 from app.adapters.accounting.zoho.client import ZohoApiError, ZohoClient
 from app.adapters.accounting.zoho.master_data import NO_VAT, account_class, map_tax
@@ -125,3 +130,37 @@ def test_zoho_account_types_and_taxes_map_to_canonical_ones() -> None:
     assert map_tax("VAT Exempt", Decimal(0)) is TaxType.EXEMPT
     assert map_tax("Reverse Charge 5%", Decimal(5)) is TaxType.REVERSE_CHARGE
     assert map_tax("Excise 50%", Decimal(50)) is None
+
+
+# Zoho's "Paid Through" list and its refusals in the trial (decision 89): name, type, placeholder,
+# the group it is offered under (None = never paid through).
+PAYMENT_ACCOUNTS = [
+    ("Petty Cash", "cash", "", "Cash"),
+    ("Emirates NBD Current", "bank", "", "Bank"),
+    ("Company Visa", "credit_card", "", "Credit Card"),
+    ("Employee Advance", "other_current_asset", "", "Other Current Asset"),
+    ("Employee Reimbursements", "other_current_liability", "", "Other Current Liability"),
+    ("Owner's Equity", "equity", "", "Equity"),
+    ("Input VAT", "other_current_asset", "gl_input_vat", None),  # Zoho refuses it
+    ("VAT Payable", "other_current_liability", "gl_vat_payable", None),
+    ("Office Supplies", "expense", "", None),
+    ("Accounts Payable", "accounts_payable", "", None),
+    ("Furniture and Equipment", "fixed_asset", "", None),
+]
+
+
+def test_the_accounts_an_expense_may_be_paid_through_carry_zohos_group() -> None:
+    rows = [{"account_id": str(n), "account_name": name, "account_type": kind,
+             "placeholder": placeholder, "is_active": True}
+            for n, (name, kind, placeholder, _) in enumerate(PAYMENT_ACCOUNTS)]  # fmt: skip
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("chartofaccounts"):
+            return ok({"chartofaccounts": rows, "page_context": {"has_more_page": False}})
+        return FakeZoho()(request)
+
+    accounts = books(handler).fetch_master_data().accounts or []
+
+    assert [(a.name, a.raw[PAYS]) for a in accounts] == [
+        (name, group) for name, _, _, group in PAYMENT_ACCOUNTS
+    ]

@@ -2,8 +2,8 @@
 master data (CSV import, task 4.2) and the code options for the review form.
 
 Clients are added on the Run screen (decision 35) or with `make add-client`. Every route needs
-a login (decision 71); importing master data and changing how a client's lines are sent
-(decision 73) need an admin.
+a login (decision 71); importing master data and changing how a client's lines and expenses
+are sent (decisions 73, 89) need an admin.
 """
 
 import uuid
@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.manual import ManualAccountingSystem
+from app.api.accounting import RegistryDep
 from app.api.auth import require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.domain.enums import AccountClass, AccountingProvider, LineGrouping, TaxType
+from app.domain.enums import AccountClass, AccountingProvider, ExpensesSentAs, LineGrouping, TaxType
 from app.models import Client
 from app.pipeline import coding
 from app.pipeline.folders import InboxError, folder_date_from_path
@@ -30,6 +31,7 @@ from app.services.clients import (
     get_client,
     list_clients,
     new_client_id,
+    set_expense_sending,
 )
 from app.services.master_data import Counts, import_master_data
 from app.services.runs import recent_runs
@@ -43,10 +45,16 @@ class ClientOut(BaseModel):
     client_id: str
     name: str
     line_grouping: LineGrouping  # how approved lines are sent (decision 73)
+    expenses_sent_as: ExpensesSentAs  # decision 89
+    paid_through: str | None  # the account expenses are usually paid through; None = each time
 
 
 class ClientSettings(BaseModel):
-    line_grouping: LineGrouping
+    """Only the settings sent are changed."""
+
+    line_grouping: LineGrouping | None = None
+    expenses_sent_as: ExpensesSentAs | None = None
+    paid_through: str | None = None  # send null to choose on each expense
 
 
 class ClientCreate(BaseModel):
@@ -98,12 +106,20 @@ class TaxOption(BaseModel):
     code: str  # the client's tax rate code for it
 
 
+class PaymentAccountOption(BaseModel):
+    code: str  # the value stored
+    label: str
+    group: str  # as the accounting system's own list groups it: "Cash", "Bank", "Equity"
+
+
 class CodingOptions(BaseModel):
     """What the review form may choose from: built from the client's active master data
-    (rule 14), purchase accounts only."""
+    (rule 14), purchase accounts only; and the accounts an expense may be paid through
+    (decision 89)."""
 
     accounts: list[AccountOption]
     tax_types: list[TaxOption]
+    paid_through: list[PaymentAccountOption]
 
 
 @router.get("")
@@ -113,11 +129,27 @@ def get_clients(session: Annotated[Session, Depends(get_session)]) -> list[Clien
 
 @router.patch("/{client_id}", dependencies=[Depends(require_admin)])
 def update_client(
-    client_id: str, body: ClientSettings, session: Annotated[Session, Depends(get_session)]
+    client_id: str,
+    body: ClientSettings,
+    session: Annotated[Session, Depends(get_session)],
+    registry: RegistryDep,
 ) -> ClientOut:
     """Documents approved from now on are sent this way; ones already approved keep theirs."""
     client = _found(session, client_id)
-    client.line_grouping = body.line_grouping
+    sent = body.model_fields_set
+    if sent & {"expenses_sent_as", "paid_through"}:
+        try:  # checked before anything changes
+            set_expense_sending(
+                session,
+                registry,
+                client,
+                sent_as=body.expenses_sent_as or client.expenses_sent_as,
+                paid_through=body.paid_through if "paid_through" in sent else client.paid_through,
+            )
+        except ClientError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    if body.line_grouping is not None:
+        client.line_grouping = body.line_grouping
     session.commit()
     return _out(client)
 
@@ -231,12 +263,21 @@ def get_coding_options(
             for a in chart.purchase_accounts()
         ],
         tax_types=[TaxOption(tax_type=t, code=c) for t, c in chart.tax_codes.items()],
+        paid_through=[
+            PaymentAccountOption(code=a.code, label=a.label, group=a.pays)
+            for a in sorted(chart.payment_accounts(), key=lambda a: (a.pays or "", a.label))
+            if a.pays
+        ],
     )
 
 
 def _out(client: Client) -> ClientOut:
     return ClientOut(
-        client_id=client.client_id, name=client.name, line_grouping=client.line_grouping
+        client_id=client.client_id,
+        name=client.name,
+        line_grouping=client.line_grouping,
+        expenses_sent_as=client.expenses_sent_as,
+        paid_through=client.paid_through,
     )
 
 

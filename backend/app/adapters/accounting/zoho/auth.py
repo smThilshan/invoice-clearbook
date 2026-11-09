@@ -22,6 +22,8 @@ TIMEOUT_SECONDS = 20.0
 # Zoho answers HTTP 200 with {"error": "invalid_code"} for a code or refresh token it no longer
 # accepts (used, expired, revoked).
 REVOKED = "invalid_code"
+# Needed to send expenses (decision 89): a connection made before has to connect again.
+EXPENSE_SCOPE = "ZohoBooks.expenses.ALL"
 
 
 class ZohoAuthError(ConnectorError):

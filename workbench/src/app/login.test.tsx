@@ -107,12 +107,13 @@ describe('login (decision 71)', () => {
       provider: 'XERO', provider_name: 'Xero', organisation: 'Made-up Org',
       connected_at: '2026-10-23T10:00:00Z', bills_where: 'Bills to pay, Awaiting approval',
       accounts: 0, master_data_from: 'XERO', waiting: 0,
+      expenses_blocked: 'Xero cannot take expenses yet: they are sent as bills',
       posting: { ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0,
                  posted: 0, paused: 0, paused_reason: null, failed: 0, failed_reason: null },
     }  // prettier-ignore
     mockApi({
       '/health/ready': READY, '/auth/me': ME,
-      '/clients': [{ client_id: 'cafe', name: 'Cafe Al Noor' }],
+      '/clients': [{ client_id: 'cafe', name: 'Cafe Al Noor', line_grouping: 'BY_ITEM', expenses_sent_as: 'BILL', paid_through: null }],
       '/clients/cafe/accounting': connected,
     })  // prettier-ignore
     renderApp('/clients')

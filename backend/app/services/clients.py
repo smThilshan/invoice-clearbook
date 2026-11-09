@@ -6,9 +6,12 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.enums import AccountingProvider
+from app.adapters.accounting.registry import Registry
+from app.domain.enums import AccountingProvider, ExpensesSentAs
 from app.models import Client, Run
+from app.pipeline import coding
 from app.pipeline.folders import InboxError, list_subfolders, resolve_inside
+from app.services.accounting_connections import connection_of
 
 CLIENT_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,62}[a-z0-9]")  # e.g. "cafe-al-noor"
 
@@ -75,6 +78,47 @@ def new_client_id(session: Session, name: str) -> str:
     if base not in taken:
         return base
     return next(f"{base}-{n}" for n in range(2, len(taken) + 3) if f"{base}-{n}" not in taken)
+
+
+def set_expense_sending(
+    session: Session,
+    registry: Registry,
+    client: Client,
+    *,
+    sent_as: ExpensesSentAs,
+    paid_through: str | None,
+) -> None:
+    """Decision 89: how the client's expenses are sent, and the account they are usually paid
+    through (one of its synced payment accounts). Sending them as expenses needs a system that
+    takes them and a connection allowed to."""
+    if sent_as is ExpensesSentAs.EXPENSE:
+        blocked = expenses_blocked(session, registry, client.client_id)
+        if blocked:
+            raise ClientError(blocked)
+    if paid_through is not None:
+        chart = coding.load_chart(
+            session, client_id=client.client_id, provider=client.accounting_provider
+        )
+        if paid_through not in {account.code for account in chart.payment_accounts()}:
+            raise ClientError(
+                "an expense cannot be paid through that account: sync the master data and "
+                "choose again"
+            )
+    client.expenses_sent_as = sent_as
+    client.paid_through = paid_through
+
+
+def expenses_blocked(session: Session, registry: Registry, client_id: str) -> str | None:
+    """Why the client's expenses cannot be sent as expenses now; None = they can."""
+    connection = connection_of(session, client_id)
+    if connection is None:
+        return "connect an accounting system first"
+    entry = registry[connection.provider]
+    if entry.expense_scope is None:
+        return f"{entry.name} cannot take expenses yet: they are sent as bills"
+    if entry.expense_scope not in re.split(r"[\s,]+", connection.scopes):
+        return f"connect {entry.name} again to allow sending expenses"
+    return None
 
 
 def client_root(client: Client) -> Path:

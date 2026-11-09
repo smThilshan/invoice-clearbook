@@ -4,18 +4,23 @@
   is referenced by its Zoho ID, which is never shown (`CODE_IS_REFERENCE`).
 - Bill lines take only expense and asset accounts: cash, bank, receivable, payable and tax
   accounts are marked `NOT_FOR_LINES` (Zoho: "Involved account types are not applicable").
+- Expenses are paid through cash, bank, card, current asset or liability and equity accounts,
+  never a VAT or tax account (Zoho refuses Input VAT; tested 2026-11-09): marked `PAYS` with the
+  group Zoho's "Paid Through" list shows them under (decision 89).
 - Taxes: one per rate, mapped by name and percentage. Zoho has no "no tax" rate: a line without
   VAT is sent without a tax, so a fixed `NO_VAT` code stands for it.
 - Vendors: the list carries no TRN (only each vendor's own record does, one call each); the
   vendor is found by TRN when a bill is sent.
 """
 
+import re
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from app.adapters.accounting.base import (
     CODE_IS_REFERENCE,
     NOT_FOR_LINES,
+    PAYS,
     ContactRecord,
     LedgerAccountRecord,
     MasterData,
@@ -42,6 +47,14 @@ BILL_LINE_TYPES = frozenset({
     "expense", "cost_of_goods_sold", "other_expense", "fixed_asset", "other_asset",
     "other_current_asset", "intangible_asset", "non_current_asset", "stock",
 })  # fmt: skip
+# The account types an expense may be paid through, with the group Zoho's list shows.
+PAID_THROUGH_GROUPS = {
+    "cash": "Cash", "bank": "Bank", "credit_card": "Credit Card",
+    "other_current_asset": "Other Current Asset",
+    "other_current_liability": "Other Current Liability", "equity": "Equity",
+}  # fmt: skip
+# Zoho's system tax accounts ("gl_input_vat", "gl_vat_payable", ...) are never paid through.
+_TAX_ACCOUNT = re.compile(r"vat|tax", re.IGNORECASE)
 
 
 def fetch_master_data(zoho: ZohoClient, organisation_ref: str) -> MasterData:
@@ -87,8 +100,15 @@ def _account(a: dict[str, Any]) -> LedgerAccountRecord:
             "account_type": a.get("account_type"),
             CODE_IS_REFERENCE: not code,
             NOT_FOR_LINES: a.get("account_type") not in BILL_LINE_TYPES,
+            PAYS: _paid_through_group(a),
         },
     )
+
+
+def _paid_through_group(a: dict[str, Any]) -> str | None:
+    if _TAX_ACCOUNT.search(a.get("placeholder") or ""):
+        return None
+    return PAID_THROUGH_GROUPS.get(a.get("account_type") or "")
 
 
 def _tax_rate(t: dict[str, Any]) -> TaxRateRecord:

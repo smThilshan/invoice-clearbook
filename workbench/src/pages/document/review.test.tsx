@@ -92,6 +92,7 @@ const OPTIONS: CodingOptions = {
     { tax_type: 'STANDARD_5', code: 'STD5' },
     { tax_type: 'ZERO', code: 'ZERO' },
   ],
+  paid_through: [],
 }
 
 const realFetch = globalThis.fetch
@@ -522,7 +523,7 @@ describe('review screen', () => {
   it('says how the lines will be sent to the connected accounting system', async () => {
     await open(mockApi({
       '/health/ready': READY, '/clients/cafe/coding-options': OPTIONS, [`/documents/${ID}`]: detail(),
-      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM' }],
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'BILL', paid_through: null }],
       '/clients/cafe/accounting': { connected: true, provider_name: 'Xero' },
     }))  // prettier-ignore
 

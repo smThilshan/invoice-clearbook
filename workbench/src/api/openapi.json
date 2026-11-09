@@ -87,6 +87,17 @@
             ],
             "title": "Connected At"
           },
+          "expenses_blocked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expenses Blocked"
+          },
           "master_data_from": {
             "title": "Master Data From",
             "type": "string"
@@ -164,6 +175,7 @@
           "organisation",
           "connected_at",
           "bills_where",
+          "expenses_blocked",
           "master_data_from",
           "accounts",
           "waiting",
@@ -326,42 +338,91 @@
             "title": "Client Id",
             "type": "string"
           },
+          "expenses_sent_as": {
+            "$ref": "#/components/schemas/ExpensesSentAs"
+          },
           "line_grouping": {
             "$ref": "#/components/schemas/LineGrouping"
           },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "paid_through": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Through"
           }
         },
         "required": [
           "client_id",
           "name",
-          "line_grouping"
+          "line_grouping",
+          "expenses_sent_as",
+          "paid_through"
         ],
         "title": "ClientOut",
         "type": "object"
       },
       "ClientSettings": {
+        "description": "Only the settings sent are changed.",
         "properties": {
+          "expenses_sent_as": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExpensesSentAs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "line_grouping": {
-            "$ref": "#/components/schemas/LineGrouping"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineGrouping"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paid_through": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Through"
           }
         },
-        "required": [
-          "line_grouping"
-        ],
         "title": "ClientSettings",
         "type": "object"
       },
       "CodingOptions": {
-        "description": "What the review form may choose from: built from the client's active master data\n(rule 14), purchase accounts only.",
+        "description": "What the review form may choose from: built from the client's active master data\n(rule 14), purchase accounts only; and the accounts an expense may be paid through\n(decision 89).",
         "properties": {
           "accounts": {
             "items": {
               "$ref": "#/components/schemas/AccountOption"
             },
             "title": "Accounts",
+            "type": "array"
+          },
+          "paid_through": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentAccountOption"
+            },
+            "title": "Paid Through",
             "type": "array"
           },
           "tax_types": {
@@ -374,7 +435,8 @@
         },
         "required": [
           "accounts",
-          "tax_types"
+          "tax_types",
+          "paid_through"
         ],
         "title": "CodingOptions",
         "type": "object"
@@ -942,6 +1004,15 @@
         ],
         "title": "DocumentUpdate",
         "type": "object"
+      },
+      "ExpensesSentAs": {
+        "description": "How a client's expenses (paid when bought, decision 88) are sent (decision 89).",
+        "enum": [
+          "BILL",
+          "EXPENSE"
+        ],
+        "title": "ExpensesSentAs",
+        "type": "string"
       },
       "FileStatus": {
         "properties": {
@@ -2010,6 +2081,29 @@
           "spans"
         ],
         "title": "PageTextOut",
+        "type": "object"
+      },
+      "PaymentAccountOption": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "group"
+        ],
+        "title": "PaymentAccountOption",
         "type": "object"
       },
       "Place": {

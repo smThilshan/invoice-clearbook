@@ -36,7 +36,7 @@ from app.services.accounting_connections import (
     start,
 )
 from app.services.accounting_sync import sync
-from app.services.clients import get_client
+from app.services.clients import expenses_blocked, get_client
 from app.services.master_data import Counts
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,7 @@ class AccountingStatus(BaseModel):
     organisation: str | None
     connected_at: datetime | None
     bills_where: str | None  # where sent bills are found in the provider's own screens
+    expenses_blocked: str | None  # why expenses cannot be sent as expenses; None = they can
     master_data_from: str  # the provider once synced, else "MANUAL" (CSV import)
     accounts: int  # active accounts coding can use, from `master_data_from` (decision 79)
     waiting: int  # approved documents not posted yet
@@ -215,6 +216,7 @@ def accounting_status(
         organisation=connection.tenant_name if connection else None,
         connected_at=connection.created_at if connection else None,
         bills_where=entry.bills_where if entry else None,
+        expenses_blocked=expenses_blocked(session, registry, client_id),
         master_data_from=client.accounting_provider.value,
         accounts=session.scalar(
             select(func.count()).where(

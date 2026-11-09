@@ -7,8 +7,8 @@ import { mockApi, renderApp } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
 const CLIENTS = [
-  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT' },
-  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT' },
+  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null },
+  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null },
 ]
 const NOTHING: PostingSummary = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
@@ -19,14 +19,14 @@ const NOT_CONNECTED: AccountingStatus = {
   providers: [XERO], configured: true, connected: false, needs_reconnect: false,
   reconnect_reason: null, provider: null, provider_name: null,
   organisation: null, connected_at: null, bills_where: null, accounts: 0, master_data_from: 'MANUAL',
-  waiting: 0, posting: NOTHING,
+  waiting: 0, posting: NOTHING, expenses_blocked: 'connect an accounting system first',
 }  // prettier-ignore
 const CONNECTED: AccountingStatus = {
   providers: [XERO], configured: true, connected: true, needs_reconnect: false,
   reconnect_reason: null, provider: 'XERO', provider_name: 'Xero',
   organisation: 'Demo Company (Global)', connected_at: '2026-10-23T10:00:00Z',
   bills_where: 'Bills to pay, Awaiting approval', accounts: 0, master_data_from: 'MANUAL', waiting: 0,
-  posting: NOTHING,
+  posting: NOTHING, expenses_blocked: 'Xero cannot take expenses yet: they are sent as bills',
 }  // prettier-ignore
 const SYNCED_WAITING: AccountingStatus = {
   ...CONNECTED, accounts: 0, master_data_from: 'XERO', waiting: 3, posting: { ...NOTHING, ready: 3 },
@@ -79,6 +79,50 @@ describe('clients', () => {
     await waitFor(() =>
       expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({ line_grouping: 'BY_ITEM' }),
     )
+  })
+
+  it('lets an admin send expenses as expenses, usually paid through a Zoho account', async () => {
+    const zoho: AccountingStatus = {
+      ...CONNECTED, provider: 'ZOHO', provider_name: 'Zoho Books', expenses_blocked: null,
+    }  // prettier-ignore
+    const asExpenses = { ...CLIENTS[0], expenses_sent_as: 'EXPENSE' }
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [asExpenses], '/clients/cafe-al-noor/accounting': zoho,
+      '/clients/cafe-al-noor/coding-options': {
+        accounts: [], tax_types: [],
+        paid_through: [
+          { code: '4600361', label: 'Petty Cash', group: 'Cash' },
+          { code: '4600370', label: 'Employee Reimbursements', group: 'Other Current Liability' },
+        ],
+      },
+      'PATCH /clients/cafe-al-noor': { ...asExpenses, paid_through: '4600361' },
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const sent = await screen.findByRole('combobox', { name: 'Expenses sent to Zoho Books' })
+    expect(sent).toHaveTextContent('As expenses: paid through an account, final in Zoho Books once approved here')
+    const paid = screen.getByRole('combobox', { name: 'Usually paid through' })
+    expect(paid).toHaveTextContent('Chosen on each expense')
+    await user.click(paid)
+    expect(await screen.findByRole('group', { name: 'Other Current Liability' })).toBeInTheDocument()
+    await user.click(screen.getByRole('option', { name: 'Petty Cash' }))
+
+    await waitFor(() =>
+      expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({ paid_through: '4600361' }),
+    )
+  })
+
+  it('says why expenses still go as bills', async () => {
+    mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+    })  // prettier-ignore
+    renderApp('/clients')
+
+    const sent = await screen.findByRole('combobox', { name: 'Expenses sent to Xero' })
+    expect(sent).toBeDisabled()
+    expect(screen.getByText('Expenses go as bills: Xero cannot take expenses yet: they are sent as bills.')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Usually paid through' })).not.toBeInTheDocument()
   })
 
   it('shows an accountant how lines are sent, without letting them change it', async () => {
@@ -181,7 +225,7 @@ describe('clients', () => {
   it('names whichever accounting system the client is connected to', async () => {
     const zoho: AccountingStatus = {
       ...SYNCED_WAITING, provider_name: 'Zoho Books', organisation: 'Made-up Trading',
-      bills_where: 'Purchases, Bills', accounts: 0, master_data_from: 'XERO',
+      bills_where: 'Purchases, Bills', accounts: 0, master_data_from: 'XERO', expenses_blocked: null,
     }  // prettier-ignore
     mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
               '/clients/cafe-al-noor/accounting': zoho })  // prettier-ignore

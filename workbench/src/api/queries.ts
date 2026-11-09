@@ -5,6 +5,7 @@ import {
   ApiError,
   type ChosenFile,
   type ClientCreate,
+  type ClientSettings,
   type LineGrouping,
   type LoginBody,
   type Me,
@@ -104,6 +105,20 @@ export function useSetLineGrouping() {
   return useMutation({
     mutationFn: ({ clientId, lineGrouping }: { clientId: string; lineGrouping: LineGrouping }) =>
       api.setLineGrouping(clientId, lineGrouping),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
+export function useSetExpenseSending() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      settings,
+    }: {
+      clientId: string
+      settings: Pick<ClientSettings, 'expenses_sent_as' | 'paid_through'>
+    }) => api.setExpenseSending(clientId, settings),
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
   })
 }

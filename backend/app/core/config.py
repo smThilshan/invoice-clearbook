@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     zoho_redirect_uri: str = "http://localhost:8000/zoho/callback"
     zoho_scopes: str = (
         "ZohoBooks.bills.ALL,ZohoBooks.contacts.ALL,ZohoBooks.settings.READ,"
-        "ZohoBooks.accountants.READ"
+        "ZohoBooks.accountants.READ,ZohoBooks.expenses.ALL"
     )
     # SharePoint (decision 83): an app registered in Missan's Microsoft Entra ID (Web platform),
     # signed in to once by a Missan user. Read-only delegated permissions: it sees what that user

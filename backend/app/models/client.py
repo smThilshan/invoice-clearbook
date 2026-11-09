@@ -1,7 +1,7 @@
 from sqlalchemy import String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.enums import AccountingProvider, LineGrouping
+from app.domain.enums import AccountingProvider, ExpensesSentAs, LineGrouping
 from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
@@ -27,5 +27,13 @@ class Client(UuidPk, ClientScoped, Timestamps, Base):
         default=LineGrouping.BY_ITEM,
         server_default=LineGrouping.BY_ITEM.value,
     )
+    # How expenses are sent (decision 89), and the account they are usually paid through: a
+    # ledger account code marked `PAYS`; null = chosen on each expense.
+    expenses_sent_as: Mapped[ExpensesSentAs] = mapped_column(
+        str_enum(ExpensesSentAs, "expenses_sent_as"),
+        default=ExpensesSentAs.BILL,
+        server_default=ExpensesSentAs.BILL.value,
+    )
+    paid_through: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (UniqueConstraint("client_id"),)

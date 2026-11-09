@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.accounting.base import CODE_IS_REFERENCE, NOT_FOR_LINES
+from app.adapters.accounting.base import CODE_IS_REFERENCE, NOT_FOR_LINES, PAYS
 from app.adapters.llm import ExtractionClient, ExtractionError, ExtractionRequest
 from app.domain.enums import (
     AccountClass,
@@ -68,6 +68,7 @@ class Account:
     account_class: AccountClass
     shows_code: bool = True  # False: the code is the provider's ID, not a number to show
     for_lines: bool = True  # False: the provider refuses it on a bill line (cash, bank, tax)
+    pays: str | None = None  # an expense may be paid through it: its group ("Cash"; dec. 89)
 
     @property
     def label(self) -> str:
@@ -90,6 +91,11 @@ class ChartOfAccounts:
         account = self.accounts.get(code or "")
         return bool(account and account.for_lines
                     and account.account_class in PURCHASE_ACCOUNT_CLASSES)  # fmt: skip
+
+    def payment_accounts(self) -> list[Account]:
+        """The accounts an expense may be paid through (decision 89), as the provider groups
+        them."""
+        return [a for a in self.accounts.values() if a.pays]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +140,7 @@ def load_chart(
             account.account_class,
             shows_code=not (account.raw or {}).get(CODE_IS_REFERENCE),
             for_lines=not (account.raw or {}).get(NOT_FOR_LINES),
+            pays=(account.raw or {}).get(PAYS),
         )
         for account in session.scalars(
             select(LedgerAccount).where(

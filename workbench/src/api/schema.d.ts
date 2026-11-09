@@ -1032,6 +1032,8 @@ export interface components {
             connected: boolean;
             /** Connected At */
             connected_at: string | null;
+            /** Expenses Blocked */
+            expenses_blocked: string | null;
             /** Master Data From */
             master_data_from: string;
             /** Needs Reconnect */
@@ -1105,22 +1107,34 @@ export interface components {
         ClientOut: {
             /** Client Id */
             client_id: string;
+            expenses_sent_as: components["schemas"]["ExpensesSentAs"];
             line_grouping: components["schemas"]["LineGrouping"];
             /** Name */
             name: string;
+            /** Paid Through */
+            paid_through: string | null;
         };
-        /** ClientSettings */
+        /**
+         * ClientSettings
+         * @description Only the settings sent are changed.
+         */
         ClientSettings: {
-            line_grouping: components["schemas"]["LineGrouping"];
+            expenses_sent_as?: components["schemas"]["ExpensesSentAs"] | null;
+            line_grouping?: components["schemas"]["LineGrouping"] | null;
+            /** Paid Through */
+            paid_through?: string | null;
         };
         /**
          * CodingOptions
          * @description What the review form may choose from: built from the client's active master data
-         *     (rule 14), purchase accounts only.
+         *     (rule 14), purchase accounts only; and the accounts an expense may be paid through
+         *     (decision 89).
          */
         CodingOptions: {
             /** Accounts */
             accounts: components["schemas"]["AccountOption"][];
+            /** Paid Through */
+            paid_through: components["schemas"]["PaymentAccountOption"][];
             /** Tax Types */
             tax_types: components["schemas"]["TaxOption"][];
         };
@@ -1280,6 +1294,12 @@ export interface components {
             confirmed?: string[];
             invoice: components["schemas"]["Invoice-Input"];
         };
+        /**
+         * ExpensesSentAs
+         * @description How a client's expenses (paid when bought, decision 88) are sent (decision 89).
+         * @enum {string}
+         */
+        ExpensesSentAs: "BILL" | "EXPENSE";
         /** FileStatus */
         FileStatus: {
             /** Document Id */
@@ -1574,6 +1594,15 @@ export interface components {
             spans: components["schemas"]["Span"][];
             /** Width */
             width: number;
+        };
+        /** PaymentAccountOption */
+        PaymentAccountOption: {
+            /** Code */
+            code: string;
+            /** Group */
+            group: string;
+            /** Label */
+            label: string;
         };
         /** Place */
         Place: {
