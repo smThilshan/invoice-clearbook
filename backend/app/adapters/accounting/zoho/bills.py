@@ -15,7 +15,6 @@ the create finds the bill instead of making a second one. A sub-step whose resul
 `progress` is not done again.
 """
 
-import re
 from collections.abc import Callable, MutableMapping
 from decimal import Decimal
 from typing import Any
@@ -30,14 +29,13 @@ from app.adapters.accounting.base import (
 )
 from app.adapters.accounting.zoho.client import ZohoApiError, ZohoClient
 from app.adapters.accounting.zoho.master_data import NO_VAT
+from app.adapters.accounting.zoho.vendors import create_vendor, find_vendor
 from app.domain.enums import AmountType
 
-TRN = re.compile(r"^\d{15}$")
 PENDING_APPROVAL = "pending_approval"
 FROM_TERMS = "payment terms in Zoho Books"
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 ATTACHABLE = {"application/pdf", "image/jpeg", "image/png", "image/gif", "image/bmp"}
-NAME_TAKEN = 3062  # Zoho: a vendor with this name already exists
 NEEDS_NUMBER = (
     "Zoho Books needs a bill number: type the number printed on the receipt (for example a "
     "booking or trip number)"
@@ -56,8 +54,12 @@ def post_bill(
         raise PostingRefused(NEEDS_NUMBER)  # the review asks first; this is the safety net
     try:
         if "contact_id" not in progress:
-            found = _find_vendor(zoho, bill)
-            progress["contact_id"] = found or _create_vendor(zoho, bill)
+            found = find_vendor(
+                zoho, bill.supplier_name, bill.supplier_tax_number, bill.supplier_external_id
+            )
+            progress["contact_id"] = found or create_vendor(
+                zoho, bill.supplier_name, bill.supplier_tax_number
+            )
             progress["contact_created"] = found is None
             save("contact")
         if "checked" not in progress:
@@ -73,7 +75,7 @@ def post_bill(
             if found is None:
                 progress[CREATE_SENT] = True
                 save(CREATE_SENT)
-                body = _bill(bill, progress["contact_id"], _accounts(zoho), key)
+                body = _bill(bill, progress["contact_id"], account_ids(zoho), key)
                 found = str(zoho.post("bills", body)["bill"]["bill_id"])
             progress["bill_id"] = found
             save("bill")
@@ -106,49 +108,6 @@ def post_bill(
     )
 
 
-def _find_vendor(zoho: ZohoClient, bill: PostingBill) -> str | None:
-    """The vendor's contact ID: the matched one, else by TRN, else by exact name. The vendor
-    list carries no TRN, so a TRN match is confirmed on each candidate's own record."""
-    if bill.supplier_external_id:
-        return bill.supplier_external_id
-    trn = bill.supplier_tax_number
-    if trn and TRN.match(trn):
-        found = zoho.get("contacts", contact_type="vendor", search_text=trn).get("contacts", [])
-        for candidate in found[:5]:
-            contact = zoho.get(f"contacts/{candidate['contact_id']}").get("contact", {})
-            if contact.get("tax_reg_no") == trn:
-                return str(candidate["contact_id"])
-    return _by_name(zoho, bill.supplier_name)
-
-
-def _by_name(zoho: ZohoClient, name: str) -> str | None:
-    wanted = name.strip().casefold()
-    found = zoho.get("contacts", contact_type="vendor", contact_name=name.strip())
-    for contact in found.get("contacts", []):
-        if (contact.get("contact_name") or "").strip().casefold() == wanted:
-            return str(contact["contact_id"])
-    return None
-
-
-def _create_vendor(zoho: ZohoClient, bill: PostingBill) -> str:
-    trn = bill.supplier_tax_number if bill.supplier_tax_number else None
-    new: dict[str, Any] = {
-        "contact_name": bill.supplier_name.strip(),
-        "contact_type": "vendor",
-        "tax_treatment": "vat_registered" if trn and TRN.match(trn) else "vat_not_registered",
-    }
-    if trn and TRN.match(trn):
-        new["tax_reg_no"] = trn
-    try:
-        return str(zoho.post("contacts", new)["contact"]["contact_id"])
-    except ZohoApiError as exc:
-        # The name is taken by a vendor the search did not return (spelling, spaces): use it.
-        found = _by_name(zoho, bill.supplier_name) if exc.code == NAME_TAKEN else None
-        if found is None:
-            raise
-        return found
-
-
 def _ours(zoho: ZohoClient, key: str) -> str | None:
     """The bill this outbox row already created, found by its reference number."""
     found = zoho.get("bills", reference_number=key).get("bills", [])
@@ -166,7 +125,7 @@ def _refuse_if_already_in_zoho(zoho: ZohoClient, bill: PostingBill, vendor_id: s
         )
 
 
-def _accounts(zoho: ZohoClient) -> dict[str, str]:
+def account_ids(zoho: ZohoClient) -> dict[str, str]:
     """Account code or ID -> Zoho account ID: a line holds the code, or the ID when Zoho has
     no code for the account (master data, CODE_IS_REFERENCE)."""
     accounts: dict[str, str] = {}

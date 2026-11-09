@@ -130,10 +130,28 @@ class PostingBill:
 
 
 @dataclass(frozen=True, slots=True)
+class PostingExpense:
+    """An approved expense (paid when bought), sent as an expense paid through an account
+    (decision 89), checked against the client's master data. Final there once created."""
+
+    supplier_name: str | None  # None = no supplier on it (the system takes it without one)
+    supplier_tax_number: str | None
+    supplier_external_id: str | None
+    reference: str | None  # the number printed on it, if any
+    expense_date: date
+    amount_type: AmountType
+    lines: Sequence[PostingLine]
+    paid_through: str  # the code of the account it was paid from
+    vat: Decimal  # as printed: the system must work out exactly this, or it is not sent
+    note: str  # who created and approved it
+    attachment: Attachment | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Posted:
     external_id: str
     total: Decimal | None  # as the accounting system computed it
-    contact_external_id: str
+    contact_external_id: str | None  # None: sent without a supplier (an expense may be)
     contact_created: bool
     due_date_from: str = "document"  # or the payment terms it was set from (decision 40)
     attached: bool = False  # the original file is on the posted document (decision 41)
@@ -182,9 +200,21 @@ class PostingSystem(Protocol):
         save: Callable[[str], None],
     ) -> Posted: ...
 
-    def is_deleted(self, external_id: str) -> bool:
-        """The posted document is gone there: deleted or voided (decision 76). Raises
-        PostingUnavailable or PostingAccessDenied when the system cannot be asked now."""
+    def post_expense(
+        self,
+        expense: PostingExpense,
+        *,
+        key: str,
+        progress: MutableMapping[str, Any],
+        save: Callable[[str], None],
+    ) -> Posted:
+        """Decision 89: only for a system whose registry entry takes expenses."""
+        ...
+
+    def is_deleted(self, external_id: str, *, expense: bool = False) -> bool:
+        """The posted document is gone there: deleted or voided (decision 76). `expense`: it
+        was sent as an expense. Raises PostingUnavailable or PostingAccessDenied when the
+        system cannot be asked now."""
         ...
 
 

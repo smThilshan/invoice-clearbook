@@ -185,7 +185,8 @@ def send_next(
         )
         document.external_id = posted.external_id
         document.failure_reason = None
-        _remember_contact(session, document, claim, posted.contact_external_id)
+        if posted.contact_external_id is not None:  # an expense may go without a supplier
+            _remember_contact(session, document, claim, posted.contact_external_id)
         transition(session, document, DocumentStatus.POSTED, actor=ACTOR, details={
             "external_id": posted.external_id,
             "contact_created": posted.contact_created,

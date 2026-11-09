@@ -22,6 +22,8 @@ from app.adapters.accounting.base import (
     MasterData,
     Posted,
     PostingBill,
+    PostingExpense,
+    PostingRefused,
     TaxRateRecord,
 )
 from app.adapters.accounting.xero.bills import is_deleted, post_bill
@@ -74,7 +76,18 @@ class XeroAccountingSystem:
     ) -> Posted:
         return post_bill(self._xero, bill, key=key, progress=progress, save=save)
 
-    def is_deleted(self, external_id: str) -> bool:
+    def post_expense(
+        self,
+        expense: PostingExpense,
+        *,
+        key: str,
+        progress: MutableMapping[str, Any],
+        save: Callable[[str], None],
+    ) -> Posted:
+        """Not yet (decision 89): Xero's expenses go as bills, so this is never called."""
+        raise PostingRefused("Xero cannot take expenses yet: send it as a bill")
+
+    def is_deleted(self, external_id: str, *, expense: bool = False) -> bool:
         return is_deleted(self._xero, external_id)
 
     def _contacts(self) -> list[dict[str, Any]]:

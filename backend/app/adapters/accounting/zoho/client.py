@@ -68,10 +68,12 @@ class ZohoClient:
         headers = {"Content-Type": "application/json"} if body is not None else {}
         return self._send("POST", resource, params={}, content=content, headers=headers)
 
-    def post_file(self, resource: str, name: str, content: bytes, mime_type: str) -> dict[str, Any]:
-        """Upload one file as the form field `attachment`."""
+    def post_file(
+        self, resource: str, name: str, content: bytes, mime_type: str, field: str = "attachment"
+    ) -> dict[str, Any]:
+        """Upload one file as the form field `field` (an expense's receipt goes as "receipt")."""
         return self._send("POST", resource, params={},
-                          files={"attachment": (name, content, mime_type)})  # fmt: skip
+                          files={field: (name, content, mime_type)})  # fmt: skip
 
     def pages(self, resource: str, key: str, **params: Any) -> list[dict[str, Any]]:
         """Every row of a list, page by page."""
