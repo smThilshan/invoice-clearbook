@@ -170,7 +170,7 @@ export function RunPage() {
     <PageContainer className="space-y-6">
       <PageHeader
         title="Run"
-        description="Pick a company, choose the documents (a folder on SharePoint, or one on your computer), confirm the date, and start processing. Sub-folders are included."
+        description="Pick an organization or business, choose the documents (a folder on SharePoint, or one on your computer), confirm the date, and start processing. Sub-folders are included."
       />
 
       {returned.connected && (
@@ -202,7 +202,7 @@ export function RunPage() {
 
       <Card className="overflow-hidden shadow-sm">
         <CardHeader>
-          <CardTitle>1. Company</CardTitle>
+          <CardTitle>1. Organization or Business</CardTitle>
           <CardDescription>The business these documents belong to.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -231,7 +231,7 @@ export function RunPage() {
             {sharePointOn && <SourcePicker value={source} onPick={pickSource} />}
             {blocked ? (
               <p className="text-sm text-muted-foreground">
-                First get the company's accounting system ready (above): then choose the documents.
+                First get its accounting system ready (above): then choose the documents.
               </p>
             ) : source === 'computer' ? (
               <ComputerPicker choice={choice} onChoose={choose} />
@@ -348,13 +348,13 @@ function NewClient({ onCreated }: { onCreated: (client: Client) => void }) {
     return (
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Plus aria-hidden />
-        New company
+        New organization or business
       </Button>
     )
   }
   return (
-    <form onSubmit={submit} aria-label="New company" className="space-y-2">
-      <Label htmlFor="new-client-name">New company name</Label>
+    <form onSubmit={submit} aria-label="New organization or business" className="space-y-2">
+      <Label htmlFor="new-client-name">Name of the new organization or business</Label>
       <div className="flex flex-wrap gap-2">
         <Input
           id="new-client-name"
@@ -371,7 +371,7 @@ function NewClient({ onCreated }: { onCreated: (client: Client) => void }) {
           Cancel
         </Button>
       </div>
-      {create.isError && <ErrorAlert title="The company was not created" error={create.error} />}
+      {create.isError && <ErrorAlert title="It was not created" error={create.error} />}
     </form>
   )
 }
@@ -423,7 +423,7 @@ function RunSummary({
 }) {
   return (
     <dl aria-label="Run summary" className="grid gap-x-4 gap-y-1 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-[auto_1fr]">
-      <dt className="text-muted-foreground">Company</dt>
+      <dt className="text-muted-foreground">Organization or Business</dt>
       <dd className="font-medium">{client}</dd>
       <dt className="text-muted-foreground">Folder</dt>
       <dd className="truncate font-medium" title={folder}>{folder}</dd>

@@ -388,12 +388,12 @@ describe('companies: remove and restore (decision 91)', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Remove Cafe Al Noor?' })
     expect(dialog).toHaveTextContent('Nothing is deleted')
     expect(api.calls).not.toContain('POST /clients/cafe-al-noor/remove')
-    await user.click(within(dialog).getByRole('button', { name: 'Remove company' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    const companies = screen.getByRole('list', { name: 'Companies' })
+    const companies = screen.getByRole('list', { name: 'Organizations and businesses' })
     await waitFor(() => expect(within(companies).queryByRole('listitem', { name: 'Cafe Al Noor' })).not.toBeInTheDocument())
-    const hidden = await screen.findByRole('region', { name: 'Removed companies' })
+    const hidden = await screen.findByRole('region', { name: 'Removed organizations and businesses' })
     expect(within(hidden).getByRole('listitem', { name: 'Cafe Al Noor' })).toBeInTheDocument()
   })
 
@@ -423,7 +423,7 @@ describe('companies: remove and restore (decision 91)', () => {
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
     await user.click(within(row).getByRole('button', { name: 'Remove…' }))
     const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: 'Remove company' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
 
     expect(await within(dialog).findByText(/2 approved documents are still waiting to be sent/)).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
@@ -438,7 +438,7 @@ describe('companies: remove and restore (decision 91)', () => {
     const user = userEvent.setup()
     renderApp('/clients')
 
-    const hidden = await screen.findByRole('region', { name: 'Removed companies' })
+    const hidden = await screen.findByRole('region', { name: 'Removed organizations and businesses' })
     await user.click(within(hidden).getByRole('button', { name: 'Restore' }))
 
     await waitFor(() => expect(api.calls).toContain('POST /clients/cafe-al-noor/restore'))
@@ -455,7 +455,7 @@ describe('companies: remove and restore (decision 91)', () => {
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
     await within(row).findByText(/An admin connects/)
     expect(within(row).queryByRole('button', { name: 'Remove…' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Removed companies' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Removed organizations and businesses' })).not.toBeInTheDocument()
     expect(api.calls).not.toContain('GET /clients/removed')
   })
 })
@@ -480,7 +480,7 @@ describe('companies: delete permanently (decision 91)', () => {
   }
 
   async function openDialog(user: ReturnType<typeof userEvent.setup>) {
-    const hidden = await screen.findByRole('region', { name: 'Removed companies' })
+    const hidden = await screen.findByRole('region', { name: 'Removed organizations and businesses' })
     await user.click(within(hidden).getByRole('button', { name: 'Delete permanently…' }))
     return screen.findByRole('dialog', { name: 'Delete Cafe Al Noor permanently?' })
   }
@@ -493,7 +493,7 @@ describe('companies: delete permanently (decision 91)', () => {
     const dialog = await openDialog(user)
     expect(await within(dialog).findByText(/69 documents with their files/)).toBeInTheDocument()
     expect(dialog).toHaveTextContent('4 documents were posted to Zoho Books: they stay there.')
-    expect(dialog).toHaveTextContent('It is disconnected from Zoho Books first. Nothing in Zoho Books is changed.')
+    expect(dialog).toHaveTextContent('Its sign-in to Zoho Books is forgotten here. Nothing in Zoho Books is changed.')
     expect(dialog).toHaveTextContent('This cannot be undone.')
     const confirm = within(dialog).getByRole('button', { name: 'Delete permanently' })
     const name = within(dialog).getByLabelText('Type Cafe Al Noor to confirm')
@@ -524,7 +524,7 @@ describe('companies: delete permanently (decision 91)', () => {
 
   it('shows the reason when the server refuses, and deletes nothing', async () => {
     removedBackend({
-      'POST /clients/cafe-al-noor/delete': reply(409, { detail: "the name typed does not match the company's name" }),
+      'POST /clients/cafe-al-noor/delete': reply(409, { detail: "the name typed does not match its name" }),
     })
     const user = userEvent.setup()
     renderApp('/clients')

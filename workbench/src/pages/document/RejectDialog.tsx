@@ -22,7 +22,7 @@ import { Textarea } from '@/components/ui/textarea'
 const REASONS: { value: RejectReason; label: string }[] = [
   { value: 'DUPLICATE', label: 'Duplicate: already in, or already posted' },
   { value: 'ALREADY_RECORDED', label: 'Already entered in the accounting system by hand' },
-  { value: 'WRONG_RESTAURANT', label: 'Belongs to another company' },
+  { value: 'WRONG_RESTAURANT', label: 'Belongs to another organization or business' },
   { value: 'UNREADABLE', label: 'Unreadable or incomplete' },
   { value: 'OTHER', label: 'Other (needs a note)' },
 ]

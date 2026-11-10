@@ -50,7 +50,7 @@ import { RemoveCompanyDialog, RemovedCompanies } from '@/pages/clients/RemoveCom
  * name always comes from the API (decision 43): Xero today, others later. Its sign-in sends the
  * browser back here. Above them, Missan's SharePoint sign-in, used for every client (83). */
 export function ClientsPage() {
-  usePageTitle('Companies')
+  usePageTitle('Organization or Business')
   const clients = useClients()
   const admin = useMe().data?.role === 'ADMIN'
   const [params] = useSearchParams()
@@ -63,8 +63,8 @@ export function ClientsPage() {
   return (
     <PageContainer className="space-y-6">
       <PageHeader
-        title="Companies"
-        description="Each company's accounting system. Connect it to sync its accounts, VAT rates and suppliers, and to post approved bills."
+        title="Organization or Business"
+        description="Each organization or business and its accounting system. Connect it to sync its accounts, VAT rates and suppliers, and to post approved bills."
       />
       {connected && (
         <Alert>
@@ -102,11 +102,11 @@ export function ClientsPage() {
       {clients.isPending ? (
         <Skeleton className="h-32 w-full" />
       ) : clients.isError ? (
-        <ErrorAlert title="Companies could not be loaded" error={clients.error} />
+        <ErrorAlert title="Organizations and businesses could not be loaded" error={clients.error} />
       ) : clients.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No companies yet: add one on the Run screen.</p>
+        <p className="text-sm text-muted-foreground">No organizations or businesses yet: add one on the Run screen.</p>
       ) : (
-        <ul aria-label="Companies" className="space-y-3">
+        <ul aria-label="Organizations and businesses" className="space-y-3">
           {clients.data.map((client) => (
             <ClientRow key={client.client_id} client={client} />
           ))}
@@ -173,7 +173,7 @@ function ClientRow({ client }: { client: Client }) {
             {status.isPending
               ? 'Checking…'
               : status.isError
-                ? 'We could not confirm this company’s accounting connection.'
+                ? 'We could not confirm its accounting connection.'
                 : status.data?.connected
                   ? `${system}: ${status.data.organisation}${status.data.connected_at ? ` · since ${formatDateTime(status.data.connected_at)}` : ''}${synced ? ` · coding uses ${system} accounts` : ' · not synced yet'}`
                   : 'No accounting system connected (CSV master data, export file)'}

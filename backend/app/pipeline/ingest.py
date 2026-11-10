@@ -71,7 +71,7 @@ def scan_run(session: Session, run: Run, client_root: Path) -> list[str]:
     Returns paths relative to the client's folder."""
     folder = resolve_inside(client_root, run.folder)
     if not folder.is_dir():
-        raise InboxError(f"folder not found: {run.folder or '(company folder)'}")
+        raise InboxError(f"folder not found: {run.folder or '(its own folder)'}")
     paths = [relative_to_root(client_root, path) for path in list_files(folder)]
     run.files = paths  # what the accountants dropped; run progress is tracked per file
     run.files_found = len(paths)
@@ -93,7 +93,7 @@ def ingest_file(
     """`today`: the business day, for folder names without a year (default: from settings)."""
     path = resolve_inside(client_root, relative_path)
     if not path.is_file():
-        raise InboxError(f"not a file in the company folder: {relative_path!r}")
+        raise InboxError(f"not a file in its own folder: {relative_path!r}")
 
     before = path.stat()
     sleep(stable_seconds)

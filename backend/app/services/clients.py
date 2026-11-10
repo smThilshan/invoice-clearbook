@@ -36,7 +36,7 @@ def add_client(
     """Register a client. Its own folder is optional (decision 35); if given, it must exist
     and be readable now."""
     if not CLIENT_ID.fullmatch(client_id):
-        raise ClientError("company id: lowercase letters, digits and dashes, e.g. cafe-al-noor")
+        raise ClientError("id: lowercase letters, digits and dashes, e.g. cafe-al-noor")
     if not name.strip():
         raise ClientError("name is required")
     if inbox_path is not None:
@@ -49,7 +49,7 @@ def add_client(
         except InboxError as exc:
             raise ClientError(f"the inbox folder cannot be read: {exc}") from exc
     if session.scalars(select(Client).where(Client.client_id == client_id)).first():
-        raise ClientError(f"company {client_id!r} already exists")
+        raise ClientError(f"{client_id!r} already exists")
 
     client = Client(
         client_id=client_id,
@@ -84,13 +84,21 @@ def list_removed_clients(session: Session) -> list[Client]:
 def busy_with(session: Session, client_id: str) -> str | None:
     """Why the client cannot be removed now; None = it can. Work in flight would otherwise go on
     out of sight: a run reading files, or approved documents still to be sent."""
-    reading = session.scalar(
-        select(func.count())
-        .select_from(Run)
+    from app.services.runs import run_progress  # runs imports this module
+
+    # A finished run keeps RUNNING stored: whether it still reads is worked out from its files,
+    # as the Run screen does. A stuck one blocks too (it cannot be told from a slow one): Stop.
+    for run in session.scalars(
+        select(Run)
         .where(Run.client_id == client_id, Run.status == RunStatus.RUNNING)
-    )
-    if reading:
-        return "a run is still reading its documents: wait for it to finish, or stop it"
+        .order_by(Run.created_at)
+    ):
+        if run_progress(session, run).status is RunStatus.RUNNING:
+            folder = f" (folder {run.folder})" if run.folder else ""
+            return (
+                f"the run started {run.created_at:%d %b %Y}{folder} is still reading its "
+                "documents: open it on the Run screen and press Stop, or wait for it to finish"
+            )
     waiting = session.scalar(
         select(func.count())
         .select_from(Outbox)
@@ -170,7 +178,7 @@ def expenses_blocked(session: Session, registry: Registry, client_id: str) -> st
 
 def client_root(client: Client) -> Path:
     if not client.inbox_path:
-        raise InboxError(f"company {client.client_id!r} has no folder of its own: pick a place")
+        raise InboxError(f"{client.client_id!r} has no folder of its own: pick a place")
     return Path(client.inbox_path)
 
 
@@ -183,5 +191,5 @@ def browse(client: Client, relative: str = "") -> list[str]:
     """Folder names directly inside `relative` (for the Run screen's folder picker)."""
     folder = resolve_inside(client_root(client), relative)
     if not folder.is_dir():
-        raise InboxError(f"folder not found: {relative or '(company folder)'}")
+        raise InboxError(f"folder not found: {relative or '(its own folder)'}")
     return list_subfolders(folder)

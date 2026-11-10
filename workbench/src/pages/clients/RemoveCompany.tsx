@@ -65,7 +65,7 @@ export function RemoveCompanyDialog({ client }: { client: Client }) {
             disabled={remove.isPending}
             onClick={() => remove.mutate(client.client_id, { onSuccess: () => setOpen(false) })}
           >
-            {remove.isPending ? 'Removing…' : 'Remove company'}
+            {remove.isPending ? 'Removing…' : 'Remove'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -80,11 +80,11 @@ export function RemovedCompanies() {
   const restore = useRestoreClient()
   const [deleted, setDeleted] = useState<{ name: string; documents: number; filesRemoved: boolean } | null>(null)
 
-  if (removed.isError) return <ErrorAlert title="Removed companies could not be loaded" error={removed.error} />
+  if (removed.isError) return <ErrorAlert title="Removed organizations and businesses could not be loaded" error={removed.error} />
   if (!removed.data || (removed.data.length === 0 && !deleted)) return null
   return (
-    <section aria-label="Removed companies" className="space-y-2 rounded-lg border border-dashed p-4">
-      <h2 className="font-medium">Removed companies</h2>
+    <section aria-label="Removed organizations and businesses" className="space-y-2 rounded-lg border border-dashed p-4">
+      <h2 className="font-medium">Removed organizations and businesses</h2>
       <p className="text-sm text-muted-foreground">Hidden everywhere, nothing deleted. Restore brings one back as it was.</p>
       <ul className="divide-y">
         {removed.data.map((client) => (
@@ -176,7 +176,7 @@ function DeleteCompanyDialog({
           <div className="space-y-2 text-sm">
             <p>
               Deleted from Clearbook: {plural(preview.documents, 'document')} with their files, AI answers,
-              corrections and history, and the company&rsquo;s accounts, VAT rates, suppliers and settings.
+              corrections and history, and its accounts, VAT rates, suppliers and settings.
             </p>
             {preview.posted > 0 && (
               <p>
@@ -187,7 +187,7 @@ function DeleteCompanyDialog({
             )}
             {preview.connected_to && (
               <p>
-                It is disconnected from {preview.connected_to} first. Nothing in {preview.connected_to} is changed.
+                Its sign-in to {preview.connected_to} is forgotten here. Nothing in {preview.connected_to} is changed.
               </p>
             )}
             <p className="text-muted-foreground">

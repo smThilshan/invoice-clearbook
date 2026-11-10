@@ -22,11 +22,11 @@ def resolve_inside(root: Path, relative: str) -> Path:
     """`relative` (from a request or a job) inside `root`, as a real path."""
     parts = PurePosixPath(relative.strip().replace("\\", "/")).parts
     if relative.strip().startswith(("/", "\\")) or ".." in parts:
-        raise InboxError(f"not a path inside the company folder: {relative!r}")
+        raise InboxError(f"not a path inside the chosen folder: {relative!r}")
     real_root = root.resolve()
     path = real_root.joinpath(*parts).resolve()  # resolve() follows symlinks...
     if not path.is_relative_to(real_root):  # ...so a link pointing out is caught here
-        raise InboxError(f"not a path inside the company folder: {relative!r}")
+        raise InboxError(f"not a path inside the chosen folder: {relative!r}")
     return path
 
 

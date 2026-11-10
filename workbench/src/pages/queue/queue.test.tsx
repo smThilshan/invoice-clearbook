@@ -88,7 +88,7 @@ describe('review queue', () => {
     const api = backend()
     renderApp('/queue')
 
-    expect(await screen.findByText('Choose a company to see its documents.')).toBeInTheDocument()
+    expect(await screen.findByText('Choose an organization or business to see its documents.')).toBeInTheDocument()
     expect(queueCalls(api)).toEqual([])
   })
 
@@ -198,7 +198,7 @@ describe('review queue', () => {
     const user = userEvent.setup()
     renderApp('/queue')
 
-    await user.click(await screen.findByRole('combobox', { name: 'Company' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Organization or Business' }))
     await user.click(await screen.findByRole('option', { name: 'Spice Route' }))
     await screen.findByRole('table', { name: 'Documents' })
 
@@ -284,11 +284,11 @@ describe('review queue', () => {
   })
 
   it('says why the queue could not be loaded', async () => {
-    backend(reply(404, { detail: 'company not found' }))
+    backend(reply(404, { detail: 'organization or business not found' }))
     renderApp('/queue?client=gone')
 
     expect(await screen.findByText('The queue could not be loaded')).toBeInTheDocument()
-    expect(screen.getByText('company not found')).toBeInTheDocument()
+    expect(screen.getByText('organization or business not found')).toBeInTheDocument()
   })
 })
 

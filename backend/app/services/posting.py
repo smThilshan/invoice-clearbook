@@ -323,7 +323,10 @@ def reopen_deleted(
         select(AccountingConnection).where(AccountingConnection.client_id == document.client_id)
     ).first()
     if connection is None:
-        raise SendError("this company is not connected to an accounting system: connect it first")
+        raise SendError(
+            "this organization or business is not connected to an accounting system: connect "
+            "it first"
+        )
     entry = registry[connection.provider]
     row = _latest_row(session, document.id)
     as_expense = row is not None and row.sent_as is ExpensesSentAs.EXPENSE

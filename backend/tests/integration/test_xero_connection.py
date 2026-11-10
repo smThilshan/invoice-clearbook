@@ -157,6 +157,27 @@ def test_disconnecting_removes_it_here_and_in_xero(session: Session, xero: FakeX
     assert xero.disconnected == ["c2"]
 
 
+def test_a_sign_in_shared_with_another_client_is_not_cancelled_in_xero(
+    session: Session, xero: FakeXero, tmp_path: Path
+) -> None:
+    """One Xero sign-in may serve several clients of the same organisation: cancelling it there
+    would cut the others off too."""
+    connect(session, xero)
+    other = make_client(session, tmp_path / "Other", client_id="other-client")
+    url = connections.start(SETTINGS, registry(xero)[AccountingProvider.XERO], other)
+    connections.finish(session, SETTINGS, registry(xero), url.split("state=")[1], "code-1")
+
+    connections.disconnect(session, SETTINGS, registry(xero), CLIENT)
+
+    assert connections.connection_of(session, CLIENT) is None
+    assert xero.disconnected == []
+    assert connections.connection_of(session, "other-client") is not None
+
+    connections.disconnect(session, SETTINGS, registry(xero), "other-client")  # the last one
+
+    assert xero.disconnected == ["c2"]
+
+
 def test_without_a_token_key_connecting_says_how_to_fix_it(
     session: Session, xero: FakeXero
 ) -> None:

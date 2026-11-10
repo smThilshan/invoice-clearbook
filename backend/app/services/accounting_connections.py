@@ -80,7 +80,7 @@ def finish(
         raise AccountingConnectionError("this sign-in names an accounting system we do not know")
     client = session.scalars(select(Client).where(Client.client_id == client_id)).first()
     if client is None:
-        raise AccountingConnectionError("this company no longer exists")
+        raise AccountingConnectionError("this organization or business no longer exists")
     connector = entry.connector(settings)
     try:
         tokens = connector.exchange(code, returned)
@@ -97,7 +97,8 @@ def finish(
     if not approved and len(organisations) > 1:  # never guess which company this client is
         raise AccountingConnectionError(
             f"this {entry.name} login opens {len(organisations)} organisations; choosing one "
-            "is not available yet: sign in with a login that opens only this company's"
+            "is not available yet: sign in with a login that opens only this organization or "
+            "business's"
         )
     organisation = (approved or organisations)[0]
 
@@ -136,7 +137,9 @@ def access_token(session: Session, settings: Settings, registry: Registry, clien
     AccountingConnectionError may pass by itself."""
     connection = _connection(session, client_id, for_update=True)
     if connection is None:
-        raise AccountingConnectionError("this company is not connected to an accounting system")
+        raise AccountingConnectionError(
+            "this organization or business is not connected to an accounting system"
+        )
     entry = registry[connection.provider]
     if connection.needs_reconnect:
         raise ReconnectNeeded(connection.reconnect_reason or f"connect {entry.name} again")
@@ -181,22 +184,36 @@ def _mark(connection: AccountingConnection, reason: str) -> ReconnectNeeded:
 
 
 def disconnect(session: Session, settings: Settings, registry: Registry, client_id: str) -> None:
-    """Remove the connection here, and in the provider when it can still be reached. The caller
+    """Remove the connection here, and in the provider when it can still be reached, unless
+    another client here uses the same connection there (one Xero sign-in may serve several
+    clients of the same organisation): cancelling it would cut them off too. The caller
     commits."""
     connection = _connection(session, client_id, for_update=True)
     if connection is None:
         return
-    # Already revoked or expired there: removing it here is what matters.
-    with suppress(AccountingConnectionError, ConnectorError):
-        token = access_token(session, settings, registry, client_id)
-        registry[connection.provider].connector(settings).disconnect(
-            token,
-            connection.connection_id,
-            refresh_token=_decrypt(_cipher(settings), connection.refresh_token),
-            region=connection.region,
-        )
+    if not _shared(session, connection):
+        # Already revoked or expired there: removing it here is what matters.
+        with suppress(AccountingConnectionError, ConnectorError):
+            token = access_token(session, settings, registry, client_id)
+            registry[connection.provider].connector(settings).disconnect(
+                token,
+                connection.connection_id,
+                refresh_token=_decrypt(_cipher(settings), connection.refresh_token),
+                region=connection.region,
+            )
     session.delete(connection)
     session.flush()
+
+
+def _shared(session: Session, connection: AccountingConnection) -> bool:
+    if connection.connection_id is None:  # Zoho: every sign-in has its own token
+        return False
+    others = select(AccountingConnection.id).where(
+        AccountingConnection.provider == connection.provider,
+        AccountingConnection.connection_id == connection.connection_id,
+        AccountingConnection.id != connection.id,
+    )
+    return session.scalars(others.limit(1)).first() is not None
 
 
 def _connections(session: Session, client_id: str) -> list[AccountingConnection]:

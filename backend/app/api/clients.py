@@ -64,7 +64,7 @@ class DeletionPreviewOut(BaseModel):
 
     documents: int
     posted: int  # in the accounting system: they stay there
-    connected_to: str | None  # disconnected first
+    connected_to: str | None  # its sign-in is forgotten here; nothing changes there
     blocked: str | None  # why it cannot be deleted now; None = it can
 
 
@@ -186,7 +186,9 @@ def restore(
 ) -> ClientOut:
     client = restore_client(session, client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no removed company with that id")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "no removed organization or business with that id"
+        )
     session.commit()
     logger.info("client %s restored by user %s", client.client_id, admin.id)
     return _out(client)
@@ -206,8 +208,6 @@ def delete(
     client_id: str,
     body: DeleteCompany,
     session: Annotated[Session, Depends(get_session)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    registry: RegistryDep,
     storage: Annotated[Storage, Depends(get_company_storage)],
     admin: AdminDep,
 ) -> CompanyDeleted:
@@ -215,9 +215,7 @@ def delete(
     reason when it cannot be deleted now or the name typed does not match."""
     client = _removed(session, client_id, for_update=True)
     try:
-        documents = delete_company(
-            session, settings, registry, client, typed_name=body.name, actor=admin.email
-        )
+        documents = delete_company(session, client, typed_name=body.name, actor=admin.email)
     except ClientError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     session.commit()
@@ -328,7 +326,8 @@ def upload_master_data(
     if client.accounting_provider is not AccountingProvider.MANUAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"master data for this company comes from {client.accounting_provider.value}",
+            "master data for this organization or business comes from "
+            f"{client.accounting_provider.value}",
         )
     if ledger_accounts is None and tax_rates is None and contacts is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "no file uploaded")
@@ -387,14 +386,16 @@ def _out(client: Client) -> ClientOut:
 def _found(session: Session, client_id: str) -> Client:
     client = get_client(session, client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "organization or business not found")
     return client
 
 
 def _removed(session: Session, client_id: str, *, for_update: bool = False) -> Client:
     client = removed_client(session, client_id, for_update=for_update)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no removed company with that id")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "no removed organization or business with that id"
+        )
     return client
 
 

@@ -162,7 +162,7 @@ def test_deleting_removes_every_row_and_file_of_that_company_only(
     assert response.json() == {"documents": 2, "files_removed": True}
     assert rows(session, CLIENT) == dict.fromkeys(CLIENT_TABLES, 0)
     assert rows(session, OTHER) == other_before
-    assert xero.disconnected == ["c2"]  # our access withdrawn; nothing else changed there
+    assert xero.disconnected == []  # forgotten here only: a Xero sign-in may serve others
     assert not (tmp_path / "store" / CLIENT).exists()
     assert store.exists(f"{OTHER}/originals/{'a' * 64}.pdf")
     assert (tmp_path / "Cafe Al Noor").is_dir()  # its own source folder is never touched

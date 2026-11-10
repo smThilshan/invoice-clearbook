@@ -81,20 +81,20 @@ export function AccountingReadiness({ clientId, autoSync }: { clientId: string; 
               </a>
             </Button>
           ) : (
-            <p className="text-muted-foreground">Ask an admin to connect this company again.</p>
+            <p className="text-muted-foreground">Ask an admin to connect it again.</p>
           )}
         </>
       )}
 
       {readiness === 'not-connected' && (
         <>
-          <p>No accounting system is connected, and no accounts are imported for this company.</p>
+          <p>No accounting system is connected, and no accounts are imported for it.</p>
           {!admin ? (
-            <p className="text-muted-foreground">Ask an admin to connect this company to its accounting system.</p>
+            <p className="text-muted-foreground">Ask an admin to connect it to its accounting system.</p>
           ) : available.length === 0 ? (
             <p className="text-muted-foreground">
               No accounting system is set up here (its app keys go in .env). Accounts can be imported on the
-              Companies page.
+              Organization or Business page.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">

@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.db import get_session
-from app.domain.enums import Role
+from app.domain.enums import DocumentStatus, Role
 from app.main import create_app
-from app.models import Client, Document, Outbox, OutboxStatus, RunStatus
+from app.models import Client, Document, Outbox, OutboxStatus, Run, RunStatus
 from tests.integration.factories import CLIENT, make_client, make_document, make_run
 from tests.login import log_in
 
@@ -79,7 +79,38 @@ def test_a_company_reading_files_is_not_removed(api: TestClient, session: Sessio
 
     assert response.status_code == 409
     assert "still reading" in response.json()["detail"]
+    assert "press Stop" in response.json()["detail"]
     assert CLIENT in listed(api)
+
+
+def finished_run_with(session: Session, *statuses: DocumentStatus) -> Run:
+    """A run still stored RUNNING, as every finished run is: its files say whether it reads."""
+    run = make_run(session)
+    run.files = [f"inv-{n}.pdf" for n in range(len(statuses))]
+    for n, status in enumerate(statuses):
+        make_document(session, run_id=run.id, source_path=f"inv-{n}.pdf", status=status)
+    session.flush()
+    return run
+
+
+def test_a_finished_run_does_not_block_even_with_failed_files(
+    api: TestClient, session: Session
+) -> None:
+    finished_run_with(session, DocumentStatus.IN_REVIEW, DocumentStatus.FAILED,
+                      DocumentStatus.DUPLICATE, DocumentStatus.REJECTED)  # fmt: skip
+
+    assert api.post(f"/clients/{CLIENT}/remove").status_code == 200
+
+
+def test_a_run_with_a_file_still_waiting_blocks_until_stopped(
+    api: TestClient, session: Session
+) -> None:
+    run = finished_run_with(session, DocumentStatus.IN_REVIEW, DocumentStatus.CAPTURED)
+
+    assert api.post(f"/clients/{CLIENT}/remove").status_code == 409
+
+    run.status = RunStatus.STOPPED  # what Stop on the Run screen does
+    assert api.post(f"/clients/{CLIENT}/remove").status_code == 200
 
 
 def test_a_stopped_or_finished_run_does_not_block(api: TestClient, session: Session) -> None:
