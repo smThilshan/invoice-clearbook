@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AccountingStatus, PostingSummary, Readiness, SyncResult } from '@/api/client'
-import { mockApi, renderApp } from '@/test/render'
+import { mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
 const CLIENTS = [
@@ -363,6 +363,100 @@ describe('clients', () => {
 
     expect(await screen.findByText('Not connected')).toBeInTheDocument()
     expect(screen.getByText('Xero sign-in was not completed (access_denied)')).toBeInTheDocument()
+  })
+})
+
+describe('companies: remove and restore (decision 91)', () => {
+  it('removes a company after asking, saying nothing is deleted', async () => {
+    let removed = false
+    const api = mockApi({
+      '/health/ready': READY,
+      '/clients': () => (removed ? CLIENTS.slice(1) : CLIENTS),
+      '/clients/removed': () => (removed ? CLIENTS.slice(0, 1) : []),
+      '/clients/cafe-al-noor/accounting': CONNECTED,
+      '/clients/spice-route/accounting': NOT_CONNECTED,
+      'POST /clients/cafe-al-noor/remove': () => {
+        removed = true
+        return CLIENTS[0]
+      },
+    })
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    await user.click(within(row).getByRole('button', { name: 'Remove…' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Cafe Al Noor?' })
+    expect(dialog).toHaveTextContent('Nothing is deleted')
+    expect(api.calls).not.toContain('POST /clients/cafe-al-noor/remove')
+    await user.click(within(dialog).getByRole('button', { name: 'Remove company' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    const companies = screen.getByRole('list', { name: 'Companies' })
+    await waitFor(() => expect(within(companies).queryByRole('listitem', { name: 'Cafe Al Noor' })).not.toBeInTheDocument())
+    const hidden = await screen.findByRole('region', { name: 'Removed companies' })
+    expect(within(hidden).getByRole('listitem', { name: 'Cafe Al Noor' })).toBeInTheDocument()
+  })
+
+  it('cancelling removes nothing', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    await user.click(within(row).getByRole('button', { name: 'Remove…' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.calls.filter((c) => c.endsWith('/remove'))).toEqual([])
+  })
+
+  it('says why a busy company cannot be removed, and keeps it', async () => {
+    mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      'POST /clients/cafe-al-noor/remove': reply(409, {
+        detail: 'Cafe Al Noor cannot be removed now: 2 approved documents are still waiting to be sent',
+      }),
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    await user.click(within(row).getByRole('button', { name: 'Remove…' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Remove company' }))
+
+    expect(await within(dialog).findByText(/2 approved documents are still waiting to be sent/)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(await screen.findByRole('listitem', { name: 'Cafe Al Noor' })).toBeInTheDocument()
+  })
+
+  it('restores a removed company', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(1), '/clients/removed': CLIENTS.slice(0, 1),
+      '/clients/spice-route/accounting': NOT_CONNECTED, 'POST /clients/cafe-al-noor/restore': CLIENTS[0],
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const hidden = await screen.findByRole('region', { name: 'Removed companies' })
+    await user.click(within(hidden).getByRole('button', { name: 'Restore' }))
+
+    await waitFor(() => expect(api.calls).toContain('POST /clients/cafe-al-noor/restore'))
+  })
+
+  it('offers an accountant neither Remove nor the removed list', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      '/clients/removed': CLIENTS.slice(1),
+      '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT' },
+    })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    await within(row).findByText(/An admin connects/)
+    expect(within(row).queryByRole('button', { name: 'Remove…' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Removed companies' })).not.toBeInTheDocument()
+    expect(api.calls).not.toContain('GET /clients/removed')
   })
 })
 

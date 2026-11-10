@@ -3,9 +3,11 @@ master data (CSV import, task 4.2) and the code options for the review form.
 
 Clients are added on the Run screen (decision 35) or with `make add-client`. Every route needs
 a login (decision 71); importing master data and changing how a client's lines and expenses
-are sent (decisions 73, 89) need an admin.
+are sent (decisions 73, 89) need an admin, and so do removing and restoring a client
+(decision 91).
 """
 
+import logging
 import uuid
 from datetime import date, datetime
 from typing import Annotated
@@ -17,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.manual import ManualAccountingSystem
 from app.api.accounting import RegistryDep
-from app.api.auth import require_admin
+from app.api.auth import AdminDep, require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountClass, AccountingProvider, ExpensesSentAs, LineGrouping, TaxType
@@ -30,13 +32,18 @@ from app.services.clients import (
     browse,
     get_client,
     list_clients,
+    list_removed_clients,
     new_client_id,
+    remove_client,
+    restore_client,
     set_expense_sending,
 )
 from app.services.master_data import Counts, import_master_data
 from app.services.runs import recent_runs
 
 MAX_CSV_BYTES = 5 * 1024 * 1024  # per file; a chart of accounts or supplier list is far smaller
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -125,6 +132,39 @@ class CodingOptions(BaseModel):
 @router.get("")
 def get_clients(session: Annotated[Session, Depends(get_session)]) -> list[ClientOut]:
     return [_out(c) for c in list_clients(session)]
+
+
+@router.get("/removed", dependencies=[Depends(require_admin)])
+def get_removed_clients(session: Annotated[Session, Depends(get_session)]) -> list[ClientOut]:
+    """Removed clients, to restore (decision 91)."""
+    return [_out(c) for c in list_removed_clients(session)]
+
+
+@router.post("/{client_id}/remove")
+def remove(
+    client_id: str, session: Annotated[Session, Depends(get_session)], admin: AdminDep
+) -> ClientOut:
+    """Hide the client everywhere; nothing is deleted. 409 while it still has work in flight."""
+    client = _found(session, client_id)
+    try:
+        remove_client(session, client)
+    except ClientError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    logger.info("client %s removed by user %s", client.client_id, admin.id)
+    return _out(client)
+
+
+@router.post("/{client_id}/restore")
+def restore(
+    client_id: str, session: Annotated[Session, Depends(get_session)], admin: AdminDep
+) -> ClientOut:
+    client = restore_client(session, client_id)
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no removed company with that id")
+    session.commit()
+    logger.info("client %s restored by user %s", client.client_id, admin.id)
+    return _out(client)
 
 
 @router.patch("/{client_id}", dependencies=[Depends(require_admin)])

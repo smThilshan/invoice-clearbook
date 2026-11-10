@@ -24,6 +24,7 @@ export const queryKeys = {
   me: ['me'] as const,
   readiness: ['readiness'] as const,
   clients: ['clients'] as const,
+  removedClients: ['clients', 'removed'] as const,
   sharePoint: ['sharepoint'] as const,
   run: (runId: string) => ['run', runId] as const,
   runs: (clientId: string) => ['runs', clientId] as const,
@@ -96,6 +97,28 @@ export function useCreateClient() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (body: ClientCreate) => api.createClient(body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
+/** Decision 91: only an admin may ask, so the page asks only for one. */
+export function useRemovedClients(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.removedClients, queryFn: api.removedClients, enabled })
+}
+
+/** Removing or restoring changes both lists; `clients` is a prefix of `removedClients`. */
+export function useRemoveClient() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.removeClient(clientId),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
+export function useRestoreClient() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.restoreClient(clientId),
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
   })
 }

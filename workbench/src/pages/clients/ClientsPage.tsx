@@ -43,6 +43,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EXPENSES_SENT_AS_LABELS, formatDateTime, LINE_GROUPING_LABELS } from '@/lib/labels'
 import { TAX_TYPE_LABELS } from '@/pages/document/formModel'
 import { usePageTitle } from '@/lib/usePageTitle'
+import { RemoveCompanyDialog, RemovedCompanies } from '@/pages/clients/RemoveCompany'
 
 /** Clients and their accounting system (tasks 5.3, 5.4, 5.1): connect a client, sync its
  * master data, send approved bills waiting to be posted, disconnect. The accounting system's
@@ -51,6 +52,7 @@ import { usePageTitle } from '@/lib/usePageTitle'
 export function ClientsPage() {
   usePageTitle('Companies')
   const clients = useClients()
+  const admin = useMe().data?.role === 'ADMIN'
   const [params] = useSearchParams()
   const connected = params.get('connected')
   const system = params.get('system') ?? 'the accounting system'
@@ -110,6 +112,7 @@ export function ClientsPage() {
           ))}
         </ul>
       )}
+      {admin && <RemovedCompanies />}
     </PageContainer>
   )
 }
@@ -287,6 +290,7 @@ function ClientRow({ client }: { client: Client }) {
             </Button>
           ))
         )}
+        {admin && <RemoveCompanyDialog client={client} />}
       </div>
       {status.isError && <ErrorAlert title="Connection status could not be loaded" error={status.error} />}
       {disconnect.isError && <ErrorAlert title="Not disconnected" error={disconnect.error} />}

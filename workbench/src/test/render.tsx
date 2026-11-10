@@ -35,7 +35,7 @@ export interface FakeApi {
 
 /** Tests act as this logged-in admin unless they answer /auth/me themselves (decision 71). */
 export const TEST_USER = { email: 'tester@missan.test', name: 'Made-up Tester', role: 'ADMIN' }
-const DEFAULTS: Record<string, Answer> = { '/auth/me': TEST_USER }
+const DEFAULTS: Record<string, Answer> = { '/auth/me': TEST_USER, '/clients/removed': [] }
 
 /**
  * Replace fetch with a fake backend. Keys are "/path" (any method) or "METHOD /path"; the

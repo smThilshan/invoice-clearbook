@@ -3648,6 +3648,32 @@
         ]
       }
     },
+    "/clients/removed": {
+      "get": {
+        "description": "Removed clients, to restore (decision 91).",
+        "operationId": "get_removed_clients_clients_removed_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClientOut"
+                  },
+                  "title": "Response Get Removed Clients Clients Removed Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Removed Clients",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
     "/clients/{client_id}": {
       "patch": {
         "description": "Documents approved from now on are sent this way; ones already approved keep theirs.",
@@ -4014,6 +4040,91 @@
           }
         },
         "summary": "Upload Master Data",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/remove": {
+      "post": {
+        "description": "Hide the client everywhere; nothing is deleted. 409 while it still has work in flight.",
+        "operationId": "remove_clients__client_id__remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/restore": {
+      "post": {
+        "operationId": "restore_clients__client_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore",
         "tags": [
           "clients"
         ]

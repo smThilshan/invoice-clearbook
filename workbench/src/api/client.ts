@@ -153,6 +153,12 @@ export const api = {
     sendJson<AccountingStatus>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, {}),
   /** A new client from just a name; its id is made from the name (decision 35). */
   createClient: (body: ClientCreate) => sendJson<Client>('POST', '/clients', body),
+  /** Decision 91: removed companies (admin only), hidden but kept, to restore. */
+  removedClients: () => request<Client[]>('/clients/removed'),
+  removeClient: (clientId: string) =>
+    sendJson<Client>('POST', `/clients/${encodeURIComponent(clientId)}/remove`, {}),
+  restoreClient: (clientId: string) =>
+    sendJson<Client>('POST', `/clients/${encodeURIComponent(clientId)}/restore`, {}),
   /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
   setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),

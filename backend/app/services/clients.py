@@ -1,14 +1,19 @@
-"""Clients (decisions 25, 35): any business whose books are kept, optionally with its own folder."""
+"""Clients (decisions 25, 35): any business whose books are kept, optionally with its own folder.
+
+An admin may remove a client (decision 91): it is hidden everywhere, nothing is deleted, and it
+can be restored.
+"""
 
 import re
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.registry import Registry, expenses_blocked_by
 from app.domain.enums import AccountingProvider, ExpensesSentAs
-from app.models import Client, Run
+from app.models import Client, Outbox, Run, RunStatus
+from app.models.outbox import ACTIVE_OUTBOX
 from app.pipeline import coding
 from app.pipeline.folders import InboxError, list_subfolders, resolve_inside
 from app.services.accounting_connections import connection_of
@@ -68,6 +73,53 @@ def list_clients(session: Session) -> list[Client]:
     return list(
         session.scalars(select(Client).where(Client.is_active.is_(True)).order_by(Client.name))
     )
+
+
+def list_removed_clients(session: Session) -> list[Client]:
+    return list(
+        session.scalars(select(Client).where(Client.is_active.is_(False)).order_by(Client.name))
+    )
+
+
+def busy_with(session: Session, client_id: str) -> str | None:
+    """Why the client cannot be removed now; None = it can. Work in flight would otherwise go on
+    out of sight: a run reading files, or approved documents still to be sent."""
+    reading = session.scalar(
+        select(func.count())
+        .select_from(Run)
+        .where(Run.client_id == client_id, Run.status == RunStatus.RUNNING)
+    )
+    if reading:
+        return "a run is still reading its documents: wait for it to finish, or stop it"
+    waiting = session.scalar(
+        select(func.count())
+        .select_from(Outbox)
+        .where(Outbox.client_id == client_id, Outbox.status.in_(ACTIVE_OUTBOX))
+    )
+    if waiting:
+        return (
+            f"{waiting} approved document{'s are' if waiting > 1 else ' is'} still waiting to be "
+            "sent: send them first (connect again if sending is paused)"
+        )
+    return None
+
+
+def remove_client(session: Session, client: Client) -> None:
+    """Hide the client everywhere (decision 91). Nothing is deleted; `restore_client` undoes it."""
+    reason = busy_with(session, client.client_id)
+    if reason:
+        raise ClientError(f"{client.name} cannot be removed now: {reason}")
+    client.is_active = False
+
+
+def restore_client(session: Session, client_id: str) -> Client | None:
+    """A removed client back as it was; None if there is no removed client with that id."""
+    client = session.scalars(
+        select(Client).where(Client.client_id == client_id, Client.is_active.is_(False))
+    ).first()
+    if client is not None:
+        client.is_active = True
+    return client
 
 
 def new_client_id(session: Session, name: str) -> str:
