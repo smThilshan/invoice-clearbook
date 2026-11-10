@@ -5,6 +5,9 @@
 <client>/ocr/<document_id>/page-001.json      text + word boxes per page
 <client>/answer-key/<document_id>.json        the accountant's correct answer (decision 63)
 <client>/answer-key-runs/last.json            the answer key's last measurement
+
+Everything a client has is under `<client>/` (`client_folder`), so deleting a client permanently
+removes one folder (decision 91).
 """
 
 import re
@@ -14,6 +17,10 @@ from app.adapters.storage.base import validate_key
 
 _EXTENSION = re.compile(r"\.[a-z0-9]{1,10}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def client_folder(client_id: str) -> str:
+    return validate_key(client_id)
 
 
 def original_key(client_id: str, sha256: str, extension: str) -> str:

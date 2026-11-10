@@ -3,7 +3,7 @@ master data (CSV import, task 4.2) and the code options for the review form.
 
 Clients are added on the Run screen (decision 35) or with `make add-client`. Every route needs
 a login (decision 71); importing master data and changing how a client's lines and expenses
-are sent (decisions 73, 89) need an admin, and so do removing and restoring a client
+are sent (decisions 73, 89) need an admin, and so do removing, restoring and deleting a client
 (decision 91).
 """
 
@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.manual import ManualAccountingSystem
+from app.adapters.storage import Storage, get_storage
+from app.adapters.storage.keys import client_folder
 from app.api.accounting import RegistryDep
 from app.api.auth import AdminDep, require_admin
 from app.core.config import Settings, get_settings
@@ -38,6 +40,7 @@ from app.services.clients import (
     restore_client,
     set_expense_sending,
 )
+from app.services.company_deletion import delete_company, preview, removed_client
 from app.services.master_data import Counts, import_master_data
 from app.services.runs import recent_runs
 
@@ -54,6 +57,28 @@ class ClientOut(BaseModel):
     line_grouping: LineGrouping  # how approved lines are sent (decision 73)
     expenses_sent_as: ExpensesSentAs  # decision 89
     paid_through: str | None  # the account expenses are usually paid through; None = each time
+
+
+class DeletionPreviewOut(BaseModel):
+    """What deleting a removed company would remove (decision 91)."""
+
+    documents: int
+    posted: int  # in the accounting system: they stay there
+    connected_to: str | None  # disconnected first
+    blocked: str | None  # why it cannot be deleted now; None = it can
+
+
+class DeleteCompany(BaseModel):
+    name: str  # the company's name, typed by the admin to confirm
+
+
+class CompanyDeleted(BaseModel):
+    documents: int
+    files_removed: bool  # False: a stray folder is left in storage (logged), nothing else
+
+
+def get_company_storage(settings: Annotated[Settings, Depends(get_settings)]) -> Storage:
+    return get_storage(settings)
 
 
 class ClientSettings(BaseModel):
@@ -165,6 +190,44 @@ def restore(
     session.commit()
     logger.info("client %s restored by user %s", client.client_id, admin.id)
     return _out(client)
+
+
+@router.get("/{client_id}/deletion", dependencies=[Depends(require_admin)])
+def get_deletion_preview(
+    client_id: str, session: Annotated[Session, Depends(get_session)], registry: RegistryDep
+) -> DeletionPreviewOut:
+    """Only a removed company can be deleted: 404 for any other."""
+    client = _removed(session, client_id)
+    return DeletionPreviewOut(**vars(preview(session, registry, client)))
+
+
+@router.post("/{client_id}/delete")
+def delete(
+    client_id: str,
+    body: DeleteCompany,
+    session: Annotated[Session, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    registry: RegistryDep,
+    storage: Annotated[Storage, Depends(get_company_storage)],
+    admin: AdminDep,
+) -> CompanyDeleted:
+    """Delete a removed company permanently, files included. Cannot be undone. 409 with the
+    reason when it cannot be deleted now or the name typed does not match."""
+    client = _removed(session, client_id, for_update=True)
+    try:
+        documents = delete_company(
+            session, settings, registry, client, typed_name=body.name, actor=admin.email
+        )
+    except ClientError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    logger.info("client %s deleted by user %s: %d documents", client_id, admin.id, documents)
+    try:  # after the commit: at worst a stray folder, never a record pointing to a lost file
+        storage.delete_folder(client_folder(client_id))
+    except OSError:
+        logger.warning("client %s: its stored files could not all be removed", client_id)
+        return CompanyDeleted(documents=documents, files_removed=False)
+    return CompanyDeleted(documents=documents, files_removed=True)
 
 
 @router.patch("/{client_id}", dependencies=[Depends(require_admin)])
@@ -325,6 +388,13 @@ def _found(session: Session, client_id: str) -> Client:
     client = get_client(session, client_id)
     if client is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
+    return client
+
+
+def _removed(session: Session, client_id: str, *, for_update: bool = False) -> Client:
+    client = removed_client(session, client_id, for_update=for_update)
+    if client is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no removed company with that id")
     return client
 
 

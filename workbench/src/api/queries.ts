@@ -123,6 +123,24 @@ export function useRestoreClient() {
   })
 }
 
+/** Asked when the delete dialog opens, so the counts are current. */
+export function useDeletionPreview(clientId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['deletion-preview', clientId],
+    queryFn: () => api.deletionPreview(clientId),
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useDeleteClient() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ clientId, name }: { clientId: string; name: string }) => api.deleteClient(clientId, name),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
 export function useSetLineGrouping() {
   const client = useQueryClient()
   return useMutation({

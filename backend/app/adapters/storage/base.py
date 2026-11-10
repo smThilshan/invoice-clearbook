@@ -50,3 +50,7 @@ class Storage(Protocol):
     def delete(self, key: str) -> None:
         """Remove what is stored under `key`; nothing stored there is not an error."""
         ...
+
+    def delete_folder(self, prefix: str) -> None:
+        """Remove everything stored under `prefix/`; nothing stored there is not an error."""
+        ...

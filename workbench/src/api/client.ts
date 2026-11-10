@@ -17,6 +17,8 @@ export type ClientCreate = Schemas['ClientCreate']
 export type LineGrouping = Schemas['LineGrouping']
 export type ExpensesSentAs = Schemas['ExpensesSentAs']
 export type ClientSettings = Schemas['ClientSettings']
+export type DeletionPreview = Schemas['DeletionPreviewOut']
+export type CompanyDeleted = Schemas['CompanyDeleted']
 export type AccountingStatus = Schemas['AccountingStatus']
 export type SyncResult = Schemas['SyncOut']
 export type PostingSummary = Schemas['PostingOut']
@@ -159,6 +161,12 @@ export const api = {
     sendJson<Client>('POST', `/clients/${encodeURIComponent(clientId)}/remove`, {}),
   restoreClient: (clientId: string) =>
     sendJson<Client>('POST', `/clients/${encodeURIComponent(clientId)}/restore`, {}),
+  /** What deleting a removed company permanently would remove (admin only). */
+  deletionPreview: (clientId: string) =>
+    request<DeletionPreview>(`/clients/${encodeURIComponent(clientId)}/deletion`),
+  /** Cannot be undone; `name` is the company's name, typed to confirm. */
+  deleteClient: (clientId: string, name: string) =>
+    sendJson<CompanyDeleted>('POST', `/clients/${encodeURIComponent(clientId)}/delete`, { name }),
   /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
   setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),

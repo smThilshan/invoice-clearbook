@@ -460,6 +460,97 @@ describe('companies: remove and restore (decision 91)', () => {
   })
 })
 
+describe('companies: delete permanently (decision 91)', () => {
+  const PREVIEW = { documents: 69, posted: 4, connected_to: 'Zoho Books', blocked: null }
+
+  function removedBackend(overrides: Record<string, unknown> = {}) {
+    let deleted = false
+    return mockApi({
+      '/health/ready': READY,
+      '/clients': CLIENTS.slice(1),
+      '/clients/spice-route/accounting': NOT_CONNECTED,
+      '/clients/removed': () => (deleted ? [] : CLIENTS.slice(0, 1)),
+      '/clients/cafe-al-noor/deletion': PREVIEW,
+      'POST /clients/cafe-al-noor/delete': () => {
+        deleted = true
+        return { documents: 69, files_removed: true }
+      },
+      ...overrides,
+    })
+  }
+
+  async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+    const hidden = await screen.findByRole('region', { name: 'Removed companies' })
+    await user.click(within(hidden).getByRole('button', { name: 'Delete permanently…' }))
+    return screen.findByRole('dialog', { name: 'Delete Cafe Al Noor permanently?' })
+  }
+
+  it('says what goes and what stays, and deletes only once the name is typed', async () => {
+    const api = removedBackend()
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const dialog = await openDialog(user)
+    expect(await within(dialog).findByText(/69 documents with their files/)).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('4 documents were posted to Zoho Books: they stay there.')
+    expect(dialog).toHaveTextContent('It is disconnected from Zoho Books first. Nothing in Zoho Books is changed.')
+    expect(dialog).toHaveTextContent('This cannot be undone.')
+    const confirm = within(dialog).getByRole('button', { name: 'Delete permanently' })
+    const name = within(dialog).getByLabelText('Type Cafe Al Noor to confirm')
+
+    await user.type(name, 'Cafe Al')
+    expect(confirm).toBeDisabled()
+    await user.type(name, ' Noor')
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
+
+    await waitFor(() => expect(api.bodies['POST /clients/cafe-al-noor/delete']).toEqual({ name: 'Cafe Al Noor' }))
+    expect(await screen.findByText(/Cafe Al Noor was deleted permanently, with 69 documents\./)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('cannot be confirmed while the company still has work in flight', async () => {
+    removedBackend({
+      '/clients/cafe-al-noor/deletion': { ...PREVIEW, blocked: '1 approved document is still waiting to be sent' },
+    })
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const dialog = await openDialog(user)
+    expect(await within(dialog).findByText('1 approved document is still waiting to be sent')).toBeInTheDocument()
+    await user.type(within(dialog).getByLabelText('Type Cafe Al Noor to confirm'), 'Cafe Al Noor')
+    expect(within(dialog).getByRole('button', { name: 'Delete permanently' })).toBeDisabled()
+  })
+
+  it('shows the reason when the server refuses, and deletes nothing', async () => {
+    removedBackend({
+      'POST /clients/cafe-al-noor/delete': reply(409, { detail: "the name typed does not match the company's name" }),
+    })
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const dialog = await openDialog(user)
+    await within(dialog).findByText(/69 documents/)
+    await user.type(within(dialog).getByLabelText('Type Cafe Al Noor to confirm'), 'Cafe Al Noor')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+
+    expect(await within(dialog).findByText(/does not match/)).toBeInTheDocument()
+  })
+
+  it('says when stored files could not all be removed', async () => {
+    removedBackend({ 'POST /clients/cafe-al-noor/delete': { documents: 2, files_removed: false } })
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const dialog = await openDialog(user)
+    await within(dialog).findByText(/69 documents/)
+    await user.type(within(dialog).getByLabelText('Type Cafe Al Noor to confirm'), 'Cafe Al Noor')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+
+    expect(await screen.findByText(/Some of its stored files could not be removed/)).toBeInTheDocument()
+  })
+})
+
 describe('clients: SharePoint (decision 83)', () => {
   const NOT_YET = {
     configured: true, connected: false, needs_reconnect: false, reconnect_reason: null,

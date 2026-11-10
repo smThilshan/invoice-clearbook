@@ -213,6 +213,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{client_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete
+         * @description Delete a removed company permanently, files included. Cannot be undone. 409 with the
+         *     reason when it cannot be deleted now or the name typed does not match.
+         */
+        post: operations["delete_clients__client_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/deletion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deletion Preview
+         * @description Only a removed company can be deleted: 404 for any other.
+         */
+        get: operations["get_deletion_preview_clients__client_id__deletion_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{client_id}/folders": {
         parameters: {
             query?: never;
@@ -1199,6 +1240,13 @@ export interface components {
             /** Tax Types */
             tax_types: components["schemas"]["TaxOption"][];
         };
+        /** CompanyDeleted */
+        CompanyDeleted: {
+            /** Documents */
+            documents: number;
+            /** Files Removed */
+            files_removed: boolean;
+        };
         /** CorrectionOut */
         CorrectionOut: {
             /** Field */
@@ -1207,6 +1255,25 @@ export interface components {
             final_value: unknown;
             /** Model Value */
             model_value: unknown;
+        };
+        /** DeleteCompany */
+        DeleteCompany: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * DeletionPreviewOut
+         * @description What deleting a removed company would remove (decision 91).
+         */
+        DeletionPreviewOut: {
+            /** Blocked */
+            blocked: string | null;
+            /** Connected To */
+            connected_to: string | null;
+            /** Documents */
+            documents: number;
+            /** Posted */
+            posted: number;
         };
         /** DocumentDetail */
         DocumentDetail: {
@@ -2462,6 +2529,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CodingOptions"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_clients__client_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteCompany"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deletion_preview_clients__client_id__deletion_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionPreviewOut"];
                 };
             };
             /** @description Validation Error */

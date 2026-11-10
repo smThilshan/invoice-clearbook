@@ -458,6 +458,24 @@
         "title": "CodingOptions",
         "type": "object"
       },
+      "CompanyDeleted": {
+        "properties": {
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "files_removed": {
+            "title": "Files Removed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "documents",
+          "files_removed"
+        ],
+        "title": "CompanyDeleted",
+        "type": "object"
+      },
       "CorrectionOut": {
         "properties": {
           "field": {
@@ -477,6 +495,62 @@
           "final_value"
         ],
         "title": "CorrectionOut",
+        "type": "object"
+      },
+      "DeleteCompany": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DeleteCompany",
+        "type": "object"
+      },
+      "DeletionPreviewOut": {
+        "description": "What deleting a removed company would remove (decision 91).",
+        "properties": {
+          "blocked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked"
+          },
+          "connected_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connected To"
+          },
+          "documents": {
+            "title": "Documents",
+            "type": "integer"
+          },
+          "posted": {
+            "title": "Posted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "documents",
+          "posted",
+          "connected_to",
+          "blocked"
+        ],
+        "title": "DeletionPreviewOut",
         "type": "object"
       },
       "DocumentDetail": {
@@ -3934,6 +4008,102 @@
           }
         },
         "summary": "Get Coding Options",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/delete": {
+      "post": {
+        "description": "Delete a removed company permanently, files included. Cannot be undone. 409 with the\nreason when it cannot be deleted now or the name typed does not match.",
+        "operationId": "delete_clients__client_id__delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteCompany"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/clients/{client_id}/deletion": {
+      "get": {
+        "description": "Only a removed company can be deleted: 404 for any other.",
+        "operationId": "get_deletion_preview_clients__client_id__deletion_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionPreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Deletion Preview",
         "tags": [
           "clients"
         ]

@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import BinaryIO
 
@@ -34,6 +35,10 @@ class LocalStorage:
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def delete_folder(self, prefix: str) -> None:
+        with suppress(FileNotFoundError):  # rmtree refuses a symlinked folder: never followed
+            shutil.rmtree(self._path(prefix))
 
     def _path(self, key: str) -> Path:
         return self._root.joinpath(*validate_key(key).split("/"))
