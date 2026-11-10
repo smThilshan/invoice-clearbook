@@ -80,7 +80,7 @@ def finish(
         raise AccountingConnectionError("this sign-in names an accounting system we do not know")
     client = session.scalars(select(Client).where(Client.client_id == client_id)).first()
     if client is None:
-        raise AccountingConnectionError("this client no longer exists")
+        raise AccountingConnectionError("this company no longer exists")
     connector = entry.connector(settings)
     try:
         tokens = connector.exchange(code, returned)
@@ -97,7 +97,7 @@ def finish(
     if not approved and len(organisations) > 1:  # never guess which company this client is
         raise AccountingConnectionError(
             f"this {entry.name} login opens {len(organisations)} organisations; choosing one "
-            "is not available yet: sign in with a login that opens only this client's"
+            "is not available yet: sign in with a login that opens only this company's"
         )
     organisation = (approved or organisations)[0]
 
@@ -136,7 +136,7 @@ def access_token(session: Session, settings: Settings, registry: Registry, clien
     AccountingConnectionError may pass by itself."""
     connection = _connection(session, client_id, for_update=True)
     if connection is None:
-        raise AccountingConnectionError("this client is not connected to an accounting system")
+        raise AccountingConnectionError("this company is not connected to an accounting system")
     entry = registry[connection.provider]
     if connection.needs_reconnect:
         raise ReconnectNeeded(connection.reconnect_reason or f"connect {entry.name} again")

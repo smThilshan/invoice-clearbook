@@ -641,7 +641,7 @@ describe('review screen', () => {
 
     const status = screen.getByRole('status', { name: 'Sending' })
     expect(status).toHaveTextContent('Paused: Xero access was withdrawn (invalid_grant).')
-    expect(within(status).getByRole('link', { name: 'Connect again on the Clients page' })).toHaveAttribute(
+    expect(within(status).getByRole('link', { name: 'Connect again on the Companies page' })).toHaveAttribute(
       'href', '/clients',
     )  // prettier-ignore
   })

@@ -207,7 +207,7 @@ def get_queue(
     of approved documents instead (waiting, failed, posted; decision 70), or the documents back
     in review not sent (not_sent); `status` then unused."""
     if get_client(session, client_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     page = review.list_queue(session, client_id=client_id, status=status_, queue=queue,
                              run_id=run_id, search=search, sending=sending, limit=limit,
                              offset=offset)  # fmt: skip

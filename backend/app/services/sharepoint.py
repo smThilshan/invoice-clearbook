@@ -256,7 +256,7 @@ def _access_token(session: Session, settings: Settings, microsoft: Microsoft) ->
 def _usable(connection: SharePointConnection | None) -> SharePointConnection:
     if connection is None:
         raise SharePointError(
-            "SharePoint is not connected: an admin connects it on the Clients page"
+            "SharePoint is not connected: an admin connects it on the Companies page"
         )
     if connection.needs_reconnect:
         raise _reconnect(connection.reconnect_reason or "The SharePoint sign-in stopped working")

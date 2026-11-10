@@ -47,7 +47,7 @@ export function SharePointConnection({ back, showConnected = true }: { back: 'cl
           : 'SharePoint is not connected yet.'}{' '}
         {admin
           ? 'Sign in with your Microsoft account: the Workbench then reads the sites and folders you can open, and never changes anything.'
-          : 'An admin connects it on the Clients page. Until then, choose documents on your computer.'}
+          : 'An admin connects it on the Companies page. Until then, choose documents on your computer.'}
       </p>
       {admin && (
         <Button asChild size="sm">

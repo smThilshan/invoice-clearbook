@@ -23,10 +23,10 @@ export function ClientSelect({
 
   if (clients.isPending) return <Skeleton className="h-8 w-72" />
   if (clients.isError) {
-    return <ErrorAlert title="Clients could not be loaded" error={clients.error} />
+    return <ErrorAlert title="Companies could not be loaded" error={clients.error} />
   }
   if (clients.data.length === 0) {
-    return <p className="text-sm text-muted-foreground">No clients yet: add one on the Run screen.</p>
+    return <p className="text-sm text-muted-foreground">No companies yet: add one on the Run screen.</p>
   }
 
   function pick(clientId: string) {
@@ -38,8 +38,8 @@ export function ClientSelect({
 
   return (
     <Select value={value ?? ''} onValueChange={pick}>
-      <SelectTrigger className="w-72 max-w-full" aria-label="Client">
-        <SelectValue placeholder="Choose a client" />
+      <SelectTrigger className="w-72 max-w-full" aria-label="Company">
+        <SelectValue placeholder="Choose a company" />
       </SelectTrigger>
       <SelectContent>
         {clients.data.map((c) => (

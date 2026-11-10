@@ -408,7 +408,7 @@ function sendingText(sending: Sending, system: string): [string, ReactNode] {
       <>
         Paused: {sending.reason}.{" "}
         <Link to="/clients" className="underline underline-offset-2">
-          Connect again on the Clients page
+          Connect again on the Companies page
         </Link>
         .
       </>,

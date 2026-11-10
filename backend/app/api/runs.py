@@ -139,7 +139,7 @@ def create_run(
 ) -> RunAccepted:
     client = get_client(session, body.client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     try:
         folder_date = body.folder_date if "folder_date" in body.model_fields_set else FROM_FOLDER
         root = find_place(settings, client, body.place).path if body.place else None
@@ -181,7 +181,7 @@ def upload_run(
     """A folder (or files) chosen on the user's own computer, run like any folder (decision 78)."""
     client = get_client(session, client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     try:
         names = _PATHS.validate_json(paths)
     except ValidationError as exc:
@@ -231,7 +231,7 @@ def sharepoint_run(
     files (read only), then runs them like any folder. Progress: GET /runs/{id}."""
     client = get_client(session, body.client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     folder_date = body.folder_date if "folder_date" in body.model_fields_set else FROM_FOLDER
     try:
         run = start_sharepoint_run(session, settings, client=client, drive_id=body.drive_id,

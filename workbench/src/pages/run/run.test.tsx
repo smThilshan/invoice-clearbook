@@ -136,7 +136,7 @@ function progress(changes: Partial<RunProgress> = {}): RunProgress {
 }
 
 async function pickClient(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor', from = 'On SharePoint') {
-  await user.click(await screen.findByRole('combobox', { name: 'Client' }))
+  await user.click(await screen.findByRole('combobox', { name: 'Company' }))
   await user.click(await screen.findByRole('option', { name }))
   await user.click(within(await screen.findByRole('group', { name: 'Where the documents are' })).getByRole('button', { name: from }))
 }
@@ -368,7 +368,7 @@ describe('run screen: documents on SharePoint', () => {
 
     await pickClient(user)
 
-    expect(await screen.findByText(/An admin connects it on the Clients page/)).toHaveTextContent(
+    expect(await screen.findByText(/An admin connects it on the Companies page/)).toHaveTextContent(
       'SharePoint needs to be connected again: Microsoft no longer accepts the SharePoint sign-in.',
     )
     expect(screen.queryByRole('link', { name: /Connect SharePoint/ })).not.toBeInTheDocument()
@@ -381,7 +381,7 @@ describe('run screen: documents on SharePoint', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
-    await user.click(await screen.findByRole('combobox', { name: 'Client' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Company' }))
     await user.click(await screen.findByRole('option', { name: 'Cafe Al Noor' }))
 
     expect(await screen.findByRole('button', { name: 'Choose folder' })).toBeInTheDocument()
@@ -402,8 +402,8 @@ describe('run screen', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
-    await user.click(await screen.findByRole('button', { name: 'New client' }))
-    await user.type(screen.getByLabelText('New client name'), 'Blue Sky')
+    await user.click(await screen.findByRole('button', { name: 'New company' }))
+    await user.type(screen.getByLabelText('New company name'), 'Blue Sky')
     await user.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() => expect(api.bodies['POST /clients']).toEqual({ name: 'Blue Sky' }))
@@ -416,18 +416,18 @@ describe('run screen', () => {
     const user = userEvent.setup()
     renderApp('/run')
 
-    await user.click(await screen.findByRole('button', { name: 'New client' }))
-    await user.type(screen.getByLabelText('New client name'), 'x')
+    await user.click(await screen.findByRole('button', { name: 'New company' }))
+    await user.type(screen.getByLabelText('New company name'), 'x')
     await user.click(screen.getByRole('button', { name: 'Create' }))
 
-    expect(await screen.findByText('The client was not created')).toBeInTheDocument()
+    expect(await screen.findByText('The company was not created')).toBeInTheDocument()
   })
 
   it('says how to add the first client', async () => {
     backend({ '/clients': [] })
     renderApp('/run')
 
-    expect(await screen.findByText(/No clients yet/)).toHaveTextContent('add one on the Run screen')
+    expect(await screen.findByText(/No companies yet/)).toHaveTextContent('add one on the Run screen')
   })
 })
 
@@ -544,7 +544,7 @@ describe('run screen: documents on my computer', () => {
 
 describe('run screen: the client\'s accounting system', () => {
   async function pickOnly(user: ReturnType<typeof userEvent.setup>, name = 'Cafe Al Noor') {
-    await user.click(await screen.findByRole('combobox', { name: 'Client' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Company' }))
     await user.click(await screen.findByRole('option', { name }))
   }
 
@@ -574,7 +574,7 @@ describe('run screen: the client\'s accounting system', () => {
 
     await pickOnly(user)
     expect(await screen.findByText(/not synced yet/)).toBeInTheDocument()
-    expect(screen.getByText(/First get the client's accounting system ready/)).toBeInTheDocument()
+    expect(screen.getByText(/First get the company's accounting system ready/)).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'SharePoint folder link' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Sync now' }))
@@ -652,7 +652,7 @@ describe('run screen: the client\'s accounting system', () => {
 
     await pickOnly(user)
 
-    expect(await screen.findByText('Ask an admin to connect this client to its accounting system.')).toBeInTheDocument()
+    expect(await screen.findByText('Ask an admin to connect this company to its accounting system.')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^Connect/ })).not.toBeInTheDocument()
   })
 
@@ -670,7 +670,7 @@ describe('run screen: the client\'s accounting system', () => {
     expect(await screen.findByText('Connected to Zoho Books')).toBeInTheDocument()
     expect(await screen.findByRole('textbox', { name: 'SharePoint folder link' })).toBeInTheDocument()
     expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/sync')
-    expect(screen.getByRole('combobox', { name: 'Client' })).toHaveTextContent('Cafe Al Noor')
+    expect(screen.getByRole('combobox', { name: 'Company' })).toHaveTextContent('Cafe Al Noor')
     expect(router.state.location.search).toBe('')
   })
 

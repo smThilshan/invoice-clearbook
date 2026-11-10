@@ -248,7 +248,7 @@ export function QueuePage() {
       )}
 
       {!clientId ? (
-        <p className="text-sm text-muted-foreground">Choose a client to see its documents.</p>
+        <p className="text-sm text-muted-foreground">Choose a company to see its documents.</p>
       ) : queue.isPending ? (
         <Skeleton className="h-48 w-full" />
       ) : queue.isError ? (

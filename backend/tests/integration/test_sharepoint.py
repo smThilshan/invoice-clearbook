@@ -124,7 +124,7 @@ def test_before_connecting_browsing_says_who_connects(api: TestClient) -> None:
     answer = api.get("/sharepoint/sites")
 
     assert answer.status_code == 409
-    assert "an admin connects it on the Clients page" in answer.json()["detail"]
+    assert "an admin connects it on the Companies page" in answer.json()["detail"]
 
 
 def test_sites_libraries_and_folders_are_browsed_with_their_dates(api: TestClient) -> None:

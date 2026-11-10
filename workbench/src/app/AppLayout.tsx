@@ -12,7 +12,7 @@ const NAV = [
   { to: '/run', label: 'Run', icon: FolderInput, also: [] },
   // Reviewing a document is part of the review queue (task 4.15).
   { to: '/queue', label: 'Review queue', icon: FileSearch, also: ['/documents/'] },
-  { to: '/clients', label: 'Clients', icon: Building2, also: [] },
+  { to: '/clients', label: 'Companies', icon: Building2, also: [] },
 ]
 
 const SIDEBAR_KEY = 'clearbook.sidebar' // "open" / "closed": the user's own choice

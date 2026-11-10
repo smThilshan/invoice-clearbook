@@ -44,7 +44,7 @@ def sync(session: Session, settings: Settings, registry: Registry, client: Clien
     """The caller commits; on error it rolls back and nothing has changed."""
     connection = connection_of(session, client.client_id)
     if connection is None:
-        raise AccountingConnectionError("this client is not connected to an accounting system")
+        raise AccountingConnectionError("this company is not connected to an accounting system")
     provider = connection.provider
     token = access_token(session, settings, registry, client.client_id)
     try:

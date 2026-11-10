@@ -225,7 +225,7 @@ def upload_master_data(
     if client.accounting_provider is not AccountingProvider.MANUAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"master data for this client comes from {client.accounting_provider.value}",
+            f"master data for this company comes from {client.accounting_provider.value}",
         )
     if ledger_accounts is None and tax_rates is None and contacts is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "no file uploaded")
@@ -284,7 +284,7 @@ def _out(client: Client) -> ClientOut:
 def _found(session: Session, client_id: str) -> Client:
     client = get_client(session, client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     return client
 
 

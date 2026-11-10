@@ -31,7 +31,7 @@ def add_client(
     """Register a client. Its own folder is optional (decision 35); if given, it must exist
     and be readable now."""
     if not CLIENT_ID.fullmatch(client_id):
-        raise ClientError("client id: lowercase letters, digits and dashes, e.g. cafe-al-noor")
+        raise ClientError("company id: lowercase letters, digits and dashes, e.g. cafe-al-noor")
     if not name.strip():
         raise ClientError("name is required")
     if inbox_path is not None:
@@ -44,7 +44,7 @@ def add_client(
         except InboxError as exc:
             raise ClientError(f"the inbox folder cannot be read: {exc}") from exc
     if session.scalars(select(Client).where(Client.client_id == client_id)).first():
-        raise ClientError(f"client {client_id!r} already exists")
+        raise ClientError(f"company {client_id!r} already exists")
 
     client = Client(
         client_id=client_id,
@@ -118,7 +118,7 @@ def expenses_blocked(session: Session, registry: Registry, client_id: str) -> st
 
 def client_root(client: Client) -> Path:
     if not client.inbox_path:
-        raise InboxError(f"client {client.client_id!r} has no folder of its own: pick a place")
+        raise InboxError(f"company {client.client_id!r} has no folder of its own: pick a place")
     return Path(client.inbox_path)
 
 
@@ -131,5 +131,5 @@ def browse(client: Client, relative: str = "") -> list[str]:
     """Folder names directly inside `relative` (for the Run screen's folder picker)."""
     folder = resolve_inside(client_root(client), relative)
     if not folder.is_dir():
-        raise InboxError(f"folder not found: {relative or '(client folder)'}")
+        raise InboxError(f"folder not found: {relative or '(company folder)'}")
     return list_subfolders(folder)

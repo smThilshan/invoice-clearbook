@@ -108,5 +108,5 @@ def _client(session: Session, client_id: str | None) -> Client | None:
         return None
     client = get_client(session, client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     return client

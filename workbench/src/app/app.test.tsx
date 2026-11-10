@@ -23,7 +23,7 @@ describe('layout and navigation', () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/run'))
     expect(screen.getByRole('heading', { name: 'Clearbook' })).toBeInTheDocument()
-    expect(await screen.findByText(/pick a client, choose the documents/i)).toBeInTheDocument()
+    expect(await screen.findByText(/pick a company, choose the documents/i)).toBeInTheDocument()
   })
 
   it('navigates to the review queue', async () => {

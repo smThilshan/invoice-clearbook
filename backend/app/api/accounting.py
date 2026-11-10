@@ -137,7 +137,7 @@ def connect(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown accounting system")
     client = get_client(session, client_id)
     if client is None:
-        return _back(settings, back, error="client not found")
+        return _back(settings, back, error="company not found")
     try:
         url = start(settings, entry, client, back)
     except AccountingConnectionError as exc:
@@ -304,7 +304,7 @@ def send_waiting(
 def _found(session: Session, client_id: str) -> Client:
     client = get_client(session, client_id)
     if client is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "client not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "company not found")
     return client
 
 
