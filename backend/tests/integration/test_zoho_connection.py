@@ -205,11 +205,14 @@ def test_expenses_are_sent_as_expenses_paid_through_a_synced_account(
     switched = api.patch(
         f"/clients/{CLIENT}", json={"expenses_sent_as": "EXPENSE", "paid_through": "4600361"}
     )
+    switched_status = api.get(f"/clients/{CLIENT}/accounting").json()
     not_a_payment_account = api.patch(f"/clients/{CLIENT}", json={"paid_through": "4600400"})
     each_time = api.patch(f"/clients/{CLIENT}", json={"paid_through": None})
 
     assert options["paid_through"] == [{"code": "4600361", "label": "Petty Cash", "group": "Cash"}]
     assert status["expenses_blocked"] is None
+    assert (status["expenses_reconnect"], status["expenses_where"]) == (False, None)  # as bills
+    assert switched_status["expenses_where"] == "Purchases, Expenses"
     assert switched.status_code == 200, switched.text
     assert (switched.json()["expenses_sent_as"], switched.json()["paid_through"]) == (
         "EXPENSE", "4600361",
@@ -236,6 +239,7 @@ def test_a_connection_made_before_expenses_must_connect_again_to_send_them(
     as_bills = api.patch(f"/clients/{CLIENT}", json={"expenses_sent_as": "BILL"})
 
     assert status["expenses_blocked"] == "connect Zoho Books again to allow sending expenses"
+    assert status["expenses_reconnect"] is True  # signing in again asks for the permission
     assert refused.status_code == 422
     assert as_bills.status_code == 200
 

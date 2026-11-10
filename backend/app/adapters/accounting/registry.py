@@ -39,6 +39,7 @@ class ProviderEntry:
     # Can send expenses as expenses (decision 89), with the permission a connection needs for
     # it; None = expenses are sent as bills.
     expense_scope: str | None = None
+    expenses_where: str | None = None  # where the accountant finds sent expenses (decision 89)
 
 
 Registry = Mapping[AccountingProvider, ProviderEntry]
@@ -64,6 +65,7 @@ PROVIDERS: Registry = {
         expense_url=zoho_expense_url,
         number_required=True,
         expense_scope=EXPENSE_SCOPE,
+        expenses_where="Purchases, Expenses",
     ),
 }
 

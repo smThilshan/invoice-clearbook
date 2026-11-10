@@ -206,6 +206,7 @@ def test_the_browser_goes_to_xero_and_back_to_the_workbench(api: TestClient) -> 
     assert (status["connected"], status["organisation"]) == (True, "Demo Company (Global)")
     assert (status["provider_name"], status["bills_where"]) == (
         "Xero", "Bills to pay, Awaiting approval")  # fmt: skip
+    assert (status["expenses_reconnect"], status["expenses_where"]) == (False, None)  # no use
     assert status["providers"] == [{"key": "XERO", "name": "Xero", "configured": True,
                                     "connect_url": "/xero/connect"}]  # fmt: skip
 

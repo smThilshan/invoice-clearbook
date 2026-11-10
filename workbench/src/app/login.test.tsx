@@ -108,6 +108,7 @@ describe('login (decision 71)', () => {
       connected_at: '2026-10-23T10:00:00Z', bills_where: 'Bills to pay, Awaiting approval',
       accounts: 0, master_data_from: 'XERO', waiting: 0,
       expenses_blocked: 'Xero cannot take expenses yet: they are sent as bills',
+      expenses_reconnect: false, expenses_where: null,
       posting: { ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0,
                  posted: 0, paused: 0, paused_reason: null, failed: 0, failed_reason: null },
     }  // prettier-ignore

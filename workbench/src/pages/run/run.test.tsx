@@ -54,6 +54,7 @@ const SYNCED: AccountingStatus = {
   reconnect_reason: null, provider: 'ZOHO', provider_name: 'Zoho Books', organisation: 'Missan Trading',
   connected_at: '2026-11-01T08:00:00Z', bills_where: 'Purchases, Bills', master_data_from: 'ZOHO',
   accounts: 42, waiting: 0, posting: NOTHING_SENT, expenses_blocked: null,
+  expenses_reconnect: false, expenses_where: null,
 }  // prettier-ignore
 const NOT_SYNCED: AccountingStatus = { ...SYNCED, master_data_from: 'MANUAL', accounts: 0 }
 const NOT_CONNECTED: AccountingStatus = {

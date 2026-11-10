@@ -137,6 +137,12 @@ function ClientRow({ client }: { client: Client }) {
   const system = status.data?.provider_name ?? 'the accounting system'
   const available = (status.data?.providers ?? []).filter((p) => p.configured)
   const signIn = status.data?.providers.find((p) => p.key === status.data?.provider)
+  // Decision 89: a client sending expenses as expenses sends bills and expenses, so the counts
+  // say documents, and the sent ones are found in two places.
+  const expensesWhere = status.data?.expenses_where ?? null
+  const noun = expensesWhere ? 'document' : 'bill'
+  const billsWhere = status.data?.bills_where ?? null
+  const where = expensesWhere ? `${billsWhere ?? 'Bills'} (bills) and ${expensesWhere} (expenses)` : billsWhere
   const connectionLabel = status.isPending
     ? 'Checking connection'
     : status.isError
@@ -176,6 +182,11 @@ function ClientRow({ client }: { client: Client }) {
               system={system}
               admin={admin}
               blocked={status.data?.expenses_blocked ?? null}
+              reconnectUrl={
+                admin && status.data?.expenses_reconnect && signIn
+                  ? `/api${signIn.connect_url}?${query}`
+                  : null
+              }
             />
           )}
           {summary && (
@@ -185,6 +196,7 @@ function ClientRow({ client }: { client: Client }) {
               system={system}
               clientId={client.client_id}
               showPaused={!reconnect}
+              noun={noun}
             />
           )}
         </div>
@@ -196,7 +208,7 @@ function ClientRow({ client }: { client: Client }) {
           <AlertDescription className="space-y-2">
             <p>
               {summary && summary.paused > 0
-                ? `${plural(summary.paused, 'bill')} paused: they are sent automatically as soon as you connect again.`
+                ? `${plural(summary.paused, noun)} paused: they are sent automatically as soon as you connect again.`
                 : `Nothing is sent to ${system} until you connect again.`}
               {status.data?.reconnect_reason ? ` Reason: ${status.data.reconnect_reason}.` : ''}
             </p>
@@ -225,7 +237,7 @@ function ClientRow({ client }: { client: Client }) {
             }
           >
             <Send aria-hidden />
-            Send {summary.ready} {summary.ready === 1 ? 'bill' : 'bills'} to {system}
+            Send {plural(summary.ready, noun)} to {system}
           </Button>
         )}
         {connected && (
@@ -286,7 +298,8 @@ function ClientRow({ client }: { client: Client }) {
           now={summary}
           since={sending.since}
           system={system}
-          where={status.data?.bills_where ?? null}
+          where={where}
+          noun={noun}
           onFinished={() => setSending(null)}
         />
       )}
@@ -340,11 +353,13 @@ function ExpensesSent({
   system,
   admin,
   blocked,
+  reconnectUrl,
 }: {
   client: Client
   system: string
   admin: boolean
   blocked: string | null
+  reconnectUrl: string | null // signing in again would allow expenses (an admin's)
 }) {
   const change = useSetExpenseSending()
   const options = useCodingOptions(client.client_id)
@@ -381,7 +396,20 @@ function ExpensesSent({
           <span>{EXPENSES_SENT_AS_LABELS[client.expenses_sent_as](system)}</span>
         )}
       </div>
-      {blocked && <p className="text-muted-foreground">Expenses go as bills: {blocked}.</p>}
+      {blocked && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-muted-foreground">Expenses go as bills: {blocked}.</p>
+          {reconnectUrl && (
+            <Button asChild size="sm" variant="outline">
+              {/* A full page change: the browser goes to its sign-in and comes back here. */}
+              <a href={reconnectUrl}>
+                <Link2 aria-hidden />
+                Connect {system} again
+              </a>
+            </Button>
+          )}
+        </div>
+      )}
       {asExpenses && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground">{payLabel}:</span>
@@ -420,6 +448,11 @@ function ExpensesSent({
           )}
         </div>
       )}
+      {asExpenses && !client.paid_through && accounts.length > 0 && (
+        <p className="text-muted-foreground">
+          No usual account: Paid through is chosen on each expense before it is approved.
+        </p>
+      )}
       {asExpenses && options.isSuccess && accounts.length === 0 && (
         <p className="text-muted-foreground">
           No accounts to pay through yet: sync from {system} first.
@@ -447,27 +480,29 @@ function PostingLines({
   system,
   clientId,
   showPaused,
+  noun,
 }: {
   summary: PostingSummary
   synced: boolean
   system: string
   clientId: string
   showPaused: boolean // false while the sign-in banner says it already
+  noun: string // 'bill', or 'document' when expenses go as expenses too
 }) {
   return (
     <ul aria-label="Approved documents" className="space-y-0.5 text-sm">
       {summary.ready > 0 && (
         <li className="font-medium text-warning">
           {synced
-            ? `${plural(summary.ready, 'approved bill')} ready to send to ${system}.`
-            : `${plural(summary.ready, 'approved bill')} waiting: connect and sync the accounting system to send them.`}
+            ? `${plural(summary.ready, `approved ${noun}`)} ready to send to ${system}.`
+            : `${plural(summary.ready, `approved ${noun}`)} waiting: connect and sync the accounting system to send them.`}
         </li>
       )}
       {showPaused && summary.paused > 0 && (
         <li className="flex items-start gap-1.5 font-medium text-destructive">
           <PauseCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            {plural(summary.paused, 'approved bill')} paused
+            {plural(summary.paused, `approved ${noun}`)} paused
             {summary.paused_reason ? `: ${summary.paused_reason}` : ''}.
           </span>
         </li>
@@ -476,7 +511,7 @@ function PostingLines({
         <li className="flex items-start gap-1.5 text-warning">
           <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            {plural(summary.retrying, 'bill')} will be sent again automatically
+            {plural(summary.retrying, noun)} will be sent again automatically
             {summary.retry_at ? ` at ${formatTime(summary.retry_at)}` : ''}
             {summary.retry_reason ? `: ${summary.retry_reason}` : ''}.
           </span>
@@ -486,7 +521,7 @@ function PostingLines({
         <li className="flex items-start gap-1.5 font-medium text-destructive">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            {plural(summary.failed, 'bill')} could not be sent
+            {plural(summary.failed, noun)} could not be sent
             {summary.failed_reason ? `: ${summary.failed_reason}` : ''}.{' '}
             <Link
               to={`/queue?${new URLSearchParams({ client: clientId, sending: 'failed' })}`}
@@ -502,7 +537,7 @@ function PostingLines({
         <li className="flex items-start gap-1.5 text-destructive">
           <Undo2 className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            {plural(summary.sent_back, 'bill')} not sent to {system}, back in review.{' '}
+            {plural(summary.sent_back, noun)} not sent to {system}, back in review.{' '}
             <Link
               to={`/queue?${new URLSearchParams({ client: clientId, sending: 'not_sent' })}`}
               className="underline underline-offset-2"
@@ -525,7 +560,7 @@ function PostingLines({
       {summary.posted > 0 && (
         <li className="flex items-center gap-1.5 text-muted-foreground">
           <CircleCheck className="size-3.5 text-success" aria-hidden />
-          {plural(summary.posted, 'bill')} sent to {system} so far.
+          {plural(summary.posted, noun)} sent to {system} so far.
         </li>
       )}
     </ul>
@@ -539,6 +574,7 @@ function SendingProgress({
   since,
   system,
   where,
+  noun,
   onFinished,
 }: {
   before: PostingSummary
@@ -546,6 +582,7 @@ function SendingProgress({
   since: number
   system: string
   where: string | null
+  noun: string
   onFinished: () => void
 }) {
   // The clock is read in the timer, not while drawing: the time waited so far.
@@ -564,15 +601,15 @@ function SendingProgress({
     return (
       <p role="status" className="mt-3 flex items-center gap-2 text-sm">
         <RefreshCw className="size-3.5 animate-spin" aria-hidden />
-        Sending {plural(now.ready, 'bill')} to {system}…{sent > 0 ? ` ${sent} sent so far.` : ''}
+        Sending {plural(now.ready, noun)} to {system}…{sent > 0 ? ` ${sent} sent so far.` : ''}
       </p>
     )
   }
   const parts = [
     sent > 0 &&
-      `${plural(sent, 'bill')} sent to ${system}${where ? `: find them under ${where}` : ''}.`,
-    back > 0 && `${plural(back, 'bill')} came back to review with the reason.`,
-    now.retrying > 0 && `${plural(now.retrying, 'bill')} will be sent again automatically.`,
+      `${plural(sent, noun)} sent to ${system}${where ? `: find them under ${where}` : ''}.`,
+    back > 0 && `${plural(back, noun)} came back to review with the reason.`,
+    now.retrying > 0 && `${plural(now.retrying, noun)} will be sent again automatically.`,
   ].filter(Boolean)
   return (
     <div role="status" className="mt-3 flex flex-wrap items-center gap-2 text-sm">

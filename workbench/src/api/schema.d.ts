@@ -1034,6 +1034,10 @@ export interface components {
             connected_at: string | null;
             /** Expenses Blocked */
             expenses_blocked: string | null;
+            /** Expenses Reconnect */
+            expenses_reconnect: boolean;
+            /** Expenses Where */
+            expenses_where: string | null;
             /** Master Data From */
             master_data_from: string;
             /** Needs Reconnect */

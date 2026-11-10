@@ -20,6 +20,7 @@ const NOT_CONNECTED: AccountingStatus = {
   reconnect_reason: null, provider: null, provider_name: null,
   organisation: null, connected_at: null, bills_where: null, accounts: 0, master_data_from: 'MANUAL',
   waiting: 0, posting: NOTHING, expenses_blocked: 'connect an accounting system first',
+  expenses_reconnect: false, expenses_where: null,
 }  // prettier-ignore
 const CONNECTED: AccountingStatus = {
   providers: [XERO], configured: true, connected: true, needs_reconnect: false,
@@ -27,6 +28,7 @@ const CONNECTED: AccountingStatus = {
   organisation: 'Demo Company (Global)', connected_at: '2026-10-23T10:00:00Z',
   bills_where: 'Bills to pay, Awaiting approval', accounts: 0, master_data_from: 'MANUAL', waiting: 0,
   posting: NOTHING, expenses_blocked: 'Xero cannot take expenses yet: they are sent as bills',
+  expenses_reconnect: false, expenses_where: null,
 }  // prettier-ignore
 const SYNCED_WAITING: AccountingStatus = {
   ...CONNECTED, accounts: 0, master_data_from: 'XERO', waiting: 3, posting: { ...NOTHING, ready: 3 },
@@ -104,6 +106,7 @@ describe('clients', () => {
     expect(sent).toHaveTextContent('As expenses: paid through an account, final in Zoho Books once approved here')
     const paid = screen.getByRole('combobox', { name: 'Usually paid through' })
     expect(paid).toHaveTextContent('Chosen on each expense')
+    expect(await screen.findByText('No usual account: Paid through is chosen on each expense before it is approved.')).toBeInTheDocument()
     await user.click(paid)
     expect(await screen.findByRole('group', { name: 'Other Current Liability' })).toBeInTheDocument()
     await user.click(screen.getByRole('option', { name: 'Petty Cash' }))
@@ -127,6 +130,54 @@ describe('clients', () => {
     expect(await screen.findByText('No accounts to pay through yet: sync from Zoho Books first.')).toBeInTheDocument()
   })
 
+  it('offers to connect again when only the permission for expenses is missing', async () => {
+    const zoho: AccountingStatus = {
+      ...CONNECTED, provider: 'ZOHO', provider_name: 'Zoho Books',
+      providers: [{ key: 'ZOHO', name: 'Zoho Books', configured: true, connect_url: '/zoho/connect' }],
+      expenses_blocked: 'connect Zoho Books again to allow sending expenses', expenses_reconnect: true,
+    }  // prettier-ignore
+    mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': zoho,
+    })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(await within(row).findByText('Expenses go as bills: connect Zoho Books again to allow sending expenses.')).toBeInTheDocument()
+    expect(within(row).getByRole('link', { name: 'Connect Zoho Books again' })).toHaveAttribute(
+      'href', '/api/zoho/connect?client_id=cafe-al-noor',
+    )  // prettier-ignore
+  })
+
+  it('counts documents, and says where bills and expenses went, when expenses go as expenses', async () => {
+    const zoho: AccountingStatus = {
+      ...CONNECTED, provider: 'ZOHO', provider_name: 'Zoho Books', master_data_from: 'ZOHO',
+      bills_where: 'Purchases, Bills, Pending Approval', expenses_where: 'Purchases, Expenses',
+      expenses_blocked: null, waiting: 2, posting: { ...NOTHING, ready: 2 },
+    }  // prettier-ignore
+    let status = zoho
+    mockApi({
+      '/health/ready': READY, '/clients': [{ ...CLIENTS[0], expenses_sent_as: 'EXPENSE', paid_through: '4600361' }],
+      '/clients/cafe-al-noor/accounting': () => status,
+      '/clients/cafe-al-noor/coding-options': { accounts: [], tax_types: [], paid_through: [] },
+      'POST /clients/cafe-al-noor/accounting/send': () => {
+        status = { ...zoho, waiting: 0, posting: { ...NOTHING, posted: 2 } }
+        return zoho
+      },
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(await within(row).findByText('2 approved documents ready to send to Zoho Books.')).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'Send 2 documents to Zoho Books' }))
+
+    const done = await within(row).findByText(/^Done\./, {}, { timeout: 6000 })
+    expect(done.parentElement).toHaveTextContent(
+      'Done. 2 documents sent to Zoho Books: find them under Purchases, Bills, Pending Approval (bills) and Purchases, Expenses (expenses).',
+    )
+    expect(within(row).getByText('2 documents sent to Zoho Books so far.')).toBeInTheDocument()
+  })
+
   it('says why expenses still go as bills', async () => {
     mockApi({
       '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
@@ -137,6 +188,7 @@ describe('clients', () => {
     expect(sent).toBeDisabled()
     expect(screen.getByText('Expenses go as bills: Xero cannot take expenses yet: they are sent as bills.')).toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'Usually paid through' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Connect Xero again' })).not.toBeInTheDocument()  // would not help
   })
 
   it('shows an accountant how lines are sent, without letting them change it', async () => {

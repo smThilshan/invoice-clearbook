@@ -24,7 +24,7 @@ from app.adapters.accounting.registry import PROVIDERS, Registry, by_slug
 from app.api.auth import require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.domain.enums import AccountingProvider, TaxType
+from app.domain.enums import AccountingProvider, ExpensesSentAs, TaxType
 from app.models import Client, LedgerAccount
 from app.services import posting
 from app.services.accounting_connections import (
@@ -92,6 +92,9 @@ class AccountingStatus(BaseModel):
     connected_at: datetime | None
     bills_where: str | None  # where sent bills are found in the provider's own screens
     expenses_blocked: str | None  # why expenses cannot be sent as expenses; None = they can
+    expenses_reconnect: bool  # signing in again would let expenses be sent as expenses
+    # Where this client's sent expenses are found; None = its expenses are sent as bills.
+    expenses_where: str | None
     master_data_from: str  # the provider once synced, else "MANUAL" (CSV import)
     accounts: int  # active accounts coding can use, from `master_data_from` (decision 79)
     waiting: int  # approved documents not posted yet
@@ -196,6 +199,8 @@ def accounting_status(
     client = _found(session, client_id)
     connection = connection_of(session, client_id)
     entry = registry.get(connection.provider) if connection else None
+    blocked = expenses_blocked(session, registry, client_id)
+    as_expenses = client.expenses_sent_as is ExpensesSentAs.EXPENSE and blocked is None
     providers = [
         ProviderOut(
             key=e.provider,
@@ -216,7 +221,10 @@ def accounting_status(
         organisation=connection.tenant_name if connection else None,
         connected_at=connection.created_at if connection else None,
         bills_where=entry.bills_where if entry else None,
-        expenses_blocked=expenses_blocked(session, registry, client_id),
+        expenses_blocked=blocked,
+        # Only the permission is missing: the system takes expenses, this connection may not yet.
+        expenses_reconnect=bool(blocked and entry and entry.expense_scope),
+        expenses_where=entry.expenses_where if entry and as_expenses else None,
         master_data_from=client.accounting_provider.value,
         accounts=session.scalar(
             select(func.count()).where(

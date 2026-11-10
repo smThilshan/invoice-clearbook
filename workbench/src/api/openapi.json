@@ -98,6 +98,21 @@
             ],
             "title": "Expenses Blocked"
           },
+          "expenses_reconnect": {
+            "title": "Expenses Reconnect",
+            "type": "boolean"
+          },
+          "expenses_where": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expenses Where"
+          },
           "master_data_from": {
             "title": "Master Data From",
             "type": "string"
@@ -176,6 +191,8 @@
           "connected_at",
           "bills_where",
           "expenses_blocked",
+          "expenses_reconnect",
+          "expenses_where",
           "master_data_from",
           "accounts",
           "waiting",

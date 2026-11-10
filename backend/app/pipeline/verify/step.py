@@ -515,8 +515,9 @@ def require_number(
             "receipt_number_needed",
             Severity.ERROR,
             issue.field,
-            f"No number found. {entry.name} needs one on every expense: type the number printed "
-            "on it (for example a receipt, booking or trip number).",
+            f"No number found. This expense is sent to {entry.name} as a bill, and every bill "
+            "there needs one: type the number printed on it (for example a receipt, booking or "
+            "trip number).",
         )
         if issue.code == "receipt_number_missing"
         else issue

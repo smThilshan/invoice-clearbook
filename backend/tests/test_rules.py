@@ -102,7 +102,7 @@ def test_expense_without_number_is_fine_unless_every_bill_needs_one() -> None:
 
     [needed] = [i for i in zoho if i.code == "receipt_number_needed"]
     assert (needed.severity, needed.field) == (Severity.ERROR, "invoice_number")
-    assert "Zoho Books needs one" in needed.message
+    assert "sent to Zoho Books as a bill, and every bill there needs one" in needed.message
     assert "receipt_number_missing" not in {i.code for i in zoho}
     assert {i.code for i in xero} == codes(receipt) - {"receipt_number_missing"}  # nothing said
 
