@@ -34,7 +34,7 @@ export interface FakeApi {
 }
 
 /** Tests act as this logged-in admin unless they answer /auth/me themselves (decision 71). */
-export const TEST_USER = { email: 'tester@missan.test', name: 'Made-up Tester', role: 'ADMIN' }
+export const TEST_USER = { email: 'tester@missan.test', name: 'Made-up Tester', role: 'ADMIN', must_change_password: false }
 const DEFAULTS: Record<string, Answer> = { '/auth/me': TEST_USER, '/clients/removed': [] }
 
 /**

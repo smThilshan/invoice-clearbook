@@ -2150,6 +2150,10 @@
             "title": "Email",
             "type": "string"
           },
+          "must_change_password": {
+            "title": "Must Change Password",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -2161,7 +2165,8 @@
         "required": [
           "email",
           "name",
-          "role"
+          "role",
+          "must_change_password"
         ],
         "title": "MeOut",
         "type": "object"
@@ -2216,6 +2221,26 @@
           "spans"
         ],
         "title": "PageTextOut",
+        "type": "object"
+      },
+      "PasswordChange": {
+        "properties": {
+          "current_password": {
+            "maxLength": 1024,
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "maxLength": 1024,
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChange",
         "type": "object"
       },
       "PaymentAccountOption": {
@@ -3674,6 +3699,48 @@
           }
         },
         "summary": "Me",
+        "tags": [
+          "login"
+        ]
+      }
+    },
+    "/auth/password": {
+      "post": {
+        "description": "Decision 93: the logged-in person replaces their password. Other sessions end; this one\nstays logged in. 400 when refused (never 401: that would log this session out), 429 while\nlocked.",
+        "operationId": "change_password_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Password",
         "tags": [
           "login"
         ]

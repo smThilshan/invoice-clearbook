@@ -93,12 +93,17 @@ Test from a phone on **mobile data**, not the office Wi-Fi: open the address. Th
 appears with a lock.
 
 ### 6. Users
-Live users are made in the live copy, not in development:
+Live users are made in the live copy, not in development. One account per person, on their own
+company email address; never a shared login (decision 93):
 ```
 cd ~/clearbook-live
-make add-user EMAIL=you@missan.ae NAME="Your Name" ROLE=admin
-make add-user EMAIL=accountant@missan.ae NAME="Name" ROLE=accountant
+make add-user EMAIL=you@<company domain> NAME="Your Name" ROLE=admin
+make add-user EMAIL=name@<company domain> NAME="Name" ROLE=accountant
+make remove-user EMAIL=old@<domain>     # deletes the account; its history is kept
 ```
+The first password: at least 14 characters, made by a password manager. Give it **by phone or
+in person, never in chat or email**. The person must choose their own at the first login, and
+nothing else opens until they have. A password reset (`make set-password`) works the same way.
 
 ### 7. Accounting systems
 - In the **Xero** developer portal, under your app's redirect URIs, add

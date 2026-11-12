@@ -4,6 +4,9 @@ The session is a signed token in an httpOnly, SameSite=Strict cookie: page scrip
 it, and the browser sends it with page images too. Every request that changes something must
 also carry the X-Clearbook header, which another site cannot add: a logged-in browser cannot be
 made to approve or delete from elsewhere.
+
+Decision 93: someone whose password an admin set can only see who they are, log out and
+change it (`signed_in_user`); every other route answers 403 until they have (`current_user`).
 """
 
 from typing import Annotated
@@ -45,6 +48,12 @@ class MeOut(BaseModel):
     email: str
     name: str
     role: Role
+    must_change_password: bool  # decision 93: nothing else opens until it is changed
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=1024)
+    new_password: str = Field(max_length=1024)
 
 
 def changes_allowed(request: Request) -> None:
@@ -53,8 +62,9 @@ def changes_allowed(request: Request) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "request refused: missing X-Clearbook")
 
 
-def current_user(request: Request, session: SessionDep, settings: SettingsDep) -> User:
-    """The logged-in, active user; 401 otherwise. Every protected router depends on it."""
+def signed_in_user(request: Request, session: SessionDep, settings: SettingsDep) -> User:
+    """The logged-in, active user, even one who must still change their password; 401
+    otherwise."""
     changes_allowed(request)
     token = request.cookies.get(COOKIE)
     try:
@@ -67,12 +77,21 @@ def current_user(request: Request, session: SessionDep, settings: SettingsDep) -
     return user
 
 
+def current_user(user: Annotated[User, Depends(signed_in_user)]) -> User:
+    """The logged-in user, password changed if it had to be. Every protected router depends
+    on it."""
+    if user.must_change_password:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "change your password first")
+    return user
+
+
 def require_admin(user: Annotated[User, Depends(current_user)]) -> User:
     if user.role is not Role.ADMIN:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "only an admin can do this")
     return user
 
 
+SignedInDep = Annotated[User, Depends(signed_in_user)]
 UserDep = Annotated[User, Depends(current_user)]
 AdminDep = Annotated[User, Depends(require_admin)]
 
@@ -99,15 +118,35 @@ def login(
         detail = str(exc) if isinstance(exc, SecretNotSetError) else "login is unavailable: Redis"
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail) from exc
     session.commit()
-    response.set_cookie(
-        COOKIE,
-        token,
-        max_age=settings.session_hours * 3600,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="strict",
-        path="/",
-    )
+    _set_session(response, settings, token)
+    return _me(user)
+
+
+@router.post("/password")
+def change_password(
+    body: PasswordChange,
+    user: SignedInDep,
+    response: Response,
+    session: SessionDep,
+    settings: SettingsDep,
+    redis: Annotated[Redis, Depends(get_login_redis)],
+) -> MeOut:
+    """Decision 93: the logged-in person replaces their password. Other sessions end; this one
+    stays logged in. 400 when refused (never 401: that would log this session out), 429 while
+    locked."""
+    try:
+        users.change_own_password(
+            session, settings, redis, user, current=body.current_password, new=body.new_password
+        )
+        token = create_token(settings, user.id, user.token_version)
+    except users.LoginLocked as exc:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
+    except users.UserError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except RedisError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "unavailable: Redis") from exc
+    session.commit()
+    _set_session(response, settings, token)
     return _me(user)
 
 
@@ -121,9 +160,26 @@ def logout(response: Response) -> Response:
 
 
 @router.get("/me")
-def me(user: UserDep) -> MeOut:
+def me(user: SignedInDep) -> MeOut:
     return _me(user)
 
 
+def _set_session(response: Response, settings: Settings, token: str) -> None:
+    response.set_cookie(
+        COOKIE,
+        token,
+        max_age=settings.session_hours * 3600,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="strict",
+        path="/",
+    )
+
+
 def _me(user: User) -> MeOut:
-    return MeOut(email=user.email, name=user.name, role=user.role)
+    return MeOut(
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        must_change_password=user.must_change_password,
+    )

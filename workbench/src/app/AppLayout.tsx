@@ -1,6 +1,6 @@
-import { Building2, FileSearch, FolderInput, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Building2, FileSearch, FolderInput, KeyRound, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
 import { useLogout, useMe } from '@/api/queries'
 
@@ -59,7 +59,7 @@ function NavItem({
   )
 }
 
-/** Who is logged in, and Log out (decision 71). */
+/** Who is logged in, Change password (decision 93) and Log out (decision 71). */
 function UserMenu() {
   const me = useMe().data
   const logout = useLogout()
@@ -71,6 +71,14 @@ function UserMenu() {
         {me.name}
         {me.role === 'ADMIN' ? ' · admin' : ''}
       </span>
+      <Link
+        to="/password"
+        aria-label="Change password"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground hover:bg-muted"
+      >
+        <KeyRound className="size-4" aria-hidden />
+        <span className="hidden sm:inline">Password</span>
+      </Link>
       <button
         type="button"
         onClick={() => logout.mutate(undefined, { onSettled: () => void navigate('/login') })}

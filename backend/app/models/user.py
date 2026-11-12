@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Index, String, func, true
+from sqlalchemy import Index, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import Role
@@ -23,5 +23,8 @@ class User(UuidPk, Timestamps, Base):
     # Raised on a password change or deactivation: every session signed before stops working.
     token_version: Mapped[int] = mapped_column(default=0, server_default="0")
     last_login_at: Mapped[datetime | None]
+    # Decision 93: a password an admin set (a new account, a reset) is the person's to replace;
+    # until they do, they can only change it.
+    must_change_password: Mapped[bool] = mapped_column(default=True, server_default=false())
 
     __table_args__ = (Index("uq_users_email", func.lower(email), unique=True),)

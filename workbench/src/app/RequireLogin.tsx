@@ -4,9 +4,11 @@ import { Navigate, useLocation } from 'react-router'
 import { useMe } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { SystemStatus } from '@/components/SystemStatus'
+import { ForcedPasswordChange } from '@/pages/account/PasswordPage'
 
 /** Every page but the login page needs a logged-in user (decision 71); the login page brings
- * the reader back to where they were. */
+ * the reader back to where they were. Someone whose password an admin set chooses their own
+ * first (decision 93). */
 export function RequireLogin({ children }: { children: ReactNode }) {
   const me = useMe()
   const { pathname, search } = useLocation()
@@ -24,5 +26,6 @@ export function RequireLogin({ children }: { children: ReactNode }) {
     )
   }
   if (!me.data) return <Navigate to="/login" replace state={{ from: pathname + search }} />
+  if (me.data.must_change_password) return <ForcedPasswordChange />
   return children
 }

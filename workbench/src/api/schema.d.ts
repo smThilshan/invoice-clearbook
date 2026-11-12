@@ -58,6 +58,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description Decision 93: the logged-in person replaces their password. Other sessions end; this one
+         *     stays logged in. 400 when refused (never 401: that would log this session out), 429 while
+         *     locked.
+         */
+        post: operations["change_password_auth_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients": {
         parameters: {
             query?: never;
@@ -1705,6 +1727,8 @@ export interface components {
         MeOut: {
             /** Email */
             email: string;
+            /** Must Change Password */
+            must_change_password: boolean;
             /** Name */
             name: string;
             role: components["schemas"]["Role"];
@@ -1730,6 +1754,13 @@ export interface components {
             spans: components["schemas"]["Span"][];
             /** Width */
             width: number;
+        };
+        /** PasswordChange */
+        PasswordChange: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
         };
         /** PaymentAccountOption */
         PaymentAccountOption: {
@@ -2279,6 +2310,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    change_password_auth_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

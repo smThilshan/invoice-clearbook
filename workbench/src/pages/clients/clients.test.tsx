@@ -232,7 +232,7 @@ describe('clients', () => {
   it('shows an accountant how lines are sent, without letting them change it', async () => {
     mockApi({
       '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
-      '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT' },
+      '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT', must_change_password: false },
     })  // prettier-ignore
     renderApp('/clients')
 
@@ -488,7 +488,7 @@ describe('companies: remove and restore (decision 91)', () => {
     const api = mockApi({
       '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
       '/clients/removed': CLIENTS.slice(1),
-      '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT' },
+      '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT', must_change_password: false },
     })  // prettier-ignore
     renderApp('/clients')
 

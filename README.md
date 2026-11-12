@@ -35,7 +35,10 @@ make add-user EMAIL=you@missan.ae NAME="Your Name" ROLE=admin      # or ROLE=acc
 make list-users
 make set-password EMAIL=you@missan.ae    # also logs out that user's sessions
 make deactivate-user EMAIL=you@missan.ae # stops access at once
+make remove-user EMAIL=you@missan.ae     # deletes the account; its history is kept
 ```
+Passwords have at least 14 characters. A password set here is for the first login only: the
+person must choose their own before anything else opens (decision 93).
 Accountants work on every document of every client; admins also connect and sync the accounting
 system and import master data.
 

@@ -5,7 +5,7 @@ BACKEND := backend
 UV := uv run --directory $(BACKEND)
 COMPOSE := docker compose
 
-.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients jwt-secret add-user list-users set-password deactivate-user live-install deploy live-status live-backup live-restore-test
+.PHONY: help install up down logs migrate migration api worker web web-install web-types web-lint web-test lint fmt test test-all check smoke-llm smoke-read llm-load seed import-master-data resume retry-document add-client list-clients jwt-secret add-user list-users set-password deactivate-user remove-user live-install deploy live-status live-backup live-restore-test
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -97,6 +97,10 @@ set-password: ## Set a user's password and log out their sessions: make set-pass
 deactivate-user: ## Stop a user's access at once: make deactivate-user EMAIL=a@b.com
 	@test -n "$(EMAIL)" || { echo 'usage: make deactivate-user EMAIL=<email>'; exit 1; }
 	@$(UV) python scripts/manage_users.py deactivate "$(EMAIL)"
+
+remove-user: ## Delete a user's account for good (its history is kept): make remove-user EMAIL=a@b.com
+	@test -n "$(EMAIL)" || { echo 'usage: make remove-user EMAIL=<email>'; exit 1; }
+	@$(UV) python scripts/manage_users.py remove "$(EMAIL)"
 
 # --- Live copy on this Mac (decision 77, docs/deploy.md) ----------------------------------
 

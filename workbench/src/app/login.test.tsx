@@ -6,7 +6,7 @@ import type { AccountingStatus, Readiness } from '@/api/client'
 import { mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
-const ME = { email: 'accountant@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT' }
+const ME = { email: 'accountant@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT', must_change_password: false }
 const NOBODY = reply(401, { detail: 'log in first' })
 
 const realFetch = globalThis.fetch
@@ -123,5 +123,75 @@ describe('login (decision 71)', () => {
     expect(await within(row).findByText('An admin connects the accounting system.')).toBeInTheDocument()
     expect(within(row).getByRole('button', { name: /Sync from Xero/ })).toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument()
+  })
+
+  it('makes a new account choose its own password before anything else opens (decision 93)', async () => {
+    let me = { ...ME, must_change_password: true }
+    const api = mockApi({
+      '/health/ready': READY,
+      '/auth/me': () => me,
+      'POST /auth/password': () => {
+        me = { ...ME, must_change_password: false }
+        return me
+      },
+      '/clients': [],
+    })
+    const user = userEvent.setup()
+    renderApp('/queue')
+
+    const form = await screen.findByRole('form', { name: 'Change password' })
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    await user.type(within(form).getByLabelText('Password you were given'), 'made-up first pass')
+    await user.type(within(form).getByLabelText('New password'), 'short one')
+    expect(within(form).getByText('At least 14 characters.')).toBeInTheDocument()
+    expect(within(form).getByRole('button', { name: 'Change password' })).toBeDisabled()
+    await user.clear(within(form).getByLabelText('New password'))
+    await user.type(within(form).getByLabelText('New password'), 'a made-up new password')
+    await user.type(within(form).getByLabelText('New password again'), 'a made-up new password')
+    await user.click(within(form).getByRole('button', { name: 'Change password' }))
+
+    expect(await screen.findByText('Made-up Accountant')).toBeInTheDocument()
+    expect(api.bodies['POST /auth/password']).toEqual({ current_password: 'made-up first pass',
+                                                        new_password: 'a made-up new password' })  // prettier-ignore
+  })
+
+  it('says why a password was not changed, and stays on the form', async () => {
+    mockApi({
+      '/health/ready': READY, '/auth/me': { ...ME, must_change_password: true },
+      'POST /auth/password': reply(400, { detail: 'The current password is wrong.' }),
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    const form = await screen.findByRole('form', { name: 'Change password' })
+    await user.type(within(form).getByLabelText('Password you were given'), 'not the password')
+    await user.type(within(form).getByLabelText('New password'), 'a made-up new password')
+    await user.type(within(form).getByLabelText('New password again'), 'a made-up new password')
+    await user.click(within(form).getByRole('button', { name: 'Change password' }))
+
+    expect(await within(form).findByText('The current password is wrong.')).toBeInTheDocument()
+  })
+
+  it('lets anyone change their password from the user menu', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/auth/me': ME, '/clients': [],
+      'POST /auth/password': ME,
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await user.click(await screen.findByRole('link', { name: 'Change password' }))
+    const form = await screen.findByRole('form', { name: 'Change password' })
+    await user.type(within(form).getByLabelText('Current password'), 'made-up password 1')
+    await user.type(within(form).getByLabelText('New password'), 'a made-up new password')
+    await user.type(within(form).getByLabelText('New password again'), 'a made-up new passwrd')
+    expect(within(form).getByText('The two new passwords differ.')).toBeInTheDocument()
+    await user.clear(within(form).getByLabelText('New password again'))
+    await user.type(within(form).getByLabelText('New password again'), 'a made-up new password')
+    await user.click(within(form).getByRole('button', { name: 'Change password' }))
+
+    expect(await within(form).findByText(/Password changed/)).toBeInTheDocument()
+    expect(api.bodies['POST /auth/password']).toEqual({ current_password: 'made-up password 1',
+                                                        new_password: 'a made-up new password' })  // prettier-ignore
   })
 })

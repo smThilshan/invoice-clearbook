@@ -45,6 +45,10 @@ export const routes: RouteObject[] = [
           Component: (await import('@/pages/document/DocumentPage')).DocumentPage,
         }),
       },
+      {
+        path: 'password',
+        lazy: async () => ({ Component: (await import('@/pages/account/PasswordPage')).PasswordPage }),
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

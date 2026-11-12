@@ -11,6 +11,7 @@ export type Readiness = Schemas['Readiness']
 export type Me = Schemas['MeOut']
 export type Role = Schemas['Role']
 export type LoginBody = Schemas['LoginBody']
+export type PasswordChange = Schemas['PasswordChange']
 export type ModelStatus = Schemas['ModelStatus']
 export type Client = Schemas['ClientOut']
 export type ClientCreate = Schemas['ClientCreate']
@@ -141,6 +142,8 @@ export const api = {
   me: () => request<Me>('/auth/me'),
   login: (body: LoginBody) => sendJson<Me>('POST', '/auth/login', body),
   logout: () => sendNoContent('POST', '/auth/logout'),
+  /** Decision 93: the logged-in person replaces their password; other sessions end. */
+  changePassword: (body: PasswordChange) => sendJson<Me>('POST', '/auth/password', body),
   clients: () => request<Client[]>('/clients'),
   /** Is the client connected to its accounting system (task 5.3)? */
   accounting: (clientId: string) =>

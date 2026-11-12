@@ -8,6 +8,7 @@ import {
   type ClientSettings,
   type LineGrouping,
   type LoginBody,
+  type PasswordChange,
   type Me,
   type DocumentDetail,
   type DocumentUpdate,
@@ -62,6 +63,15 @@ export function useLogin() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (body: LoginBody) => api.login(body),
+    onSuccess: (me) => client.setQueryData(queryKeys.me, me),
+  })
+}
+
+/** Decision 93: the answer is the person again, now free to open every page. */
+export function useChangePassword() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: PasswordChange) => api.changePassword(body),
     onSuccess: (me) => client.setQueryData(queryKeys.me, me),
   })
 }

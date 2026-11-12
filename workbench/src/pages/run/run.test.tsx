@@ -360,7 +360,7 @@ describe('run screen: documents on SharePoint', () => {
 
   it('tells an accountant an admin connects SharePoint, and offers this computer meanwhile', async () => {
     backend({
-      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },
+      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT', must_change_password: false },
       '/sharepoint/status': { ...SHAREPOINT, needs_reconnect: true, reconnect_reason: 'Microsoft no longer accepts the SharePoint sign-in' },
     })
     const user = userEvent.setup()
@@ -631,7 +631,7 @@ describe('run screen: the client\'s accounting system', () => {
 
   it('lets an accountant sync, but not connect', async () => {
     backend({
-      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },
+      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT', must_change_password: false },
       '/clients/cafe-al-noor/accounting': NOT_SYNCED,
     })
     const user = userEvent.setup()
@@ -644,7 +644,7 @@ describe('run screen: the client\'s accounting system', () => {
 
   it('asks an accountant to get an admin, without buttons they cannot use', async () => {
     backend({
-      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT' },
+      '/auth/me': { email: 'acc@missan.test', name: 'Accountant', role: 'ACCOUNTANT', must_change_password: false },
       '/clients/cafe-al-noor/accounting': NOT_CONNECTED,
     })
     const user = userEvent.setup()
