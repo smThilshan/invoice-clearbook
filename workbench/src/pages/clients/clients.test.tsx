@@ -7,8 +7,8 @@ import { mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
 const CLIENTS = [
-  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null },
-  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null },
+  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null, own_trns: [] },
+  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null, own_trns: [] },
 ]
 const NOTHING: PostingSummary = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
@@ -81,6 +81,44 @@ describe('clients', () => {
     await waitFor(() =>
       expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({ line_grouping: 'BY_ITEM' }),
     )
+  })
+
+  it('lets an admin enter the organization\'s own TRNs', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      'PATCH /clients/cafe-al-noor': { ...CLIENTS[0], own_trns: ['100235614300003', '100568308900003'] },
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(await within(row).findByText('none entered')).toBeInTheDocument()
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    await user.type(within(row).getByLabelText(/Own TRNs/), '100-2356-1430-0003, 100568308900003,')
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({
+        own_trns: ['100-2356-1430-0003', '100568308900003'],
+      }),
+    )
+  })
+
+  it('says why own TRNs were not saved, and keeps what was typed', async () => {
+    mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      'PATCH /clients/cafe-al-noor': reply(422, { detail: 'a TRN is 15 digits: 1002356143 is not' }),
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    await user.click(await within(row).findByRole('button', { name: 'Edit' }))
+    await user.type(within(row).getByLabelText(/Own TRNs/), '1002356143')
+    await user.click(within(row).getByRole('button', { name: 'Save' }))
+
+    expect(await within(row).findByText(/15 digits: 1002356143 is not/)).toBeInTheDocument()
+    expect(within(row).getByLabelText(/Own TRNs/)).toHaveValue('1002356143')
   })
 
   it('lets an admin send expenses as expenses, usually paid through a Zoho account', async () => {
@@ -201,6 +239,8 @@ describe('clients', () => {
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
     expect(await within(row).findByText('By account: all products with the same account and VAT in one line')).toBeInTheDocument()
     expect(within(row).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(within(row).getByText('none entered')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
   })
 
   it('shows each client\'s accounting connection, and connects through Xero', async () => {

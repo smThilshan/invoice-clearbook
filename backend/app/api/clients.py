@@ -39,6 +39,7 @@ from app.services.clients import (
     remove_client,
     restore_client,
     set_expense_sending,
+    set_own_trns,
 )
 from app.services.company_deletion import delete_company, preview, removed_client
 from app.services.master_data import Counts, import_master_data
@@ -57,6 +58,7 @@ class ClientOut(BaseModel):
     line_grouping: LineGrouping  # how approved lines are sent (decision 73)
     expenses_sent_as: ExpensesSentAs  # decision 89
     paid_through: str | None  # the account expenses are usually paid through; None = each time
+    own_trns: list[str]  # its own TRNs, 15 digits each (decision 92)
 
 
 class DeletionPreviewOut(BaseModel):
@@ -87,6 +89,7 @@ class ClientSettings(BaseModel):
     line_grouping: LineGrouping | None = None
     expenses_sent_as: ExpensesSentAs | None = None
     paid_through: str | None = None  # send null to choose on each expense
+    own_trns: list[str] | None = None  # the whole list; [] = none known (decision 92)
 
 
 class ClientCreate(BaseModel):
@@ -249,6 +252,11 @@ def update_client(
             )
         except ClientError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    if body.own_trns is not None:
+        try:
+            set_own_trns(client, body.own_trns)
+        except ClientError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     if body.line_grouping is not None:
         client.line_grouping = body.line_grouping
     session.commit()
@@ -380,6 +388,7 @@ def _out(client: Client) -> ClientOut:
         line_grouping=client.line_grouping,
         expenses_sent_as=client.expenses_sent_as,
         paid_through=client.paid_through,
+        own_trns=client.own_trns,
     )
 
 

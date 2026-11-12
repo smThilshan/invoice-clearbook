@@ -150,6 +150,15 @@ export function useSetLineGrouping() {
   })
 }
 
+export function useSetOwnTrns() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ clientId, ownTrns }: { clientId: string; ownTrns: string[] }) =>
+      api.setOwnTrns(clientId, ownTrns),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
+  })
+}
+
 export function useSetExpenseSending() {
   const client = useQueryClient()
   return useMutation({

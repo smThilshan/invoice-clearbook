@@ -365,6 +365,13 @@
             "title": "Name",
             "type": "string"
           },
+          "own_trns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Own Trns",
+            "type": "array"
+          },
           "paid_through": {
             "anyOf": [
               {
@@ -382,7 +389,8 @@
           "name",
           "line_grouping",
           "expenses_sent_as",
-          "paid_through"
+          "paid_through",
+          "own_trns"
         ],
         "title": "ClientOut",
         "type": "object"
@@ -409,6 +417,20 @@
                 "type": "null"
               }
             ]
+          },
+          "own_trns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Trns"
           },
           "paid_through": {
             "anyOf": [

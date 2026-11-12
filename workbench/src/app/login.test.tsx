@@ -114,7 +114,7 @@ describe('login (decision 71)', () => {
     }  // prettier-ignore
     mockApi({
       '/health/ready': READY, '/auth/me': ME,
-      '/clients': [{ client_id: 'cafe', name: 'Cafe Al Noor', line_grouping: 'BY_ITEM', expenses_sent_as: 'BILL', paid_through: null }],
+      '/clients': [{ client_id: 'cafe', name: 'Cafe Al Noor', line_grouping: 'BY_ITEM', expenses_sent_as: 'BILL', paid_through: null, own_trns: [] }],
       '/clients/cafe/accounting': connected,
     })  // prettier-ignore
     renderApp('/clients')

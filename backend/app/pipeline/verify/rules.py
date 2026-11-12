@@ -59,15 +59,23 @@ class RuleContext:
     vat_tolerance_per_line: Decimal = CENT
     period_max_days_before: int = 90
     future_date_slack_days: int = 1
+    own_trns: tuple[str, ...] = ()  # the client's own TRNs (decision 92); () = none known
 
     @classmethod
     def from_settings(
-        cls, settings: Settings, *, folder_date: date | None, today: date, page_text: str
+        cls,
+        settings: Settings,
+        *,
+        folder_date: date | None,
+        today: date,
+        page_text: str,
+        own_trns: tuple[str, ...] = (),
     ) -> "RuleContext":
         return cls(
             folder_date=folder_date,
             today=today,
             page_text=page_text,
+            own_trns=own_trns,
             vat_tolerance_per_line=settings.vat_tolerance_per_line,
             period_max_days_before=settings.period_max_days_before,
             future_date_slack_days=settings.future_date_slack_days,
@@ -309,6 +317,8 @@ def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
         if value is None:
             continue
         digits = normalize_trn(value)
+        if field == "recipient_trn" and not digits.strip("0"):
+            continue  # "0", "UN-REGISTERED", "N/A": printed as having none, not a wrong TRN
         if not is_valid_trn(digits):
             issues.append(
                 Issue(
@@ -319,7 +329,16 @@ def check_trn(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
                 )
             )
     vendor, recipient = invoice.vendor_trn, invoice.recipient_trn
-    if vendor and recipient and normalize_trn(vendor) == normalize_trn(recipient):
+    if vendor and normalize_trn(vendor) in ctx.own_trns:
+        issues.append(
+            _error(
+                "trn_is_own",
+                "vendor_trn",
+                "The supplier VAT registration no is your own TRN: it was misread, or this is "
+                "your own sales invoice, not a supplier's bill.",
+            )
+        )
+    elif vendor and recipient and normalize_trn(vendor) == normalize_trn(recipient):
         issues.append(
             _error(
                 "trn_is_recipient",

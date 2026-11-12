@@ -1,4 +1,5 @@
 from sqlalchemy import String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import AccountingProvider, ExpensesSentAs, LineGrouping
@@ -35,5 +36,8 @@ class Client(UuidPk, ClientScoped, Timestamps, Base):
         server_default=ExpensesSentAs.BILL.value,
     )
     paid_through: Mapped[str | None] = mapped_column(String(64))
+    # Its own TRNs (decision 92), 15 digits each: one per legal entity whose invoices it gets.
+    # On a document, one of these is the customer's TRN, never the supplier's.
+    own_trns: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
 
     __table_args__ = (UniqueConstraint("client_id"),)

@@ -170,6 +170,9 @@ export const api = {
   /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
   setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),
+  /** Decision 92: the client's own TRNs, the whole list (admin only). */
+  setOwnTrns: (clientId: string, ownTrns: string[]) =>
+    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { own_trns: ownTrns }),
   /** Decision 89: how expenses are sent and the account usually paid through (admin only). */
   setExpenseSending: (clientId: string, settings: Pick<ClientSettings, 'expenses_sent_as' | 'paid_through'>) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, settings),

@@ -1213,6 +1213,8 @@ export interface components {
             line_grouping: components["schemas"]["LineGrouping"];
             /** Name */
             name: string;
+            /** Own Trns */
+            own_trns: string[];
             /** Paid Through */
             paid_through: string | null;
         };
@@ -1223,6 +1225,8 @@ export interface components {
         ClientSettings: {
             expenses_sent_as?: components["schemas"]["ExpensesSentAs"] | null;
             line_grouping?: components["schemas"]["LineGrouping"] | null;
+            /** Own Trns */
+            own_trns?: string[] | null;
             /** Paid Through */
             paid_through?: string | null;
         };

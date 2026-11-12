@@ -14,11 +14,15 @@ the model's (rule 7: the model never checks itself). Text matching only, no mode
   even when its number cannot be read (a scanner's "10029634270000?"): then the supplier TRN
   is unknown, and the next TRN down is not mistaken for it. With exactly two TRN labels and no
   customer label, the lower one is the customer's.
+- The client's own TRNs, when known (decision 92), settle it: one printed is the customer's.
+  Of the others, a single readable TRN is the supplier's wherever it is printed (a supplier
+  block that OCR merged with "Ship to:" no longer hides it), unless a label above it could not
+  be read (it may be the supplier's). Otherwise the positions decide, as without them.
 - Not sure or unreadable = None: the caller falls back to the plain grounding check.
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 from app.pipeline.read import PageText
@@ -58,7 +62,8 @@ class _Label:
     customer_block: bool
 
 
-def find_printed_trns(pages: Sequence[PageText]) -> PrintedTrns:
+def find_printed_trns(pages: Sequence[PageText], own: Collection[str] = ()) -> PrintedTrns:
+    """`own`: the client's own TRNs, 15 digits each; none known = by position only."""
     lines = [line for page in pages for line in page_lines(page)]
     labels: list[_Label] = []
     for index, line in enumerate(lines):
@@ -67,7 +72,19 @@ def find_printed_trns(pages: Sequence[PageText]) -> PrintedTrns:
             if digits is None or all(label.digits != digits for label in labels):
                 block = _in_customer_block(lines, index, match.start())
                 labels.append(_Label(digits, line, block))
+    return _with_own(labels, own) if own else _by_position(labels)
 
+
+def _with_own(labels: list[_Label], own: Collection[str]) -> PrintedTrns:
+    customer = next((label.digits for label in labels if label.digits in own), None)
+    others = [label for label in labels if label.digits not in own]  # in reading order
+    readable = [index for index, label in enumerate(others) if label.digits is not None]
+    if len(readable) == 1 and all(label.digits for label in others[: readable[0]]):
+        return PrintedTrns(supplier=others[readable[0]].digits, customer=customer)
+    return PrintedTrns(supplier=_by_position(others).supplier, customer=customer)
+
+
+def _by_position(labels: list[_Label]) -> PrintedTrns:
     customer = [label for label in labels if label.customer_block]
     others = [label for label in labels if not label.customer_block]  # top to bottom
     supplier = others[0] if others and others[0].line.page == 1 else None

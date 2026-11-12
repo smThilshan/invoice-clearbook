@@ -16,6 +16,7 @@ from app.models import Client, Outbox, Run, RunStatus
 from app.models.outbox import ACTIVE_OUTBOX
 from app.pipeline import coding
 from app.pipeline.folders import InboxError, list_subfolders, resolve_inside
+from app.pipeline.verify.normalize import is_valid_trn, normalize_trn
 from app.services.accounting_connections import connection_of
 
 CLIENT_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,62}[a-z0-9]")  # e.g. "cafe-al-noor"
@@ -166,6 +167,16 @@ def set_expense_sending(
             )
     client.expenses_sent_as = sent_as
     client.paid_through = paid_through
+
+
+def set_own_trns(client: Client, trns: list[str]) -> None:
+    """Decision 92: the client's own TRNs, as typed (spaces and dashes allowed), each 15 digits.
+    An empty list = none known: the TRN checks then work as before."""
+    digits = [normalize_trn(trn) for trn in trns if trn.strip()]
+    wrong = [trn for trn in digits if not is_valid_trn(trn)]
+    if wrong:
+        raise ClientError(f"a TRN is 15 digits: {', '.join(wrong)} is not")
+    client.own_trns = list(dict.fromkeys(digits))  # each once, in the order typed
 
 
 def expenses_blocked(session: Session, registry: Registry, client_id: str) -> str | None:

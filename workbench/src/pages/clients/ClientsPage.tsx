@@ -22,6 +22,7 @@ import {
   useSendWaiting,
   useSetExpenseSending,
   useSetLineGrouping,
+  useSetOwnTrns,
   useSyncAccounting,
 } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
@@ -30,6 +31,7 @@ import { SharePointConnection } from '@/components/SharePointConnection'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -179,6 +181,7 @@ function ClientRow({ client }: { client: Client }) {
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
           <LinesSent client={client} system={system} admin={admin} />
+          <OwnTrns client={client} admin={admin} />
           {connected && (
             <ExpensesSent
               client={client}
@@ -343,6 +346,64 @@ function LinesSent({ client, system, admin }: { client: Client; system: string; 
         <span>{LINE_GROUPING_LABELS[client.line_grouping]}</span>
       )}
       {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
+    </div>
+  )
+}
+
+/** Decision 92: the business's own TRNs. On a document, one of these is the customer's TRN,
+ * never the supplier's: the checks then tell the two apart and offer the supplier's. */
+function OwnTrns({ client, admin }: { client: Client; admin: boolean }) {
+  const change = useSetOwnTrns()
+  const [editing, setEditing] = useState<string | null>(null)
+  const shown = client.own_trns.length ? client.own_trns.join(', ') : 'none entered'
+  const label = 'Own TRNs'
+  if (editing === null) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground">{label}:</span>
+        <span>{shown}</span>
+        {admin && (
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setEditing(client.own_trns.join(', '))}>
+            Edit
+          </Button>
+        )}
+      </div>
+    )
+  }
+  const save = () =>
+    change.mutate(
+      { clientId: client.client_id, ownTrns: editing.split(/[,\n]/).map((trn) => trn.trim()).filter(Boolean) },
+      { onSuccess: () => setEditing(null) },
+    )
+  return (
+    <div className="space-y-1.5 text-sm">
+      <label htmlFor={`own-trns-${client.client_id}`} className="text-muted-foreground">
+        {label}: every TRN its invoices are addressed to, separated by commas
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          id={`own-trns-${client.client_id}`}
+          className="h-8 max-w-md"
+          autoComplete="off"
+          value={editing}
+          onChange={(event) => setEditing(event.target.value)}
+        />
+        <Button type="button" size="sm" disabled={change.isPending} onClick={save}>
+          {change.isPending ? 'Saving…' : 'Save'}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setEditing(null)
+            change.reset()
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+      {change.isError && <ErrorAlert title="Not saved" error={change.error} />}
     </div>
   )
 }

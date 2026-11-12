@@ -83,8 +83,13 @@ class _Witness:
 
 
 def check_grounding(
-    invoice: Invoice, pages: Sequence[PageText], *, verified: Collection[str] = ()
+    invoice: Invoice,
+    pages: Sequence[PageText],
+    *,
+    verified: Collection[str] = (),
+    own_trns: Collection[str] = (),
 ) -> list[Issue]:
+    """`own_trns`: the client's own TRNs (decision 92), to tell whose TRN is whose."""
     if invoice.document_type is DocumentType.NON_POSTABLE:
         return []  # parked, never posted (same as the validation rules)
     witness = _witness(pages)
@@ -93,7 +98,7 @@ def check_grounding(
         *_vat_printed(invoice, pages),
         *_dates(invoice, witness),
         *_number(invoice, witness),
-        *_trn(invoice, witness, find_printed_trns(pages)),
+        *_trn(invoice, witness, find_printed_trns(pages, own_trns)),
     ]
     return [issue for issue in issues if issue.field not in verified]
 

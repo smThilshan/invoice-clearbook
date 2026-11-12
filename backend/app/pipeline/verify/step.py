@@ -283,11 +283,13 @@ def assess(
     issued = invoice.invoice_date if invoice else None
     folder = folder_for(issued, document.folder_date,
                         known=folder_year_known(document.source_path))  # fmt: skip
+    own_trns = _own_trns(session, document.client_id)
     context = RuleContext.from_settings(
         settings,
         folder_date=folder,
         today=today,
         page_text="\n".join(page.text for page in pages),
+        own_trns=own_trns,
     )
 
     error = _last_extraction_error(session, document) if invoice is None else None
@@ -298,7 +300,7 @@ def assess(
     issues += filled
     park = False
     if invoice is not None:
-        issues += check_grounding(invoice, pages, verified=verified)
+        issues += check_grounding(invoice, pages, verified=verified, own_trns=own_trns)
 
         # Keys are per type (decision 18): a type changed in review (a bill now a receipt)
         # releases the old key before the new type is saved, then claims one for it. Else the
@@ -589,6 +591,12 @@ def _last_extraction_error(session: Session, document: Document) -> str | None:
         .order_by(Extraction.attempt.desc())
         .limit(1)
     ).first()
+
+
+def _own_trns(session: Session, client_id: str) -> tuple[str, ...]:
+    """The client's own TRNs (decision 92); none known = the TRN checks work as before."""
+    trns = session.scalar(select(Client.own_trns).where(Client.client_id == client_id))
+    return tuple(trns or ())
 
 
 def _provider(session: Session, document: Document, settings: Settings) -> AccountingProvider:

@@ -303,6 +303,30 @@ def test_different_supplier_and_customer_trn_are_fine() -> None:
     assert "trn_is_recipient" not in codes(invoice(recipient_trn="100222333444555"))
 
 
+@pytest.mark.parametrize("printed", ["0", "UN-REGISTERED", "N/A", "000", "-"])
+def test_customer_printed_as_having_no_trn_is_not_a_wrong_trn(printed: str) -> None:
+    assert "trn_invalid" not in codes(invoice(recipient_trn=printed))
+
+
+def test_a_supplier_trn_printed_as_none_is_still_an_error() -> None:
+    assert only(invoice(vendor_trn="0"), "trn_invalid").severity is Severity.ERROR
+
+
+def test_own_trn_given_as_the_suppliers_is_an_error() -> None:
+    ctx = context(own_trns=("100999000000001", "100999000000002"))
+
+    issue = only(invoice(vendor_trn="100-9990-0000-0002", recipient_trn=None), "trn_is_own", ctx)
+
+    assert (issue.severity, issue.field) == (Severity.ERROR, "vendor_trn")
+    assert "trn_is_recipient" not in codes(
+        invoice(vendor_trn="100999000000002", recipient_trn="100999000000002"), ctx
+    )
+
+
+def test_a_supplier_trn_that_is_not_own_is_fine() -> None:
+    assert "trn_is_own" not in codes(invoice(), context(own_trns=("100222333444555",)))
+
+
 # --- dates and period -------------------------------------------------------------------
 
 

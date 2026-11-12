@@ -523,7 +523,7 @@ describe('review screen', () => {
   it('says how the lines will be sent to the connected accounting system', async () => {
     await open(mockApi({
       '/health/ready': READY, '/clients/cafe/coding-options': OPTIONS, [`/documents/${ID}`]: detail(),
-      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'BILL', paid_through: null }],
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'BILL', paid_through: null, own_trns: [] }],
       '/clients/cafe/accounting': { connected: true, provider_name: 'Xero' },
     }))  // prettier-ignore
 
@@ -540,7 +540,7 @@ describe('review screen', () => {
     })  // prettier-ignore
     const api = mockApi({
       '/health/ready': READY, [`/documents/${ID}`]: expense, [`PATCH /documents/${ID}`]: expense,
-      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'EXPENSE', paid_through: '4600361' }],
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'EXPENSE', paid_through: '4600361', own_trns: [] }],
       '/clients/cafe/accounting': { connected: true, provider_name: 'Zoho Books', expenses_blocked: null },
       '/clients/cafe/coding-options': { ...OPTIONS, paid_through: [
         { code: '4600361', label: 'Petty Cash', group: 'Cash' },
@@ -563,7 +563,7 @@ describe('review screen', () => {
   it('asks for no paid-through account on a bill, or while expenses go as bills', async () => {
     const api = mockApi({
       '/health/ready': READY, [`/documents/${ID}`]: detail(), [`PATCH /documents/${ID}`]: detail(),
-      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'EXPENSE', paid_through: null }],
+      '/clients': [{ client_id: 'cafe', name: 'Cafe', line_grouping: 'BY_ITEM', expenses_sent_as: 'EXPENSE', paid_through: null, own_trns: [] }],
       '/clients/cafe/accounting': { connected: true, provider_name: 'Zoho Books', expenses_blocked: null },
       '/clients/cafe/coding-options': OPTIONS,
     })  // prettier-ignore

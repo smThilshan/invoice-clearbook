@@ -142,6 +142,42 @@ def test_browsing_outside_the_restaurant_is_refused(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+# --- decision 92: the client's own TRNs -------------------------------------------------------
+
+
+def test_an_admin_enters_the_clients_own_trns(client: TestClient, session: Session) -> None:
+    from app.models import Client
+
+    response = client.patch(
+        f"/clients/{CLIENT}",
+        json={"own_trns": ["100-2356-1430-0003", "100111222333003", " ", "100235614300003"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["own_trns"] == ["100235614300003", "100111222333003"]
+    saved = session.query(Client).filter_by(client_id=CLIENT).one()
+    assert saved.own_trns == ["100235614300003", "100111222333003"]
+    assert client.patch(f"/clients/{CLIENT}", json={"own_trns": []}).json()["own_trns"] == []
+
+
+def test_an_own_trn_must_be_15_digits(client: TestClient, session: Session) -> None:
+    from app.models import Client
+
+    response = client.patch(f"/clients/{CLIENT}", json={"own_trns": ["10023561430003"]})
+
+    assert response.status_code == 422
+    assert "15 digits" in response.json()["detail"]
+    assert session.query(Client).filter_by(client_id=CLIENT).one().own_trns == []
+
+
+def test_only_an_admin_enters_own_trns(client: TestClient) -> None:
+    from app.domain.enums import Role
+
+    log_in(client.app, Role.ACCOUNTANT)  # type: ignore[arg-type]
+
+    assert client.patch(f"/clients/{CLIENT}", json={"own_trns": []}).status_code == 403
+
+
 # --- decision 35: any client, any folder in the allowed places --------------------------
 
 
@@ -171,7 +207,7 @@ def test_a_client_is_created_from_a_name(anywhere: TestClient) -> None:
     assert first.status_code == 201
     assert first.json() == {"client_id": "blue-sky-trading-llc", "name": "Blue Sky Trading LLC",
                             "line_grouping": "BY_ITEM", "expenses_sent_as": "BILL",
-                            "paid_through": None}  # fmt: skip
+                            "paid_through": None, "own_trns": []}  # fmt: skip
     assert second.json()["client_id"] == "blue-sky-trading-llc-2"
     assert anywhere.post("/clients", json={"name": ""}).status_code == 422
 

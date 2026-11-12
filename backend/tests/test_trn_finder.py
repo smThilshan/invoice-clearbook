@@ -153,3 +153,67 @@ def test_trn_confirmed_by_the_accountant_is_not_questioned() -> None:
                       recipient_trn=CUSTOMER)  # fmt: skip
 
     assert trn_issues(invoice, frozenset({"vendor_trn"})) == []
+
+
+# --- decision 92: the client's own TRNs settle whose TRN is whose -------------------------
+
+
+def test_without_own_trns_nothing_changes() -> None:
+    lines = ((0.14, 0.17, f"VAT REGISTRATION NO:{SUPPLIER}"), (0.29, 0.07, f"TRN : {CUSTOMER}"))
+
+    assert find_printed_trns([page(*lines)], own=()) == find_printed_trns([page(*lines)])
+
+
+def test_own_trn_printed_as_vat_no_is_the_customers_not_the_suppliers() -> None:
+    """Luma Trading: the supplier's header TRN unreadable on the photo, the customer's printed
+    as "VAT No." on the right. Without the own TRN it was taken for the supplier's."""
+    lines = (
+        (0.20, 0.17, "- '955900003"),  # the supplier's TRN, cut off by the photo
+        (0.36, 0.67, f"VAT No. : {CUSTOMER}"),
+    )
+
+    assert found(*lines) == PrintedTrns(CUSTOMER, None)  # before: the customer's as supplier's
+    assert find_printed_trns([page(*lines)], own={CUSTOMER}) == PrintedTrns(None, CUSTOMER)
+
+
+def test_a_single_other_trn_is_the_suppliers_even_on_a_merged_ship_to_line() -> None:
+    """Cake Walk: OCR merged "Ship to:" (left) with the supplier's "VAT number" (right)."""
+    lines = (
+        (0.19, 0.10, f"Ship to: VAT number {SUPPLIER}"),
+        (0.24, 0.10, "TRN Number."),  # the customer's, left empty
+    )
+
+    assert found(*lines) == PrintedTrns(None, None)  # before: in the customer block
+    assert find_printed_trns([page(*lines)], own={CUSTOMER}) == PrintedTrns(SUPPLIER, None)
+
+
+def test_an_unreadable_label_above_keeps_the_supplier_unknown() -> None:
+    lines = (
+        (0.10, 0.17, "TRN : 1001112223"),  # the header's TRN, unreadable: maybe the supplier's
+        (0.30, 0.07, f"Bill to TRN : {SUPPLIER}"),
+    )
+
+    assert find_printed_trns([page(*lines)], own={CUSTOMER}).supplier is None
+
+
+def test_with_several_other_trns_the_positions_decide() -> None:
+    other = "100777888999003"
+    lines = (
+        (0.14, 0.17, f"VAT REGISTRATION NO:{SUPPLIER}"),
+        (0.29, 0.07, f"Bill to TRN : {other}"),
+        (0.31, 0.07, f"TRN : {CUSTOMER}"),
+    )
+
+    assert find_printed_trns([page(*lines)], own={CUSTOMER}) == PrintedTrns(SUPPLIER, CUSTOMER)
+
+
+def test_supplier_trn_misread_gets_the_printed_one_as_one_click() -> None:
+    lines = ((0.19, 0.10, f"Ship to: VAT number {SUPPLIER}"), (0.24, 0.10, "TRN Number."))
+    invoice = Invoice(document_type=DocumentType.BILL, vendor_trn="cw-381519")
+
+    issues = check_grounding(invoice, [page(*lines)], own_trns={CUSTOMER})
+
+    assert [(i.code, i.field, i.suggestion, i.severity) for i in issues
+            if i.field == "vendor_trn"] == [
+        ("trn_differs_from_printed", "vendor_trn", SUPPLIER, Severity.ERROR)
+    ]  # fmt: skip
