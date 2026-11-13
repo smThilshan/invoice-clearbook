@@ -95,6 +95,48 @@ def test_conflicts_are_errors_never_parked(model: T, title: str) -> None:
     assert result.park is False
 
 
+# Decision 95: the header's grid of boxes, as OCR read KSGN's and Sparkling General's (whose
+# "Tax Invoice" came out as "InvOlCCjnvc,ice").
+KSGN = (
+    "Tax Invoice Dated KSGN TRADING LLC Invoice No. 3-Aug-26 Mode/Terms of Payment Delivery "
+    "Note 45 Days Other Reference(s) Suppier's Ref. Buyer's Order No. Delivery Note Date "
+    "Despatch Document No. Destination Despatched through Terms of Delivery"
+)
+SPARKLING = (
+    "(Dupncato) No. Tax InvOlCCjnvc,ice sSARKEEAN GENERAL TRADING spec-113993 Note S Order NO "
+    "Ooa.jrnent NO. Dated rms Of Payment cash rence(s) Dated Delivery Note Date Despatd'ed "
+    "through Terms Of Delivery"
+)
+
+
+@pytest.mark.parametrize(
+    ("model", "title"), [(T.BILL, KSGN), (T.RECEIPT, KSGN), (T.BILL, SPARKLING)]
+)
+def test_the_delivery_note_box_of_a_header_grid_is_no_title(model: T, title: str) -> None:
+    assert check(model, title) == (set(), False)
+
+
+@pytest.mark.parametrize("title", ["TAX INVOICE / DELIVERY NOTE", "Tax Invoice cum Delivery Note"])
+def test_an_invoice_that_is_also_the_delivery_note_is_a_warning(title: str) -> None:
+    result = check_document_type(Invoice(document_type=T.BILL), [page(title)])
+
+    [issue] = result.issues
+    assert (issue.code, issue.severity) == ("type_delivery_note", Severity.WARNING)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "DELIVERY NOTE",  # no invoice title
+        "PRO-FORMA INVOICE Delivery Note",
+        "QUOTATION " + KSGN.replace("Tax Invoice", ""),  # a quote on the same grid
+        "Statement of Account / Invoice Delivery Note",
+    ],
+)
+def test_never_a_bill_stays_an_error(title: str) -> None:
+    assert check(T.BILL, title) == ({"type_conflict"}, False)
+
+
 @pytest.mark.parametrize("model", [T.DEBIT_NOTE, T.SALES_INVOICE])
 def test_out_of_scope_types_are_errors(model: T) -> None:
     assert check(model, "DEBIT NOTE") == ({"type_out_of_scope"}, False)

@@ -9,8 +9,10 @@ the supplier knows the buyer as an account customer. Decided by code, never by t
 
 1. The supplier's memory: the type the accountant approved for it (`vendor_mappings`).
 2. Proof of payment: cash given and change, a card approval, "Paid with Visa", "Payment
-   received". Expense, unless the page is an account supplier's (then step 4 decides).
-3. Credit or due terms printed: "30 days", "Net due", a due date. Bill.
+   received". Expense, unless the page is an account supplier's (then step 4 decides). Card
+   logos beside "View and pay online" invite a payment, they do not prove one (decision 95).
+3. Credit or due terms printed: "30 days", "Net due", a due date. Bill. Also in a header's box:
+   "Mode/Terms of Payment" with "45 Days" in the box under it (decision 95; KSGN).
 4. An account supplier: customer code, route or trip, salesman, order or LPO number; with a
    delivery block or the buyer's TRN as weaker support. Bill.
 5. A shop, transport or restaurant supplier, by its own name (supermarket, RTA, taxi, Salik,
@@ -68,9 +70,15 @@ _CREDIT = re.compile(
     r"|\bcredit\s*(?:sale|invoice|terms|customer)\b|\bon\s*credit\b|\b\d{1,3}\s*days\s*credit\b"
     r"|\bnet\s*\d{1,3}\b|\bnet\s*due\b"
     # a due date, not a till's "Change Due: 0.50" or "Amount Due 10.00"
-    r"|\bdue(?:\s*date)?\s*[:\-]?\s*\d{1,2}[/\-.](?:\d{1,2}|[a-z]{3})[/\-.]\d{2,4}",
+    r"|\bdue(?:\s*date)?\s*[:\-]?\s*\d{1,2}(?:[/\-.]\d{1,2}[/\-.]|[/\-.\s]?[a-z]{3,9}[/\-.\s]?)\d{2,4}\b",
     re.I,
 )
+# Payment terms in a header box: the label alone in its box, the value in the box under it.
+_TERMS_LABEL = re.compile(r"(?:terms\s*of\s*payment|payment\s*terms?)\s*[:\-]?\s*$", re.I)
+_TERMS_VALUE = re.compile(r"^\s*(?:credit(?!\s*card)|\d{1,3}\s*days)\b", re.I)
+_BOX_BELOW = 0.03  # how far under the label the value may start, as a fraction of the page
+_CARD_BRAND = re.compile(r"visa|master\s*card|amex", re.I)
+_PAY_LATER = re.compile(r"\bpay\s*(?:online|now|here)\b|\bpayment\s*link\b|\bwe\s*accept\b", re.I)
 _PAID = re.compile(
     r"\bauth(?:ori[sz]ation)?\.?\s*(?:code|no|#)|\bapproval\s*code|\bappr\s*code"
     r"|\bcontactless\b|\bcard\s*(?:no|number|ending|type|payment)\b|\bvisa\b|\bmaster\s*card\b"
@@ -119,7 +127,7 @@ def decide_payment(
 
     if paid and not account:
         return PaymentDecision(EXPENSE, f"paid: {paid}", Level.PROVEN)
-    if not paid and _CREDIT.search(text):
+    if not paid and (_CREDIT.search(text) or _boxed_terms(pages)):
         return PaymentDecision(DocumentType.BILL, "credit or due terms printed", Level.SURE)
     if account and len(support) >= 2:
         return PaymentDecision(
@@ -170,8 +178,30 @@ def _payment(invoice: Invoice, pages: Sequence[PageText], text: str, *, by_label
     proof = proven_payment(invoice, pages)
     if proof is Proof.CHANGE or (proof is Proof.LABEL and by_label):
         return proof.value
-    found = _PAID.search(text)
+    logos = bool(_PAY_LATER.search(text))  # "View and pay online": the card logos invite it
+    found = next(
+        (match for match in _PAID.finditer(text)
+         if not (logos and _CARD_BRAND.fullmatch(match.group()))),
+        None,
+    )  # fmt: skip
     return f'"{" ".join(found.group().split())}"' if found else ""
+
+
+def _boxed_terms(pages: Sequence[PageText]) -> bool:
+    """Credit terms in a header box: "Mode/Terms of Payment", and "45 Days" under it."""
+    for page in pages:
+        for label in page.spans:
+            if not _TERMS_LABEL.search(label.text):
+                continue
+            left, top, right, bottom = label.box
+            if any(
+                _TERMS_VALUE.search(value.text)
+                and (top + bottom) / 2 <= value.box[1] <= bottom + _BOX_BELOW  # under it
+                and value.box[0] < right and value.box[2] > left  # same column
+                for value in page.spans
+            ):  # fmt: skip
+                return True
+    return False
 
 
 def _buyer_trn(text: str) -> bool:

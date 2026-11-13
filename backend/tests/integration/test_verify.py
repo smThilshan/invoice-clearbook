@@ -164,6 +164,29 @@ def test_any_error_goes_to_exception(session: Session, storage: LocalStorage) ->
     assert doc.status is S.IN_REVIEW
 
 
+def test_a_removed_copy_of_the_table_is_said(session: Session, storage: LocalStorage) -> None:
+    """Decision 95: extraction kept one copy of the rows the model listed twice."""
+    doc = extracted(session, storage, bill())
+    rows = [{"description": "Rice 5kg", "amount": 600.0},
+            {"description": "Cooking oil", "amount": 400.0}] * 2  # fmt: skip
+    answer = {"document_type": "BILL", "subtotal": 1000.0, "total": 1050.0, "lines": rows}
+    session.add(Extraction(client_id=CLIENT, document_id=doc.id, attempt=1, model="m",
+                           prompt_version="p", schema_version=1,
+                           raw_output=json.dumps(answer)))  # fmt: skip
+    session.flush()
+
+    result = verify(session, storage, doc)
+
+    assert result.queue is QueueCategory.CHECK
+    assert codes(doc) == {"lines_repeated"}
+
+    doc.invoice = json.loads(bill(lines=[Line(description="Rice", amount=Decimal("1000"))])
+                             .model_dump_json())  # the accountant's own lines  # fmt: skip
+    recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+
+    assert "lines_repeated" not in codes(doc)
+
+
 def test_unreadable_extraction_still_reaches_review(
     session: Session, storage: LocalStorage
 ) -> None:

@@ -7,6 +7,11 @@ be issued for returns" on a bill is not mistaken for a title.
 
 - Model and title both say non-postable (quote, statement, ...): parked, never posted.
 - Only one of them says non-postable, or bill vs credit note disagree: error (Exception).
+- The title names an invoice and a delivery note ("Tax Invoice / Delivery Note"): a warning,
+  not an error (decision 95). A quote, order, statement or pro-forma stays an error.
+- The header's grid of boxes to fill (Tally's layout: "Delivery Note", "Delivery Note Date",
+  "Buyer's Order No.", "Terms of Delivery" ...) is not a title: its "Delivery Note" box is
+  ignored when two or more of those labels are found (decision 95; KSGN, Sparklean).
 - Debit notes and sales invoices: not in the MVP scope, error with the reason.
 - Bill or expense (paid or owed?) is not decided here: `pipeline/payment.py` (decision 88).
 The type itself is never changed here (rule 8). When the model says
@@ -42,6 +47,22 @@ _TITLES: tuple[tuple[DocumentType, re.Pattern[str]], ...] = (
     (DocumentType.RECEIPT, re.compile(r"\breceipt\b|إيصال", re.I)),
     (DocumentType.BILL, re.compile(r"\binvoice\b|\bbill\b|فاتورة", re.I)),
 )
+# The labels of the header's grid of boxes (Tally's layout). Each counted once; OCR may garble
+# some ("Despatd'ed through"), so two of them are enough.
+_FORM_LABELS = (
+    re.compile(r"\bdelivery\s*note\s*date\b", re.I),
+    re.compile(r"\bbuyer'?s\s*order\s*no\b", re.I),
+    re.compile(r"\bdespatch\s*document\s*no\b", re.I),
+    re.compile(r"\bdespatched\s*through\b", re.I),
+    re.compile(r"\bterms\s*of\s*delivery\b", re.I),
+    re.compile(r"\bsupplier'?s\s*ref\b", re.I),
+    re.compile(r"\bother\s*reference", re.I),
+)
+_FORM_MIN_LABELS = 2
+_DELIVERY_NOTE = re.compile(r"\bdelivery\s*(?:note|order)\b", re.I)
+_NOT_A_BILL = re.compile(  # with an invoice title, still never posted
+    r"\b(?:quotation|quote|pro[\s-]?forma|purchase\s*order|statement|remittance)\b", re.I
+)
 # Signs that the document was paid on the spot (a receipt rather than a bill to pay).
 _PAYMENT_MARKS = re.compile(
     r"\b(?:paid|cash|change\s*due|change|tender(?:ed)?|visa|mastercard|amex|card\s*payment"
@@ -71,10 +92,17 @@ class TypeCheck:
 
 def title_signals(pages: Sequence[PageText]) -> set[DocumentType]:
     """Document types named in the title area of the first page."""
+    return {kind for kind, pattern in _TITLES if pattern.search(_title(pages))}
+
+
+def _title(pages: Sequence[PageText]) -> str:
+    """The title area's text, without the "Delivery Note" box of a header grid."""
     if not pages:
-        return set()
+        return ""
     title = " ".join(span.text for span in pages[0].spans if span.box[1] < TITLE_AREA)
-    return {kind for kind, pattern in _TITLES if pattern.search(title)}
+    if sum(bool(label.search(title)) for label in _FORM_LABELS) >= _FORM_MIN_LABELS:
+        return _DELIVERY_NOTE.sub(" ", title)
+    return title
 
 
 def check_document_type(
@@ -121,7 +149,17 @@ def check_document_type(
         )
 
     issues: list[Issue] = []
-    if DocumentType.NON_POSTABLE in titles:
+    if DocumentType.NON_POSTABLE in titles and _invoice_and_delivery_note(pages, titles):
+        issues.append(
+            Issue(
+                "type_delivery_note",
+                Severity.WARNING,
+                "document_type",
+                "The title says an invoice and also a delivery note: check it is the invoice "
+                "(with prices and VAT), not only the delivery note.",
+            )
+        )
+    elif DocumentType.NON_POSTABLE in titles:
         issues.append(
             _conflict(
                 f"The title says {_NAMES[DocumentType.NON_POSTABLE]}, but the "
@@ -141,6 +179,16 @@ def check_document_type(
             )
         )
     return TypeCheck(issues, park=False)
+
+
+def _invoice_and_delivery_note(pages: Sequence[PageText], titles: set[DocumentType]) -> bool:
+    """One document as both ("Tax Invoice / Delivery Note"); never a quote, order or statement."""
+    title = _title(pages)
+    return (
+        bool(titles & {DocumentType.BILL, DocumentType.RECEIPT})
+        and bool(_DELIVERY_NOTE.search(title))
+        and not _NOT_A_BILL.search(title)
+    )
 
 
 def shows_payment(pages: Sequence[PageText]) -> bool:

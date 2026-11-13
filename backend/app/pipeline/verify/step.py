@@ -26,7 +26,9 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
+from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -55,6 +57,7 @@ from app.pipeline.folders import folder_year_known
 from app.pipeline.page_quality import quality_issues
 from app.pipeline.payment import PURCHASES, decide_payment, payment_issue
 from app.pipeline.read import PageText, decode_image, load_page_texts
+from app.pipeline.repeated_lines import without_copy
 from app.pipeline.subtotal import with_worked_out_subtotal
 from app.pipeline.total_line import total_line
 from app.pipeline.verify.charges import ensure_charge_text, find_charges, load_charge_text
@@ -338,8 +341,10 @@ def assess(
         types = check_document_type(invoice, pages, confirmed="document_type" in verified)
         issues += types.issues
         park = types.park
+        raw = _raw_answer(session, document)
         if payment is not None and not types.issues:
-            issues += payment_issue(payment, _model_type(session, document))
+            issues += payment_issue(payment, _model_type(raw))
+        issues += _repeated_rows_removed(raw, invoice)
 
     if invoice is not None:
         issues = _explain_total(storage, document, invoice, pages, issues, settings, context)
@@ -485,8 +490,8 @@ def _remembered_paid_through(session: Session, client_id: str, key: str | None) 
     ).first()
 
 
-def _model_type(session: Session, document: Document) -> DocumentType | None:
-    """The type the model itself read (its raw answer: extraction may have changed it)."""
+def _raw_answer(session: Session, document: Document) -> dict[str, Any] | None:
+    """The model's own answer, before extraction repaired it; None when it is not JSON."""
     raw = session.scalars(
         select(Extraction.raw_output)
         .where(Extraction.document_id == document.id)
@@ -495,11 +500,48 @@ def _model_type(session: Session, document: Document) -> DocumentType | None:
     ).first()
     try:
         answer = json.loads(raw) if raw else None
-        value = answer.get("document_type") if isinstance(answer, dict) else None
+    except ValueError:  # cut off
+        return None
+    return answer if isinstance(answer, dict) else None
+
+
+def _model_type(answer: dict[str, Any] | None) -> DocumentType | None:
+    """The type the model itself read (extraction may have changed it)."""
+    value = answer.get("document_type") if answer else None
+    try:
         kind = DocumentType(value) if isinstance(value, str) else None
-    except ValueError:  # not JSON (cut off), or no type we know
+    except ValueError:  # no type we know
         return None
     return kind if kind in PURCHASES else None
+
+
+def _repeated_rows_removed(answer: dict[str, Any] | None, invoice: Invoice) -> list[Issue]:
+    """Decision 95: extraction removed the model's second copy of the table. Said, never silent."""
+    rows = answer.get("lines") if answer else None
+    try:
+        lines = [Line.model_validate(row) for row in rows] if isinstance(rows, list) else []
+        totals = [_money(answer, "subtotal"), _money(answer, "total")] if answer else []
+    except (ValidationError, ArithmeticError):
+        return []
+    kept = without_copy(lines, totals)
+    # amounts only: later repairs may clear a copied unit price (decision 90)
+    if kept is None or [line.amount for line in invoice.lines] != [line.amount for line in kept]:
+        return []  # not removed here, or the accountant changed the lines since
+    half = len(kept)
+    return [
+        Issue(
+            "lines_repeated",
+            Severity.WARNING,
+            "lines",
+            f"The model listed the {half} rows twice (once more by their item name); the copy "
+            "was removed: check the lines against the page.",
+        )
+    ]
+
+
+def _money(answer: dict[str, Any], field: str) -> Decimal | None:
+    value = answer.get(field)
+    return Decimal(str(value)) if isinstance(value, int | float | str) else None
 
 
 def require_number(

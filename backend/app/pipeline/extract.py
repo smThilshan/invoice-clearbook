@@ -41,6 +41,7 @@ from app.pipeline.payment import decide_payment
 from app.pipeline.printed_summary import apply_printed_summary
 from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.reconcile_lines import reconcile_lines
+from app.pipeline.repeated_lines import remove_repeated_lines
 from app.pipeline.subtotal import with_worked_out_subtotal
 from app.pipeline.totals_block import apply_totals_block
 from app.pipeline.vat_line import remove_vat_line
@@ -173,6 +174,8 @@ def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     invoice = apply_printed_summary(invoice, pages)
     # Decision 52: no VAT on what is not a tax invoice.
     invoice = clear_unprinted_vat(invoice, pages)
+    # Decision 95: the whole table read twice (by description, then by item name).
+    invoice = remove_repeated_lines(invoice)
     # Decision 60: the VAT copied as a line, proven by the model's own amounts.
     invoice = remove_vat_line(invoice)
     # Decision 88: bill or expense, from what the page proves (the supplier's memory: checks).

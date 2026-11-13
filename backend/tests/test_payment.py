@@ -179,6 +179,90 @@ def test_a_tills_amount_due_is_not_a_due_date(till: str) -> None:
     assert decision is not None and decision.document_type is T.RECEIPT
 
 
+def box(text: str, left: float, top: float, right: float, bottom: float) -> TextSpan:
+    return TextSpan(text, (left, top, right, bottom), None)
+
+
+# KSGN's header boxes as OCR placed them: the label, then the email, then "45 Days" in the box
+# under the label (decision 95).
+KSGN = [
+    box("Tax Invoice", 0.36, 0.03, 0.50, 0.05),
+    box("Mode/Terms of Payment", 0.724, 0.057, 0.925, 0.076),
+    box("Email:Sales@kgncoffee.Com", 0.10, 0.06, 0.40, 0.08),
+    box("Delivery Note", 0.522, 0.06, 0.65, 0.08),
+    box("45 Days", 0.724, 0.075, 0.805, 0.093),
+    box("Roasted Beans 10.000 KG 50.00 500.00", 0.05, 0.40, 0.95, 0.42),
+]
+
+
+def test_credit_terms_in_the_box_under_their_label_make_a_bill() -> None:
+    decision = decide_payment(invoice(vendor_name="KSGN TRADING LLC"), [boxed(KSGN)])
+
+    assert decision is not None and (decision.document_type, decision.level) == (T.BILL, Level.SURE)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        box("45 Days", 0.10, 0.075, 0.20, 0.093),  # another column
+        box("45 Days", 0.724, 0.20, 0.805, 0.22),  # far below: another box
+        box("Credit Card", 0.724, 0.075, 0.85, 0.093),
+        box("Cash", 0.724, 0.075, 0.78, 0.093),
+    ],
+)
+def test_only_credit_in_the_same_box_counts(value: TextSpan) -> None:
+    spans = [span for span in KSGN if span.text != "45 Days"] + [value]
+
+    decision = decide_payment(invoice(), [boxed(spans)])
+
+    assert decision is not None and decision.document_type is T.RECEIPT
+
+
+def boxed(spans: list[TextSpan]) -> PageText:
+    return PageText(1, 1000, 1400, "ocr", spans)
+
+
+# Life Smoothies: card logos under "View and pay online now", and a due date. A bill.
+LIFE = """TAX INVOICE
+Invoice Number INV-163237
+Reference BLUE TOWER/COD
+Subtotal 241.50
+TOTAL AED 253.58
+Due Date: 5Aug2026
+VISA AMERICAN EXPRESS
+View and pay online now"""
+
+
+def test_card_logos_beside_pay_online_are_no_payment() -> None:
+    decision = decide_payment(invoice(vendor_name="Life Smoothies International"), pages(LIFE))
+
+    assert decision is not None and decision.document_type is T.BILL
+    assert decision.reason == "credit or due terms printed"
+
+
+def test_a_card_slip_without_pay_online_still_proves_payment() -> None:
+    decision = decide_payment(invoice(), pages("TAX INVOICE\nTotal 10.00\nVISA"))
+
+    assert decision is not None and (decision.document_type, decision.level) == (
+        T.RECEIPT,
+        Level.PROVEN,
+    )
+
+
+@pytest.mark.parametrize("due", ["Due Date: 5Aug2026", "Due: 14 November 2026", "Due 5-Aug-26"])
+def test_a_due_date_with_the_month_named_is_credit(due: str) -> None:
+    decision = decide_payment(invoice(), pages(f"TAX INVOICE\n{due}\nTotal 10.00"))
+
+    assert decision is not None and decision.document_type is T.BILL, due
+
+
+@pytest.mark.parametrize("till", ["Balance Due 120.50", "Change Due 0.50 AED"])
+def test_a_tills_amount_due_is_still_no_due_date(till: str) -> None:
+    decision = decide_payment(invoice(), pages(f"TAX INVOICE\nTotal 10.00\n{till}"))
+
+    assert decision is not None and decision.document_type is T.RECEIPT
+
+
 def test_a_credit_card_is_not_credit_terms() -> None:
     decision = decide_payment(invoice(), pages("TAX INVOICE\nPayment Type : Credit Card\nVISA"))
 
