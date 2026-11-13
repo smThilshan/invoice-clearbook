@@ -22,7 +22,7 @@ describe('layout and navigation', () => {
     const router = renderApp('/')
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/run'))
-    expect(screen.getByRole('heading', { name: 'Clearbook' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Missan Invoice Scanner' })).toBeInTheDocument()
     expect(await screen.findByText(/pick an organization or business, choose the documents/i)).toBeInTheDocument()
   })
 
@@ -34,7 +34,7 @@ describe('layout and navigation', () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/queue'))
     expect(await screen.findByText(/not sent first/i)).toBeInTheDocument()
-    await waitFor(() => expect(document.title).toBe('Review queue – Clearbook'))
+    await waitFor(() => expect(document.title).toBe('Review queue – Missan Invoice Scanner'))
   })
 
   it('shows a not-found page for unknown paths', async () => {
@@ -99,7 +99,7 @@ describe('system status', () => {
     mockReadiness(ALL_OK)
     renderApp('/run')
 
-    expect(await screen.findByRole('heading', { name: 'Clearbook' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Missan Invoice Scanner' })).toBeInTheDocument()
     expect(screen.queryByRole('alert', { name: 'System problem' })).not.toBeInTheDocument()
     expect(screen.queryByText(/Database|Job queue|AI model/)).not.toBeInTheDocument()
   })

@@ -716,7 +716,7 @@ describe('run progress', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Processing: 2 of 4 files done · 1 failed')
     expect(screen.getByRole('status')).toHaveTextContent(/about 5 min 2\d s left/)  // 1:29 + 4:00
     expect(screen.getByRole('progressbar', { name: 'Run progress' })).toHaveAttribute('aria-valuenow', '50')
-    await waitFor(() => expect(document.title).toBe('(2/4) Run · Cafe Al Noor – Clearbook'))
+    await waitFor(() => expect(document.title).toBe('(2/4) Run · Cafe Al Noor – Missan Invoice Scanner'))
   })
 
   it('opens a finished file and retries a failed one from the run', async () => {

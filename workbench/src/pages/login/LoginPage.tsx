@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { APP_NAME } from '@/lib/appName'
 import { usePageTitle } from '@/lib/usePageTitle'
 
 /** Email and password (decision 71); afterwards, back to the page that asked for a login. */
@@ -31,8 +32,8 @@ export function LoginPage() {
     <div className="grid min-h-dvh place-items-center bg-muted/30 p-4">
       <Card className="w-full max-w-sm shadow-sm">
         <CardHeader>
-          <CardTitle>Clearbook</CardTitle>
-          <CardDescription>Log in to the Missan invoice workbench.</CardDescription>
+          <CardTitle>{APP_NAME}</CardTitle>
+          <CardDescription>Log in to review and post supplier invoices.</CardDescription>
         </CardHeader>
         <CardContent>
           <form aria-label="Log in" className="space-y-4" onSubmit={submit}>

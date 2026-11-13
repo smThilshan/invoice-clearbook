@@ -1,4 +1,6 @@
-# Running Clearbook live on this Mac mini
+# Running Missan Invoice Scanner live on this Mac mini
+
+The app was called Clearbook; folders, the database and services keep that internal name (decision 94).
 
 How the live copy is set up and run (decision 77). Everything here runs on the Mac mini, in
 the terminal, from the development folder `~/Developer/invoice-clearbook` unless it says
@@ -128,7 +130,7 @@ and `https://<address>/api/sharepoint/callback`.
    never changes anything there.
 
 **Before the client secret expires** (24 months after it was made): make a new secret in Entra ID
-(App registrations → Clearbook → Certificates & secrets), put it in both `.env` files, restart.
+(App registrations → Missan Invoice Scanner, formerly Clearbook → Certificates & secrets), put it in both `.env` files, restart.
 The sign-in itself lapses after 90 days without use: then **Connect SharePoint again**.
 
 ### 8. Prove the backup

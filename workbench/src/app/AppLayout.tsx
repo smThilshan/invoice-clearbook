@@ -6,6 +6,7 @@ import { useLogout, useMe } from '@/api/queries'
 
 import { SystemStatus } from '@/components/SystemStatus'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
+import { APP_NAME } from '@/lib/appName'
 import { cn } from '@/lib/utils'
 
 const NAV = [
@@ -124,11 +125,11 @@ export function AppLayout() {
             className="grid size-8 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground"
             aria-hidden
           >
-            C
+            M
           </div>
           <div className="flex items-baseline gap-3">
-            <h1 className="text-lg font-semibold tracking-tight">Clearbook</h1>
-            {!reviewing && <p className="text-xs text-muted-foreground">Missan invoice workbench</p>}
+            <h1 className="text-lg font-semibold tracking-tight">{APP_NAME}</h1>
+            {!reviewing && <p className="text-xs text-muted-foreground">Review and post supplier invoices</p>}
           </div>
         </div>
         <div className="flex items-center gap-3">

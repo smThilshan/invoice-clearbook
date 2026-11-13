@@ -24,6 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { APP_NAME } from '@/lib/appName'
 
 /** Decision 91: an admin removes a company. It is hidden everywhere and nothing is deleted;
  * Restore brings it back. The API refuses while it still has work in flight, and says why. */
@@ -175,7 +176,7 @@ function DeleteCompanyDialog({
         ) : (
           <div className="space-y-2 text-sm">
             <p>
-              Deleted from Clearbook: {plural(preview.documents, 'document')} with their files, AI answers,
+              Deleted from {APP_NAME}: {plural(preview.documents, 'document')} with their files, AI answers,
               corrections and history, and its accounts, VAT rates, suppliers and settings.
             </p>
             {preview.posted > 0 && (

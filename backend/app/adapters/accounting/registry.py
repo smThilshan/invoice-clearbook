@@ -1,4 +1,4 @@
-"""The accounting systems Invoice Clearbook can connect to (decision 43): one entry each.
+"""The accounting systems Missan Invoice Scanner can connect to (decision 43): one entry each.
 
 Everything provider-specific lives in its folder under adapters/accounting/; the services, the
 worker and the API find a client's provider here and never name it. A provider = its folder with

@@ -39,7 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 def _api(settings: Settings) -> FastAPI:
     is_prod = settings.app_env == "prod"
     app = FastAPI(
-        title="invoice-clearbook",
+        title="Missan Invoice Scanner",
         version=__version__,
         lifespan=_lifespan,
         docs_url=None if is_prod else "/docs",
