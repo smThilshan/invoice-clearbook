@@ -19,8 +19,8 @@ from app.adapters.accounting.base import (
     PostingRefused,
     PostingUnavailable,
 )
-from app.adapters.accounting.xero.bills import MAX_ATTACHMENT_BYTES
 from app.adapters.accounting.xero.client import to_json
+from app.adapters.accounting.xero.documents import MAX_ATTACHMENT_BYTES
 from app.adapters.accounting.xero.master_data import XeroAccountingSystem
 from app.domain.enums import AmountType
 

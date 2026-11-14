@@ -14,22 +14,15 @@ A sub-step whose result is in `progress` is not done again, so a crash resumes w
 stopped; the key makes a repeated create return the first bill instead of a second one.
 """
 
-import re
 from collections.abc import Callable, MutableMapping
 from datetime import date
 from decimal import Decimal
 from typing import Any
-from urllib.parse import quote
 
-from app.adapters.accounting.base import (
-    CREATE_SENT,
-    Posted,
-    PostingAccessDenied,
-    PostingBill,
-    PostingRefused,
-    PostingUnavailable,
-)
+from app.adapters.accounting.base import CREATE_SENT, Posted, PostingBill, PostingRefused
 from app.adapters.accounting.xero.client import XeroApiError, XeroClient
+from app.adapters.accounting.xero.contacts import create_contact, find_contact
+from app.adapters.accounting.xero.documents import attach, is_gone, posting_error
 from app.adapters.accounting.xero.payment_terms import due_date_from_terms
 from app.domain.enums import AmountType
 
@@ -41,8 +34,6 @@ LINE_AMOUNT_TYPES = {
     AmountType.INCLUSIVE: "Inclusive",
     AmountType.NO_TAX: "NoTax",
 }
-TRN = re.compile(r"^\d{15}$")
-MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # Xero's limit for a file attached through the API
 NO_DUE_DATE = (
     "no due date is printed and Xero has no bill payment terms for this supplier or the "
     "organisation: type the due date, or set default bill terms in Xero (Settings, Invoice "
@@ -60,13 +51,17 @@ def post_bill(
 ) -> Posted:
     try:
         if "due_date" not in progress:
-            found = progress.get("contact_id") or _find_contact(xero, bill)  # reads only
+            found = progress.get("contact_id") or find_contact(  # reads only
+                xero, bill.supplier_name, bill.supplier_tax_number, bill.supplier_external_id
+            )
             progress["due_date"], progress["due_date_from"] = _due_date(xero, bill, found)
             if found:
                 progress["contact_id"], progress["contact_created"] = found, False
             save("due_date")
         if "contact_id" not in progress:
-            progress["contact_id"] = _create_contact(xero, bill, key)
+            progress["contact_id"] = create_contact(
+                xero, bill.supplier_name, bill.supplier_tax_number, key
+            )
             progress["contact_created"] = True
             save("contact")
         if "checked" not in progress:
@@ -82,7 +77,7 @@ def post_bill(
             progress["bill_id"], progress["total"] = created["InvoiceID"], str(created["Total"])
             save("bill")
         if "attached" not in progress:
-            progress["attached"] = _attach(xero, bill, progress["bill_id"])
+            progress["attached"] = attach(xero, f"Invoices/{progress['bill_id']}", bill.attachment)
             save("attached")
         if "noted" not in progress:
             xero.put(
@@ -93,11 +88,7 @@ def post_bill(
             progress["noted"] = True
             save("noted")
     except XeroApiError as exc:
-        if exc.access:
-            raise PostingAccessDenied(str(exc), reconnect=exc.access == 403) from exc
-        if exc.temporary:
-            raise PostingUnavailable(str(exc), exc.retry_after) from exc
-        raise PostingRefused("; ".join(exc.messages) or str(exc)) from exc
+        raise posting_error(exc) from exc
     return Posted(
         external_id=progress["bill_id"],
         total=Decimal(progress["total"]) if progress.get("total") else None,
@@ -106,29 +97,6 @@ def post_bill(
         due_date_from=progress["due_date_from"],
         attached=bool(progress["attached"]),
     )
-
-
-def _find_contact(xero: XeroClient, bill: PostingBill) -> str | None:
-    """The supplier's Xero ContactID: the matched contact, else by TRN, else by exact name."""
-    if bill.supplier_external_id:
-        return bill.supplier_external_id
-    if bill.supplier_tax_number and TRN.match(bill.supplier_tax_number):
-        same_trn = xero.get("Contacts", where=f'TaxNumber=="{bill.supplier_tax_number}"')
-        if same_trn.get("Contacts"):
-            return str(same_trn["Contacts"][0]["ContactID"])
-    wanted = bill.supplier_name.strip().casefold()
-    for contact in xero.get("Contacts", searchTerm=bill.supplier_name).get("Contacts", []):
-        if (contact.get("Name") or "").strip().casefold() == wanted:
-            return str(contact["ContactID"])
-    return None
-
-
-def _create_contact(xero: XeroClient, bill: PostingBill, key: str) -> str:
-    new: dict[str, Any] = {"Name": bill.supplier_name.strip()}
-    if bill.supplier_tax_number:
-        new["TaxNumber"] = bill.supplier_tax_number
-    created = xero.put("Contacts", {"Contacts": [new]}, key=f"{key}-contact")
-    return str(created["Contacts"][0]["ContactID"])
 
 
 def _due_date(xero: XeroClient, bill: PostingBill, contact_id: str | None) -> tuple[str, str]:
@@ -151,26 +119,6 @@ def _due_date(xero: XeroClient, bill: PostingBill, contact_id: str | None) -> tu
 
 def _from_terms(bill_date: date, holder: dict[str, Any]) -> date | None:
     return due_date_from_terms(bill_date, (holder.get("PaymentTerms") or {}).get("Bills"))
-
-
-def _attach(xero: XeroClient, bill: PostingBill, bill_id: str) -> bool:
-    """Attach the original once (a retry finds it there). False = not attached."""
-    file = bill.attachment
-    if file is None:
-        return False
-    if len(file.content) > MAX_ATTACHMENT_BYTES:
-        return False  # Xero would refuse it; the original stays in Missan's folders
-    resource = f"Invoices/{bill_id}/Attachments"
-    there = xero.get(resource).get("Attachments", [])
-    if any(a.get("FileName") == file.file_name for a in there):
-        return True
-    try:
-        xero.put_file(f"{resource}/{quote(file.file_name)}", file.content, file.mime_type)
-    except XeroApiError as exc:
-        if exc.temporary:
-            raise
-        return False  # refused (type or size): the bill itself is fine
-    return True
 
 
 def _note(bill: PostingBill, progress: MutableMapping[str, Any]) -> str:
@@ -229,17 +177,5 @@ def _bill(bill: PostingBill, contact_id: str, due_date: str) -> dict[str, Any]:
     return body
 
 
-GONE_STATUSES = frozenset({"DELETED", "VOIDED"})
-
-
 def is_deleted(xero: XeroClient, bill_id: str) -> bool:
-    """Xero keeps a deleted or voided bill with that status; an unknown ID is gone too."""
-    try:
-        found = xero.get(f"Invoices/{quote(bill_id)}").get("Invoices") or []
-    except XeroApiError as exc:
-        if exc.status == 404:
-            return True
-        if exc.access:
-            raise PostingAccessDenied(str(exc), reconnect=exc.access == 403) from exc
-        raise PostingUnavailable(str(exc), exc.retry_after) from exc
-    return not found or found[0].get("Status") in GONE_STATUSES
+    return is_gone(xero, "Invoices", bill_id)
