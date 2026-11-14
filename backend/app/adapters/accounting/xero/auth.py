@@ -22,6 +22,8 @@ AUTHORIZE_URL = "https://login.xero.com/identity/connect/authorize"
 TOKEN_URL = "https://identity.xero.com/connect/token"  # noqa: S105 - an address, not a password
 CONNECTIONS_URL = "https://api.xero.com/connections"
 TIMEOUT_SECONDS = 20.0
+# Spend Money (decision 97): already among the scopes asked for, so no connection must reconnect.
+EXPENSE_SCOPE = "accounting.banktransactions"
 
 
 class XeroAuthError(ConnectorError):

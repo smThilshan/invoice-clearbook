@@ -10,8 +10,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from app.adapters.accounting.base import ConnectedSystem, Connector
+from app.adapters.accounting.xero.auth import EXPENSE_SCOPE as XERO_EXPENSE_SCOPE
 from app.adapters.accounting.xero.auth import XeroAuth
-from app.adapters.accounting.xero.links import bill_url
+from app.adapters.accounting.xero.links import bill_url, expense_url
 from app.adapters.accounting.xero.master_data import XeroAccountingSystem
 from app.adapters.accounting.zoho.auth import EXPENSE_SCOPE, ZohoAuth
 from app.adapters.accounting.zoho.books import ZohoBooks
@@ -53,6 +54,9 @@ PROVIDERS: Registry = {
         connector=XeroAuth,
         system=lambda token, organisation, _region: XeroAccountingSystem(token, organisation),
         document_url=bill_url,
+        expense_url=expense_url,
+        expense_scope=XERO_EXPENSE_SCOPE,
+        expenses_where="Bank accounts, the account it was paid from, Account transactions",
     ),
     AccountingProvider.ZOHO: ProviderEntry(
         provider=AccountingProvider.ZOHO,

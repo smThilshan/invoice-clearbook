@@ -1,6 +1,7 @@
 """The account an expense was paid through (decision 89), for clients whose expenses are sent as
-expenses: Zoho takes an expense without one and puts it on "Undeposited Funds", so it is always
-chosen here, by code, never by the model (rule 7). The first that applies wins:
+expenses: Zoho takes an expense without one and puts it on "Undeposited Funds", and Xero's Spend
+Money is paid from a bank account (decision 97), so it is always chosen here, by code, never by
+the model (rule 7). The first that applies wins:
 
 1. The accountant's own choice for the document (`verified_fields`): never chosen again.
 2. The supplier's memory: the account its last approved expense was paid through.

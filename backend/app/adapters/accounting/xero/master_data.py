@@ -4,6 +4,10 @@ as the canonical records the import stores (decision 20). Read only.
 Only what the checks and coding use is kept. Xero contacts can carry bank details: they are
 never copied (no `raw` beyond the fields below), so they cannot reach our database or logs.
 
+Bank accounts (bank, petty cash, card) are the accounts an expense is paid from (decision 97):
+marked `PAYS` with Xero's own kind, and never offered for a line (Xero refuses them there). One
+without a code is kept by its AccountID, which is never shown (`CODE_IS_REFERENCE`).
+
 Tax rates are mapped to the canonical VAT types from what Xero says about them: only rates that
 can apply to expenses; Xero's fixed NONE code as no VAT; reverse charge, exempt and zero-rated by
 name; the 5% rate as standard. Anything else stays unmapped (coding cannot use it) and is shown.
@@ -16,6 +20,9 @@ from typing import Any
 import httpx
 
 from app.adapters.accounting.base import (
+    CODE_IS_REFERENCE,
+    NOT_FOR_LINES,
+    PAYS,
     AccountingSystemError,
     ContactRecord,
     LedgerAccountRecord,
@@ -23,16 +30,18 @@ from app.adapters.accounting.base import (
     Posted,
     PostingBill,
     PostingExpense,
-    PostingRefused,
     TaxRateRecord,
 )
-from app.adapters.accounting.xero.bills import is_deleted, post_bill
+from app.adapters.accounting.xero import bills, expenses
 from app.adapters.accounting.xero.client import XeroApiError, XeroClient
 from app.domain.enums import AccountClass, AccountingProvider, TaxType
 
 CONTACTS_PAGE = 100  # Xero's page size for contacts
 MAX_CONTACT_PAGES = 200  # 20,000 contacts: far beyond any client; stops a runaway loop
 FIVE = Decimal("5")
+BANK = "BANK"
+# Xero's kinds of bank account, as its own screens name them.
+PAID_FROM_GROUPS = {"BANK": "Bank", "CREDITCARD": "Credit Card", "PAYPAL": "PayPal"}
 
 
 class XeroAccountingSystem:
@@ -74,7 +83,7 @@ class XeroAccountingSystem:
         progress: MutableMapping[str, Any],
         save: Callable[[str], None],
     ) -> Posted:
-        return post_bill(self._xero, bill, key=key, progress=progress, save=save)
+        return bills.post_bill(self._xero, bill, key=key, progress=progress, save=save)
 
     def post_expense(
         self,
@@ -84,11 +93,12 @@ class XeroAccountingSystem:
         progress: MutableMapping[str, Any],
         save: Callable[[str], None],
     ) -> Posted:
-        """Not yet (decision 89): Xero's expenses go as bills, so this is never called."""
-        raise PostingRefused("Xero cannot take expenses yet: send it as a bill")
+        return expenses.post_expense(self._xero, expense, key=key, progress=progress, save=save)
 
     def is_deleted(self, external_id: str, *, expense: bool = False) -> bool:
-        return is_deleted(self._xero, external_id)
+        if expense:
+            return expenses.is_deleted(self._xero, external_id)
+        return bills.is_deleted(self._xero, external_id)
 
     def _contacts(self) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
@@ -101,14 +111,23 @@ class XeroAccountingSystem:
 
 
 def _account(a: dict[str, Any]) -> LedgerAccountRecord:
+    raw: dict[str, Any] = {"Type": a.get("Type")}
+    code = a.get("Code") or None
+    if a.get("Type") == BANK:
+        raw |= {
+            NOT_FOR_LINES: True,
+            PAYS: PAID_FROM_GROUPS.get(a.get("BankAccountType") or "", "Bank"),
+        }
+        if code is None:
+            code, raw[CODE_IS_REFERENCE] = a["AccountID"], True
     return LedgerAccountRecord(
         external_id=a["AccountID"],
-        code=a.get("Code") or None,
+        code=code,
         name=a.get("Name") or "",
         account_class=AccountClass(a["Class"]),
         default_tax_code=a.get("TaxType") or None,
         is_active=a.get("Status") == "ACTIVE",
-        raw={"Type": a.get("Type")},
+        raw=raw,
     )
 
 

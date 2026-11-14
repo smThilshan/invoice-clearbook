@@ -671,6 +671,7 @@ def _expense(
             paid_through=invoice.paid_through or "",
             vat=vat,
             note=NOTE,
+            currency=invoice.currency,
         ),
         None,
     )

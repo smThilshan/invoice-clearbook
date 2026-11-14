@@ -145,6 +145,7 @@ class PostingExpense:
     vat: Decimal  # as printed: the system must work out exactly this, or it is not sent
     note: str  # who created and approved it
     attachment: Attachment | None = None
+    currency: str | None = None  # as printed; None = not printed (the organisation's own)
 
 
 @dataclass(frozen=True, slots=True)
