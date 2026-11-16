@@ -11,7 +11,7 @@ import {
   RotateCcw,
   Square,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 
 import type { FileStatus, FileStep, RunProgress } from '@/api/client'
@@ -47,6 +47,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatDate, statusLabel } from '@/lib/labels'
+import { rememberFolder } from '@/lib/remember'
 import { formatDuration, summarize } from '@/lib/timings'
 import { useNow } from '@/lib/useNow'
 import type { ReviewContext } from '@/lib/reviewList'
@@ -80,6 +81,12 @@ export function RunProgressPage() {
       ? `${finished ? 'Finished' : stopped ? 'Stopped' : `(${settled}/${total})`} Run · ${client?.name ?? progress.client_id}`
       : 'Run',
   )
+  // The review queue then opens on this run's folder ('' = the whole place: all folders).
+  const runClient = progress?.client_id
+  const runFolder = progress?.folder
+  useEffect(() => {
+    if (runClient !== undefined && runFolder !== undefined) rememberFolder(runClient, runFolder)
+  }, [runClient, runFolder])
 
   if (run.isPending) {
     return (
@@ -103,7 +110,7 @@ export function RunProgressPage() {
   // Stopped, but a step already under way finishes first (task 4.19).
   const finishing = stopped && progress.files.some((f) => WORKING.has(f.step))
   const running = progress.status === 'RUNNING' && !finished
-  const queueLink = `/queue?client=${encodeURIComponent(progress.client_id)}&run=${progress.run_id}`
+  const queueLink = `/queue?${new URLSearchParams({ client: progress.client_id, folder: progress.folder })}`
   // Opening a finished file reviews this run's finished files in order (task 4.15).
   const review: ReviewContext = {
     from: `/run/${progress.run_id}`,

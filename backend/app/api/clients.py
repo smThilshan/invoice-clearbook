@@ -8,8 +8,7 @@ are sent (decisions 73, 89) need an admin, and so do removing, restoring and del
 """
 
 import logging
-import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -43,7 +42,7 @@ from app.services.clients import (
 )
 from app.services.company_deletion import delete_company, preview, removed_client
 from app.services.master_data import Counts, import_master_data
-from app.services.runs import recent_runs
+from app.services.runs import run_folders
 
 MAX_CSV_BYTES = 5 * 1024 * 1024  # per file; a chart of accounts or supplier list is far smaller
 
@@ -121,12 +120,10 @@ class MasterDataImportOut(BaseModel):
     contacts: ImportCounts | None
 
 
-class RunOption(BaseModel):
-    run_id: uuid.UUID
-    folder: str  # relative to the client's folder; "" = all of it
-    folder_date: date | None
-    created_at: datetime
-    documents: int
+class RunFolderOption(BaseModel):
+    folder: str  # as it was run, relative to the place it was picked in
+    last_run: datetime
+    in_review: int  # its documents waiting for review, sub-folders included
 
 
 class AccountOption(BaseModel):
@@ -278,23 +275,17 @@ def create_client(
     return _out(client)
 
 
-@router.get("/{client_id}/runs")
-def get_runs(
+@router.get("/{client_id}/run-folders")
+def get_run_folders(
     client_id: str,
     session: Annotated[Session, Depends(get_session)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> list[RunOption]:
-    """Latest runs that took in documents, newest first: the queue's run filter."""
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+) -> list[RunFolderOption]:
+    """The folders the client's runs picked, the latest run first: the queue's folder filter."""
     _found(session, client_id)
     return [
-        RunOption(
-            run_id=r.run.id,
-            folder=r.run.folder,
-            folder_date=r.run.folder_date,
-            created_at=r.run.created_at,
-            documents=r.documents,
-        )
-        for r in recent_runs(session, client_id, limit=limit)
+        RunFolderOption(folder=f.folder, last_run=f.last_run, in_review=f.in_review)
+        for f in run_folders(session, client_id, limit=limit)
     ]
 
 

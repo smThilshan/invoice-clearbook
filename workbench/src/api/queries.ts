@@ -29,7 +29,7 @@ export const queryKeys = {
   sharePoint: ['sharepoint'] as const,
   run: (runId: string) => ['run', runId] as const,
   openRuns: ['open-runs'] as const,
-  runs: (clientId: string) => ['runs', clientId] as const,
+  runFolders: (clientId: string) => ['run-folders', clientId] as const,
   queue: (query: QueueQuery) => ['queue', query] as const,
   queues: ['queue'] as const,
   document: (id: string) => ['document', id] as const,
@@ -301,11 +301,11 @@ export function useUploadRun() {
   })
 }
 
-/** A client's latest runs, for the queue filter; idle until a client is picked. */
-export function useRuns(clientId: string | undefined) {
+/** The folders a client's runs picked, for the queue filter; idle until a client is picked. */
+export function useRunFolders(clientId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.runs(clientId ?? ''),
-    queryFn: () => api.runs(clientId ?? ''),
+    queryKey: queryKeys.runFolders(clientId ?? ''),
+    queryFn: () => api.runFolders(clientId ?? ''),
     enabled: clientId !== undefined,
     refetchInterval: QUEUE_REFRESH_MS, // a run started elsewhere shows up by itself
   })

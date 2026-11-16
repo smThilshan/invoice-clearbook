@@ -29,7 +29,7 @@ export type SharePointLibrary = Schemas['LibraryOut']
 export type SharePointFolder = Schemas['SharePointFolderOut']
 export type SharePointListing = Schemas['SharePointListing']
 export type SharePointRunCreate = Schemas['SharePointRunCreate']
-export type RunOption = Schemas['RunOption']
+export type RunFolder = Schemas['RunFolderOption']
 export type RunAccepted = Schemas['RunAccepted']
 export type UploadAccepted = Schemas['UploadAccepted']
 export type FolderDate = Schemas['FolderDate']
@@ -68,6 +68,7 @@ export interface QueueQuery {
   queue?: QueueCategory
   status?: DocumentStatus
   run_id?: string
+  folder?: string // inside a folder a run picked, sub-folders included
   search?: string
   sending?: SendingList // a list of approved documents instead of `status` (decision 70)
   limit: number
@@ -192,8 +193,8 @@ export const api = {
     request<SharePointListing>(`/sharepoint/folder?${new URLSearchParams({ drive_id: driveId, item_id: itemId })}`),
   /** The folder a pasted SharePoint address leads to. */
   sharePointLink: (url: string) => request<SharePointFolder>(`/sharepoint/link?${new URLSearchParams({ url })}`),
-  /** Latest runs that took in documents, newest first (the queue's run filter). */
-  runs: (clientId: string) => request<RunOption[]>(`/clients/${encodeURIComponent(clientId)}/runs`),
+  /** The folders the client's runs picked, the latest run first (the queue's folder filter). */
+  runFolders: (clientId: string) => request<RunFolder[]>(`/clients/${encodeURIComponent(clientId)}/run-folders`),
   /** Runs still going or stopped part way, newest first: found again from the Run screen. */
   openRuns: () => request<OpenRun[]>('/runs/open'),
   /** Recent work time per file, for the estimate before a run (task 4.17). */

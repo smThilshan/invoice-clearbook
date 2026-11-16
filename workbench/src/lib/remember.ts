@@ -41,3 +41,23 @@ export function rememberTrail(clientId: string, trail: unknown[]): void {
     // not remembered this time; nothing else depends on it
   }
 }
+
+/** The folder last looked at in the review queue, per client ('' = all folders): opening a
+ * run's page chooses its folder, so the queue then shows what was just run. */
+const LAST_FOLDER = 'clearbook.lastFolder.'
+
+export function lastFolder(clientId: string): string | undefined {
+  try {
+    return localStorage.getItem(LAST_FOLDER + clientId) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function rememberFolder(clientId: string, folder: string): void {
+  try {
+    localStorage.setItem(LAST_FOLDER + clientId, folder)
+  } catch {
+    // not remembered this time; nothing else depends on it
+  }
+}

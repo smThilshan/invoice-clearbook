@@ -45,6 +45,7 @@ from app.pipeline.verify.step import (
 )
 from app.services.corrections import sync_corrections
 from app.services.posting import POSTED_STATUSES, SENDABLE
+from app.services.runs import in_folder
 
 EDITABLE: Final = frozenset({DocumentStatus.IN_REVIEW, DocumentStatus.NON_POSTABLE})
 # What the accountant may confirm: every invoice field except the model's own evidence.
@@ -109,15 +110,19 @@ def list_queue(
     status: DocumentStatus = DocumentStatus.IN_REVIEW,
     queue: QueueCategory | None = None,
     run_id: uuid.UUID | None = None,
+    folder: str | None = None,
     search: str | None = None,
     sending: SendingList | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> QueuePage:
-    """`sending`: one of the lists of approved documents instead of `status` (decision 70)."""
+    """`sending`: one of the lists of approved documents instead of `status` (decision 70).
+    `folder`: the documents inside a folder a run picked, sub-folders included."""
     scope = select(Document).where(Document.client_id == client_id)
     if run_id is not None:
         scope = scope.where(Document.run_id == run_id)
+    if folder:
+        scope = scope.where(in_folder(folder))
     if search and search.strip():
         scope = scope.where(_matches(search.strip()))
     sending_counts = {
@@ -154,6 +159,8 @@ def list_queue(
     )
     if run_id is not None:
         unfinished = unfinished.where(Document.run_id == run_id)
+    if folder:
+        unfinished = unfinished.where(in_folder(folder))
     runs = session.execute(unfinished).all()
     stopped = [row for row in runs if row.status is RunStatus.STOPPED]
     return QueuePage(

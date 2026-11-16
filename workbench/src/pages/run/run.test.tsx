@@ -769,8 +769,10 @@ describe('run progress', () => {
 
     await waitFor(() => expect(api.calls).toContain('POST /documents/d3/retry'))
     expect(screen.getByRole('link', { name: /review the finished ones/i })).toHaveAttribute(
-      'href', `/queue?client=cafe-al-noor&run=${RUN_ID}`,
+      'href', '/queue?client=cafe-al-noor&folder=October+2026%2F21',
     )  // prettier-ignore
+    // The review queue then opens on this run's folder.
+    expect(localStorage.getItem('clearbook.lastFolder.cafe-al-noor')).toBe('October 2026/21')
   })
 
   it('shows the time each step took per file, and the average without waiting', async () => {
@@ -803,7 +805,7 @@ describe('run progress', () => {
     await act(() => vi.advanceTimersByTimeAsync(RUN_REFRESH_MS))
 
     const queue = await screen.findByRole('link', { name: /open review queue/i })
-    expect(queue).toHaveAttribute('href', `/queue?client=cafe-al-noor&run=${RUN_ID}`)
+    expect(queue).toHaveAttribute('href', '/queue?client=cafe-al-noor&folder=October+2026%2F21')
     expect(screen.getByRole('status')).toHaveTextContent('Finished: 4 of 4 files done')
     await act(() => vi.advanceTimersByTimeAsync(RUN_REFRESH_MS * 3))
     expect(api.calls.filter((call) => call === `GET /runs/${RUN_ID}`)).toHaveLength(2)

@@ -197,6 +197,7 @@ def get_queue(
     client_id: str,
     queue: QueueCategory | None = None,
     run_id: uuid.UUID | None = None,
+    folder: Annotated[str | None, Query(max_length=500)] = None,
     search: Annotated[str | None, Query(max_length=100)] = None,
     status_: Annotated[DocumentStatus, Query(alias="status")] = DocumentStatus.IN_REVIEW,
     sending: review.SendingList | None = None,
@@ -205,12 +206,12 @@ def get_queue(
 ) -> QueuePageOut:
     """Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list
     of approved documents instead (waiting, failed, posted; decision 70), or the documents back
-    in review not sent (not_sent); `status` then unused."""
+    in review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked."""
     if get_client(session, client_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "organization or business not found")
     page = review.list_queue(session, client_id=client_id, status=status_, queue=queue,
-                             run_id=run_id, search=search, sending=sending, limit=limit,
-                             offset=offset)  # fmt: skip
+                             run_id=run_id, folder=folder, search=search, sending=sending,
+                             limit=limit, offset=offset)  # fmt: skip
     return QueuePageOut(
         total=page.total,
         limit=limit,

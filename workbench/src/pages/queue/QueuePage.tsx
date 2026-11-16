@@ -1,9 +1,9 @@
-import { ChevronLeft, ChevronRight, ExternalLink, LoaderCircle, PauseCircle, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ExternalLink, FolderOpen, LoaderCircle, PauseCircle, Search } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 
-import type { DocumentSummary, QueueCategory, QueueQuery, RunOption, SendingList } from '@/api/client'
-import { useAccounting, useClients, useQueue, useRuns } from '@/api/queries'
+import type { DocumentSummary, QueueCategory, QueueQuery, RunFolder, SendingList } from '@/api/client'
+import { useAccounting, useClients, useQueue, useRunFolders } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
 import { ClientSelect } from '@/components/ClientSelect'
@@ -33,7 +33,7 @@ import {
   QUEUE_LABELS,
   TYPE_LABELS,
 } from '@/lib/labels'
-import { lastClient } from '@/lib/remember'
+import { lastClient, lastFolder, rememberFolder } from '@/lib/remember'
 import { useDebounced } from '@/lib/useDebounced'
 import type { ReviewContext } from '@/lib/reviewList'
 import { usePageTitle } from '@/lib/usePageTitle'
@@ -65,7 +65,8 @@ const CATEGORY_STYLES: Record<QueueCategory, string> = {
 
 /**
  * Documents to review for one client: not sent first, then Exception, Check, Ready (task 4.4).
- * Every filter lives in the address, so refresh, back and the link from a run keep them.
+ * Every filter lives in the address, so refresh, back and the link from a run keep them. With
+ * no folder in the address, the one chosen last for the client (after a run: its folder).
  */
 export function QueuePage() {
   const [params, setParams] = useSearchParams()
@@ -80,6 +81,9 @@ export function QueuePage() {
   const status: ListStatus = LISTS.find((l) => l.status === params.get('status'))?.status ?? 'IN_REVIEW'
   const sending = SENDING_LISTS.find((l) => l.key === params.get('sending'))?.key
   const runId = params.get('run') ?? undefined
+  // '' in the address: all folders, chosen; none there: the one chosen last ('' = all too).
+  const folderParam = params.get('folder')
+  const folder = (runId ? '' : (folderParam ?? (clientId ? lastFolder(clientId) : undefined))) || undefined
   const search = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
 
@@ -92,6 +96,7 @@ export function QueuePage() {
         queue: category,
         status,
         run_id: runId,
+        folder,
         search: search || undefined,
         sending,
         limit: PAGE_SIZE,
@@ -113,6 +118,12 @@ export function QueuePage() {
     }
     if (!('page' in changes)) next.delete('page')
     setParams(next)
+  }
+
+  /** One folder, or '' for all; remembered for the client. A run from a link is let go. */
+  function chooseFolder(next: string) {
+    if (clientId) rememberFolder(clientId, next)
+    update({ folder: next, run: undefined })
   }
 
   return (
@@ -152,7 +163,7 @@ export function QueuePage() {
         <div className="flex flex-wrap items-center gap-3">
           <ClientSelect
             value={clientId}
-            onChange={(c) => update({ client: c.client_id, run: undefined })}
+            onChange={(c) => update({ client: c.client_id, run: undefined, folder: undefined })}
           />
           {!sending && (
             <Toggle label="Category">
@@ -215,11 +226,27 @@ export function QueuePage() {
             })}
           </Toggle>
           {clientId && (
-            <RunFilter clientId={clientId} runId={runId} onChange={(run) => update({ run })} />
+            <FolderFilter clientId={clientId} folder={folder} runId={runId} onChange={chooseFolder} />
           )}
           {clientId && <SearchBox value={search} onChange={(q) => update({ q: q || undefined })} />}
         </div>
       </section>
+
+      {clientId && (folder || runId) && (
+        <p role="note" aria-label="Folder shown" className="flex flex-wrap items-center gap-2 text-sm">
+          <FolderOpen className="size-4 text-muted-foreground" aria-hidden />
+          {folder ? (
+            <span>
+              Showing only <span className="font-medium">{folder}</span>, sub-folders included.
+            </span>
+          ) : (
+            <span>Showing only the documents of one run.</span>
+          )}
+          <Button variant="outline" size="sm" onClick={() => chooseFolder('')}>
+            Show all folders
+          </Button>
+        </p>
+      )}
 
       {clientId && queue.data && queue.data.processing > 0 && (
         <p role="note" aria-label="Still processing" className="flex flex-wrap items-center gap-2 rounded-lg border border-info/40 bg-info-soft px-3 py-2 text-sm">
@@ -266,9 +293,12 @@ export function QueuePage() {
           </p>
         ) : (
           <EmptyQueue
-            filtered={Boolean(category || search || runId)}
+            filtered={Boolean(category || search || runId || folder)}
             list={status}
-            onClear={() => update({ queue: undefined, q: undefined, run: undefined })}
+            onClear={() => {
+              if (clientId) rememberFolder(clientId, '')
+              update({ queue: undefined, q: undefined, run: undefined, folder: '' })
+            }}
           />
         )
       ) : (
@@ -340,36 +370,41 @@ function EmptyQueue({ filtered, list, onClear }: { filtered: boolean; list: List
   )
 }
 
-const ALL_RUNS = 'all'
+const ALL_FOLDERS = '*' // never a folder name: SharePoint and Windows do not allow it
+const ONE_RUN = 'run' // a run from a link (the address names a run, not a folder)
 
-/** Which run's documents to show: all, or one of the latest runs (task 4.11). */
-function RunFilter({
+/** Which folder's documents to show: all, or one a run picked, sub-folders included. */
+function FolderFilter({
   clientId,
+  folder,
   runId,
   onChange,
 }: {
   clientId: string
+  folder: string | undefined
   runId: string | undefined
-  onChange: (runId: string | undefined) => void
+  onChange: (folder: string) => void
 }) {
-  const runs = useRuns(clientId)
-  const options = runs.data ?? []
-  // A run from a link that is no longer among the latest still shows as chosen.
-  const known = runId === undefined || options.some((run) => run.run_id === runId)
+  const options = useRunFolders(clientId).data ?? []
+  // A folder from a link or remembered, with nothing left in it, still shows as chosen.
+  const known = folder === undefined || options.some((f) => f.folder === folder)
   return (
     <Select
-      value={runId ?? ALL_RUNS}
-      onValueChange={(value) => onChange(value === ALL_RUNS ? undefined : value)}
+      value={runId ? ONE_RUN : (folder ?? ALL_FOLDERS)}
+      onValueChange={(value) => {
+        if (value !== ONE_RUN) onChange(value === ALL_FOLDERS ? '' : value)
+      }}
     >
-      <SelectTrigger aria-label="Run" className="w-72 max-w-full">
+      <SelectTrigger aria-label="Folder" className="w-72 max-w-full">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL_RUNS}>All runs</SelectItem>
-        {!known && runId && <SelectItem value={runId}>One run (from a link)</SelectItem>}
-        {options.map((run) => (
-          <SelectItem key={run.run_id} value={run.run_id}>
-            {runLabel(run)}
+        <SelectItem value={ALL_FOLDERS}>All folders</SelectItem>
+        {runId && <SelectItem value={ONE_RUN}>One run (from a link)</SelectItem>}
+        {!known && folder && <SelectItem value={folder}>{folder}</SelectItem>}
+        {options.map((option) => (
+          <SelectItem key={option.folder} value={option.folder}>
+            {folderLabel(option)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -377,10 +412,8 @@ function RunFilter({
   )
 }
 
-function runLabel(run: RunOption): string {
-  const folder = run.folder || 'All folders'
-  const count = `${run.documents} document${run.documents === 1 ? '' : 's'}`
-  return `${folder} · ${count} · ${formatDateTime(run.created_at)}`
+function folderLabel(option: RunFolder): string {
+  return `${option.folder} · ${option.in_review} in review · run ${formatDateTime(option.last_run)}`
 }
 
 /** Fits the page: fixed column widths, long text cut with … (full text on hover); the type,

@@ -2797,47 +2797,28 @@
         "title": "RunCreate",
         "type": "object"
       },
-      "RunOption": {
+      "RunFolderOption": {
         "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "documents": {
-            "title": "Documents",
-            "type": "integer"
-          },
           "folder": {
             "title": "Folder",
             "type": "string"
           },
-          "folder_date": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Folder Date"
+          "in_review": {
+            "title": "In Review",
+            "type": "integer"
           },
-          "run_id": {
-            "format": "uuid",
-            "title": "Run Id",
+          "last_run": {
+            "format": "date-time",
+            "title": "Last Run",
             "type": "string"
           }
         },
         "required": [
-          "run_id",
           "folder",
-          "folder_date",
-          "created_at",
-          "documents"
+          "last_run",
+          "in_review"
         ],
-        "title": "RunOption",
+        "title": "RunFolderOption",
         "type": "object"
       },
       "RunProgressOut": {
@@ -4443,10 +4424,10 @@
         ]
       }
     },
-    "/clients/{client_id}/runs": {
+    "/clients/{client_id}/run-folders": {
       "get": {
-        "description": "Latest runs that took in documents, newest first: the queue's run filter.",
-        "operationId": "get_runs_clients__client_id__runs_get",
+        "description": "The folders the client's runs picked, the latest run first: the queue's folder filter.",
+        "operationId": "get_run_folders_clients__client_id__run_folders_get",
         "parameters": [
           {
             "in": "path",
@@ -4462,7 +4443,7 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 20,
+              "default": 30,
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
@@ -4476,9 +4457,9 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/RunOption"
+                    "$ref": "#/components/schemas/RunFolderOption"
                   },
-                  "title": "Response Get Runs Clients  Client Id  Runs Get",
+                  "title": "Response Get Run Folders Clients  Client Id  Run Folders Get",
                   "type": "array"
                 }
               }
@@ -4496,7 +4477,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Runs",
+        "summary": "Get Run Folders",
         "tags": [
           "clients"
         ]
@@ -4504,7 +4485,7 @@
     },
     "/documents": {
       "get": {
-        "description": "Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list\nof approved documents instead (waiting, failed, posted; decision 70), or the documents back\nin review not sent (not_sent); `status` then unused.",
+        "description": "Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list\nof approved documents instead (waiting, failed, posted; decision 70), or the documents back\nin review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked.",
         "operationId": "get_queue_documents_get",
         "parameters": [
           {
@@ -4547,6 +4528,23 @@
                 }
               ],
               "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "folder",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
             }
           },
           {

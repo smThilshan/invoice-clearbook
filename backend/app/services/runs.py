@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import Direction, DocumentStatus, DocumentType
@@ -277,23 +277,36 @@ def _step(document: Document) -> tuple[Step, datetime | None]:
 
 
 @dataclass(frozen=True, slots=True)
-class RunSummary:
-    run: Run
-    documents: int  # documents this run took in (files already seen belong to earlier runs)
+class FolderSummary:
+    folder: str  # as it was run: relative to the place it was picked in
+    last_run: datetime
+    in_review: int  # its documents waiting for review, sub-folders included
 
 
-def recent_runs(session: Session, client_id: str, *, limit: int) -> list[RunSummary]:
-    """The client's latest runs that took in documents, newest first (queue run filter)."""
-    count = func.count(Document.id)
+def in_folder(folder: Any) -> ColumnElement[bool]:
+    """A document inside `folder` (a string or a column), sub-folders included: every
+    document's path starts with the folder its run picked."""
+    return func.starts_with(Document.source_path, folder + "/")
+
+
+def run_folders(session: Session, client_id: str, *, limit: int) -> list[FolderSummary]:
+    """The folders the client's runs picked, the latest run first: the queue's folder filter.
+    A folder run twice is one folder; a run of the whole place is no folder (it is "all")."""
+    folders = (
+        select(Run.folder, func.max(Run.created_at).label("last_run"))
+        .where(Run.client_id == client_id, Run.folder != "")
+        .group_by(Run.folder)
+        .subquery()
+    )
+    waiting = func.count(Document.id).filter(Document.status == DocumentStatus.IN_REVIEW)
     rows = session.execute(
-        select(Run, count)
-        .join(Document, Document.run_id == Run.id)
-        .where(Run.client_id == client_id, Document.client_id == client_id)
-        .group_by(Run.id)
-        .order_by(Run.created_at.desc())
+        select(folders.c.folder, folders.c.last_run, waiting)
+        .outerjoin(Document, and_(Document.client_id == client_id, in_folder(folders.c.folder)))
+        .group_by(folders.c.folder, folders.c.last_run)
+        .order_by(folders.c.last_run.desc(), folders.c.folder)
         .limit(limit)
     )
-    return [RunSummary(run, documents) for run, documents in rows]
+    return [FolderSummary(folder, last_run, in_review) for folder, last_run, in_review in rows]
 
 
 class RunControlError(Exception):

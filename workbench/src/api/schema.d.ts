@@ -351,7 +351,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/clients/{client_id}/runs": {
+    "/clients/{client_id}/run-folders": {
         parameters: {
             query?: never;
             header?: never;
@@ -359,10 +359,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Runs
-         * @description Latest runs that took in documents, newest first: the queue's run filter.
+         * Get Run Folders
+         * @description The folders the client's runs picked, the latest run first: the queue's folder filter.
          */
-        get: operations["get_runs_clients__client_id__runs_get"];
+        get: operations["get_run_folders_clients__client_id__run_folders_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -382,7 +382,7 @@ export interface paths {
          * Get Queue
          * @description Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list
          *     of approved documents instead (waiting, failed, posted; decision 70), or the documents back
-         *     in review not sent (not_sent); `status` then unused.
+         *     in review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked.
          */
         get: operations["get_queue_documents_get"];
         put?: never;
@@ -1996,24 +1996,17 @@ export interface components {
              */
             place?: string | null;
         };
-        /** RunOption */
-        RunOption: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Documents */
-            documents: number;
+        /** RunFolderOption */
+        RunFolderOption: {
             /** Folder */
             folder: string;
-            /** Folder Date */
-            folder_date: string | null;
+            /** In Review */
+            in_review: number;
             /**
-             * Run Id
-             * Format: uuid
+             * Last Run
+             * Format: date-time
              */
-            run_id: string;
+            last_run: string;
         };
         /** RunProgressOut */
         RunProgressOut: {
@@ -2855,7 +2848,7 @@ export interface operations {
             };
         };
     };
-    get_runs_clients__client_id__runs_get: {
+    get_run_folders_clients__client_id__run_folders_get: {
         parameters: {
             query?: {
                 limit?: number;
@@ -2874,7 +2867,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunOption"][];
+                    "application/json": components["schemas"]["RunFolderOption"][];
                 };
             };
             /** @description Validation Error */
@@ -2894,6 +2887,7 @@ export interface operations {
                 client_id: string;
                 queue?: components["schemas"]["QueueCategory"] | null;
                 run_id?: string | null;
+                folder?: string | null;
                 search?: string | null;
                 status?: components["schemas"]["DocumentStatus"];
                 sending?: components["schemas"]["SendingList"] | null;

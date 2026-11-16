@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -21,7 +21,7 @@ from app.domain.enums import AccountingProvider, DocumentType, QueueCategory
 from app.domain.enums import DocumentStatus as S
 from app.main import create_app
 from app.models import AuditLog, Client, Contact, Document
-from tests.integration.factories import CLIENT, make_client, make_run
+from tests.integration.factories import CLIENT, make_client, make_document, make_run
 from tests.integration.test_coding import FakeCoder
 from tests.integration.test_verify import (  # noqa: F401  (fixtures)
     PRINTED,
@@ -158,20 +158,43 @@ def test_queue_rows_say_which_folder_the_file_is_in(
     assert row["file"] == doc.source_path.rsplit("/", 1)[1]
 
 
-def test_runs_that_took_in_documents_are_offered_for_the_filter(
-    api: TestClient,
-    session: Session,
-    storage: LocalStorage,  # noqa: F811
+def _run_of(session: Session, folder: str, minutes_ago: int, *paths: str) -> None:
+    """A run of `folder`, `minutes_ago`; each path taken in and waiting for review."""
+    run = make_run(session)
+    run.folder = folder
+    run.created_at = datetime.now(UTC) - timedelta(minutes=minutes_ago)
+    for path in paths:
+        make_document(session, run_id=run.id, source_path=path, status=S.IN_REVIEW)
+    session.flush()
+
+
+def test_the_folders_runs_picked_are_offered_for_the_filter(
+    api: TestClient, session: Session
 ) -> None:
-    first = in_review(session, storage, "INV-00301")
-    second = in_review(session, storage, "INV-00303", total=Decimal("1060.00"))
-    make_run(session)  # took in nothing: not offered
+    _run_of(session, "April", 90, "April/April 12/a.pdf", "April/April 14/b.pdf")
+    _run_of(session, "April", 30)  # run again: still one folder, its latest run counts
+    _run_of(session, "October", 60, "October/c.pdf")
+    _run_of(session, "", 10)  # the whole place: that is "all folders", not a folder
 
-    runs = ok(api.get(f"/clients/{CLIENT}/runs"))
+    folders = ok(api.get(f"/clients/{CLIENT}/run-folders"))
 
-    assert {r["run_id"] for r in runs} == {str(first.run_id), str(second.run_id)}
-    assert [r["documents"] for r in runs] == [1, 1]
-    assert api.get("/clients/nobody/runs").status_code == 404
+    assert [(f["folder"], f["in_review"]) for f in folders] == [("April", 2), ("October", 1)]
+    assert api.get("/clients/nobody/run-folders").status_code == 404
+
+
+def test_the_queue_shows_one_folder_with_its_sub_folders(api: TestClient, session: Session) -> None:
+    _run_of(session, "April", 30, "April/April 12/a.pdf", "April/April 14/b.pdf")
+    _run_of(session, "April 2", 20, "April 2/c.pdf")  # starts like April: another folder
+    _run_of(session, "A_ril", 10, "A_ril/d.pdf")  # _ and % are plain characters here
+
+    def files(folder: str) -> list[str]:
+        params = {"client_id": CLIENT, "folder": folder}
+        return sorted(d["file"] for d in ok(api.get("/documents", params=params))["documents"])
+
+    assert files("April") == ["a.pdf", "b.pdf"]
+    assert files("April/April 14") == ["b.pdf"]
+    assert files("A_ril") == ["d.pdf"]
+    assert files("Nowhere") == []
 
 
 def test_queue_of_unknown_client_is_not_found(api: TestClient) -> None:

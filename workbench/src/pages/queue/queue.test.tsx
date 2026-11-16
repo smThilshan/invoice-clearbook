@@ -60,19 +60,17 @@ afterEach(() => {
   globalThis.fetch = realFetch
 })
 
-const RUNS = [
-  { run_id: RUN_ID, folder: 'October 2026/21', folder_date: '2026-10-21',
-    created_at: '2026-10-21T08:00:00Z', documents: 3 },
-  { run_id: '6f1c2b0e-0000-4000-8000-000000000002', folder: '', folder_date: null,
-    created_at: '2026-10-20T08:00:00Z', documents: 1 },
+const FOLDERS = [
+  { folder: 'October 2026/21', last_run: '2026-10-21T08:00:00Z', in_review: 3 },
+  { folder: 'April', last_run: '2026-10-20T08:00:00Z', in_review: 1 },
 ]  // prettier-ignore
 
 function backend(queue: unknown = PAGE) {
   return mockApi({
     '/health/ready': READY,
     '/clients': CLIENTS,
-    '/clients/cafe-al-noor/runs': RUNS,
-    '/clients/spice-route/runs': [],
+    '/clients/cafe-al-noor/run-folders': FOLDERS,
+    '/clients/spice-route/run-folders': [],
     '/documents': queue,
   })
 }
@@ -146,33 +144,54 @@ describe('review queue', () => {
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
   })
 
-  it('shows one run when coming from the run screen, and can show all again', async () => {
+  it('shows one folder when coming from the run screen, and can show all again', async () => {
     const api = backend()
     const user = userEvent.setup()
-    const router = renderApp(`/queue?client=cafe-al-noor&run=${RUN_ID}`)
+    const router = renderApp('/queue?client=cafe-al-noor&folder=October+2026%2F21')
 
     await screen.findByRole('table', { name: 'Documents' })
-    expect(queueCalls(api)[0]).toMatchObject({ run_id: RUN_ID })
-    const run = screen.getByRole('combobox', { name: 'Run' })
-    await waitFor(() => expect(run).toHaveTextContent('October 2026/21 · 3 documents'))
-    await user.click(run)
-    await user.click(await screen.findByRole('option', { name: 'All runs' }))
+    expect(queueCalls(api)[0]).toMatchObject({ folder: 'October 2026/21' })
+    expect(screen.getByRole('note', { name: 'Folder shown' })).toHaveTextContent('Showing only October 2026/21')
+    const folder = screen.getByRole('combobox', { name: 'Folder' })
+    await waitFor(() => expect(folder).toHaveTextContent('October 2026/21 · 3 in review'))
+    await user.click(screen.getByRole('button', { name: 'Show all folders' }))
 
-    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
-    expect(queueCalls(api).at(-1)).not.toHaveProperty('run_id')
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&folder='))
+    expect(queueCalls(api).at(-1)).not.toHaveProperty('folder')
+    expect(screen.queryByRole('note', { name: 'Folder shown' })).not.toBeInTheDocument()
+    expect(localStorage.getItem('clearbook.lastFolder.cafe-al-noor')).toBe('') // all, remembered
   })
 
-  it('picks one of the latest runs', async () => {
+  it('picks a folder, remembered for the client', async () => {
     const api = backend()
     const user = userEvent.setup()
     renderApp('/queue?client=cafe-al-noor')
 
-    await user.click(await screen.findByRole('combobox', { name: 'Run' }))
-    await user.click(await screen.findByRole('option', { name: /^All folders · 1 document/ }))
+    await user.click(await screen.findByRole('combobox', { name: 'Folder' }))
+    await user.click(await screen.findByRole('option', { name: /^April · 1 in review/ }))
 
-    await waitFor(() =>
-      expect(queueCalls(api).at(-1)).toMatchObject({ run_id: '6f1c2b0e-0000-4000-8000-000000000002' }),
-    )
+    await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ folder: 'April' }))
+    expect(localStorage.getItem('clearbook.lastFolder.cafe-al-noor')).toBe('April')
+  })
+
+  it('opens on the folder chosen last, here the folder of the last run', async () => {
+    localStorage.setItem('clearbook.lastFolder.cafe-al-noor', 'October 2026/21')
+    const api = backend()
+    renderApp('/queue?client=cafe-al-noor')
+
+    expect(await screen.findByRole('note', { name: 'Folder shown' })).toHaveTextContent('October 2026/21')
+    expect(queueCalls(api).every((call) => call.folder === 'October 2026/21')).toBe(true) // never all first
+  })
+
+  it('still opens an older link to one run, whatever folder was chosen last', async () => {
+    localStorage.setItem('clearbook.lastFolder.cafe-al-noor', 'April')
+    const api = backend()
+    renderApp(`/queue?client=cafe-al-noor&run=${RUN_ID}`)
+
+    expect(await screen.findByRole('note', { name: 'Folder shown' })).toHaveTextContent('one run')
+    expect(queueCalls(api)[0]).toMatchObject({ run_id: RUN_ID })
+    expect(queueCalls(api)[0]).not.toHaveProperty('folder')
+    expect(screen.getByRole('combobox', { name: 'Folder' })).toHaveTextContent('One run (from a link)')
   })
 
   it('pages through long queues', async () => {
@@ -269,7 +288,7 @@ describe('review queue', () => {
     )
     expect(screen.getByRole('link', { name: 'See progress' })).toHaveAttribute('href', `/run/${RUN_ID}`)
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
-    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
+    await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor&folder='))
   })
 
   it('says which documents wait for a stopped run, with no spinner', async () => {
@@ -307,7 +326,7 @@ describe('approved documents (decision 70)', () => {
 
   it('lists where each one is, links the posted one, and counts what could not be sent', async () => {
     const api = mockApi({
-      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/runs': RUNS,
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/run-folders': FOLDERS,
       '/clients/cafe-al-noor/accounting': XERO_STATUS, '/documents': SENT,
     })  // prettier-ignore
     const user = userEvent.setup()
@@ -340,7 +359,7 @@ describe('approved documents (decision 70)', () => {
 
   it('shows what came back not sent on top, in red with its reason, not as Ready', async () => {
     mockApi({
-      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/runs': RUNS,
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/run-folders': FOLDERS,
       '/clients/cafe-al-noor/accounting': XERO_STATUS, '/documents': CAME_BACK,
     })  // prettier-ignore
     renderApp('/queue?client=cafe-al-noor')
@@ -356,7 +375,7 @@ describe('approved documents (decision 70)', () => {
 
   it('lists only what came back not sent, with their issues, from its count', async () => {
     const api = mockApi({
-      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/runs': RUNS,
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/run-folders': FOLDERS,
       '/clients/cafe-al-noor/accounting': XERO_STATUS, '/documents': CAME_BACK,
     })  // prettier-ignore
     const user = userEvent.setup()

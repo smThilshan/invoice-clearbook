@@ -45,7 +45,7 @@ def test_a_removed_company_is_hidden_everywhere_and_kept(api: TestClient, sessio
     assert response.status_code == 200, response.text
     assert listed(api) == [OTHER]
     assert listed(api, "/clients/removed") == [CLIENT]
-    assert api.get(f"/clients/{CLIENT}/runs").status_code == 404
+    assert api.get(f"/clients/{CLIENT}/run-folders").status_code == 404
     assert api.get(f"/documents?client_id={CLIENT}").status_code == 404
     assert api.get(f"/documents/{document.id}").status_code == 404
     # Nothing is deleted.
