@@ -16,6 +16,8 @@ export type ModelStatus = Schemas['ModelStatus']
 export type Client = Schemas['ClientOut']
 export type ClientCreate = Schemas['ClientCreate']
 export type LineGrouping = Schemas['LineGrouping']
+export type SendMode = Schemas['SendMode']
+export type SendResult = Schemas['SendResult']
 export type ExpensesSentAs = Schemas['ExpensesSentAs']
 export type ClientSettings = Schemas['ClientSettings']
 export type DeletionPreview = Schemas['DeletionPreviewOut']
@@ -155,9 +157,11 @@ export const api = {
   /** Read accounts, VAT rates and suppliers from the connected accounting system (task 5.4). */
   syncAccounting: (clientId: string) =>
     sendJson<SyncResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/sync`, {}),
-  /** Ask the worker to post the client's approved documents now (task 5.1). */
-  sendWaiting: (clientId: string) =>
-    sendJson<AccountingStatus>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, {}),
+  /** Decision 98: exactly these approved documents, held until now, go to the accounting system. */
+  sendApproved: (clientId: string, documentIds: string[]) =>
+    sendJson<SendResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, {
+      document_ids: documentIds,
+    }),
   /** A new client from just a name; its id is made from the name (decision 35). */
   createClient: (body: ClientCreate) => sendJson<Client>('POST', '/clients', body),
   /** Decision 91: removed companies (admin only), hidden but kept, to restore. */
@@ -175,6 +179,9 @@ export const api = {
   /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
   setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),
+  /** Decision 98: sent straight away, or held until Send; documents approved from now on (admin only). */
+  setSendMode: (clientId: string, sendMode: SendMode) =>
+    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { send_mode: sendMode }),
   /** Decision 92: the client's own TRNs, the whole list (admin only). */
   setOwnTrns: (clientId: string, ownTrns: string[]) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { own_trns: ownTrns }),
@@ -229,6 +236,8 @@ export const api = {
     sendJson<DocumentDetail>('POST', `${documentPath(id)}/reject`, body),
   /** A send that gave up starts again, same key and saved progress (decision 69). */
   sendAgain: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/send-again`, {}),
+  /** Decision 98: back to review while the approval still waits for Send. */
+  undoApproval: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/undo-approval`, {}),
   /** A send that gave up goes back to review with the reason (decision 69). */
   sendBack: (id: string) => sendJson<DocumentDetail>('POST', `${documentPath(id)}/send-back`, {}),
   /** A posted document deleted in the accounting system back to review, once it confirms (76). */

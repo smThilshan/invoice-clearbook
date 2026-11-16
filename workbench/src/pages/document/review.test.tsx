@@ -614,6 +614,26 @@ describe('review screen', () => {
     )  // prettier-ignore
   })
 
+  it('says an approval waits for Send, and takes it back with Undo (decision 98)', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
+      '/clients/cafe/accounting': { provider_name: 'Xero' },
+      [`/documents/${ID}`]: detail({
+        status: 'APPROVED',
+        sending: { state: 'held', reason: null, next_try_at: null, can_send_back: false, as_expense: false },
+      }),
+      [`POST /documents/${ID}/undo-approval`]: detail({ status: 'IN_REVIEW', sending: null }),
+    })  // prettier-ignore
+    await open(api)
+    const user = userEvent.setup()
+
+    const status = screen.getByRole('status', { name: 'Sending' })
+    await waitFor(() => expect(status).toHaveTextContent('Approved, waiting for Send: it goes to Xero when someone sends it'))
+    await user.click(within(status).getByRole('button', { name: 'Undo approval' }))
+
+    await waitFor(() => expect(api.bodies[`POST /documents/${ID}/undo-approval`]).toEqual({}))
+  })
+
   it('sends a posted bill again once the accounting system says it was deleted (decision 76)', async () => {
     const api = mockApi({
       '/health/ready': READY, '/clients': [], '/clients/cafe/coding-options': OPTIONS,
@@ -1035,6 +1055,18 @@ describe('approve', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/documents/next-doc'))
     expect(router.state.location.state).toMatchObject({ from: '/queue?client=cafe&queue=CHECK', flash: expect.stringMatching(/^Approved: /) })
     expect(api.calls).toContain(`POST /documents/${ID}/approve`)
+  })
+
+  it('says the approved document waits for Send when the company holds them (decision 98)', async () => {
+    const held = { state: 'held' as const, reason: null, next_try_at: null, can_send_back: false, as_expense: false }
+    approveBackend(detail({ status: 'APPROVED', sending: held }))
+    const user = userEvent.setup()
+    const router = renderApp(`/documents/${ID}`, { from: '/queue?client=cafe&queue=CHECK', ids: [ID, 'next-doc'] })
+
+    await user.click(await screen.findByRole('button', { name: 'Approve & next' }))
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/documents/next-doc'))
+    expect(router.state.location.state).toMatchObject({ flash: expect.stringMatching(/^Approved, waiting for Send: /) })
   })
 
   it('cannot approve while errors remain', async () => {

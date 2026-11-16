@@ -17,6 +17,7 @@ import {
   type RejectBody,
   type SharePointRunCreate,
   type RunProgress,
+  type SendMode,
   uploadRun,
 } from './client'
 import { WORKING } from '@/lib/labels'
@@ -203,11 +204,25 @@ export function useDisconnectAccounting() {
   })
 }
 
-export function useSendWaiting() {
+/** Send (decision 98): the chosen approved documents go; the lists and counts follow. */
+export function useSendApproved() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (clientId: string) => api.sendWaiting(clientId),
-    onSuccess: (status, clientId) => client.setQueryData(['accounting', clientId], status),
+    mutationFn: ({ clientId, documentIds }: { clientId: string; documentIds: string[] }) =>
+      api.sendApproved(clientId, documentIds),
+    onSettled: (_result, _error, { clientId }) => {
+      void client.invalidateQueries({ queryKey: queryKeys.queues })
+      void client.invalidateQueries({ queryKey: ['accounting', clientId] })
+    },
+  })
+}
+
+export function useSetSendMode() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ clientId, sendMode }: { clientId: string; sendMode: SendMode }) =>
+      api.setSendMode(clientId, sendMode),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.clients }),
   })
 }
 
@@ -405,6 +420,10 @@ export function useReextractDocument() {
 
 export function useSendAgain() {
   return useDocumentChange<null>((id) => api.sendAgain(id))
+}
+
+export function useUndoApproval() {
+  return useDocumentChange<null>((id) => api.undoApproval(id))
 }
 
 export function useSendBack() {

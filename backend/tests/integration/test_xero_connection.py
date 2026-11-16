@@ -1,6 +1,7 @@
 """Connecting a client to Xero (task 5.3) through the neutral services and API (decision 43):
 state, encrypted tokens, renewal, disconnect, sync, send."""
 
+import uuid
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -22,8 +23,8 @@ from app.adapters.accounting.base import (
 )
 from app.adapters.accounting.registry import ProviderEntry, Registry
 from app.core.config import Settings
-from app.domain.enums import AccountClass, AccountingProvider, TaxType
-from app.models import AccountingConnection, LedgerAccount
+from app.domain.enums import AccountClass, AccountingProvider, DocumentStatus, TaxType
+from app.models import AccountingConnection, LedgerAccount, Outbox, OutboxStatus
 from app.pipeline.coding import load_chart
 from app.services import accounting_connections as connections
 from app.services.accounting_connections import AccountingConnectionError
@@ -373,7 +374,7 @@ def test_sync_without_a_connection_says_so(api: TestClient) -> None:
     assert "not connected" in answer.json()["detail"]
 
 
-def test_sending_waiting_bills_needs_xero_master_data_then_asks_the_worker(
+def test_sending_needs_xero_master_data_and_asks_the_worker_only_for_what_was_held(
     api: TestClient, session: Session, xero: FakeXero
 ) -> None:
     from app.api.accounting import get_enqueue_sweep
@@ -382,13 +383,43 @@ def test_sending_waiting_bills_needs_xero_master_data_then_asks_the_worker(
     api.app.dependency_overrides[get_enqueue_sweep] = lambda: asked.append  # type: ignore[attr-defined]
     connect(session, xero)
 
-    before_sync = api.post(f"/clients/{CLIENT}/accounting/send")
+    nothing_held = {"document_ids": [str(uuid.uuid4())]}
+    before_sync = api.post(f"/clients/{CLIENT}/accounting/send", json=nothing_held)
     api.post(f"/clients/{CLIENT}/accounting/sync")
-    after_sync = api.post(f"/clients/{CLIENT}/accounting/send")
+    after_sync = api.post(f"/clients/{CLIENT}/accounting/send", json=nothing_held)
 
     assert before_sync.status_code == 409
-    assert after_sync.status_code == 200 and after_sync.json()["waiting"] == 0
-    assert asked == [CLIENT]
+    assert after_sync.status_code == 200
+    assert after_sync.json() == {"sent": 0, "not_waiting": 1}
+    assert asked == []  # nothing was released: the worker is not asked
+
+
+def test_send_releases_the_held_documents_chosen_as_the_logged_in_user(
+    api: TestClient, session: Session, xero: FakeXero
+) -> None:
+    from app.api.accounting import get_enqueue_sweep
+    from tests.integration.factories import make_document
+
+    asked: list[str] = []
+    api.app.dependency_overrides[get_enqueue_sweep] = lambda: asked.append  # type: ignore[attr-defined]
+    connect(session, xero)
+    api.post(f"/clients/{CLIENT}/accounting/sync")
+    held = make_document(session, status=DocumentStatus.APPROVED)
+    session.add(Outbox(client_id=CLIENT, document_id=held.id, status=OutboxStatus.HELD))
+    session.flush()
+
+    answer = api.post(f"/clients/{CLIENT}/accounting/send",
+                      json={"document_ids": [str(held.id), str(held.id)]})  # fmt: skip
+    too_many = api.post(f"/clients/{CLIENT}/accounting/send",
+                        json={"document_ids": [str(uuid.uuid4()) for _ in range(201)]})  # fmt: skip
+
+    assert answer.json() == {"sent": 1, "not_waiting": 0}  # the same one twice counts once
+    row = session.scalars(select(Outbox).where(Outbox.document_id == held.id)).one()
+    assert (row.status, row.released_by) == (OutboxStatus.PENDING, "tester@missan.test")
+    assert asked == [CLIENT]  # one sweep for the company, not one job per document
+    assert too_many.status_code == 422
+    status = api.get(f"/clients/{CLIENT}/accounting").json()
+    assert status["posting"]["held"] == 0
 
 
 # --- A connection that needs a new sign-in (decision 68) -----------------------------------------
@@ -402,7 +433,9 @@ def test_a_withdrawn_access_is_shown_sending_refused_and_signing_in_again_sends(
     connections.mark_reconnect_needed(session, CLIENT, "Xero access was withdrawn (invalid_grant)")
 
     status = api.get(f"/clients/{CLIENT}/accounting").json()
-    refused = api.post(f"/clients/{CLIENT}/accounting/send")
+    refused = api.post(
+        f"/clients/{CLIENT}/accounting/send", json={"document_ids": [str(uuid.uuid4())]}
+    )
     state = api.get("/xero/connect", params={"client_id": CLIENT}).headers["location"]
     api.get("/xero/callback", params={"code": "code-1", "state": state.split("state=")[1]})
     after = api.get(f"/clients/{CLIENT}/accounting").json()

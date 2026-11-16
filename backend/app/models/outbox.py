@@ -11,6 +11,7 @@ from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
 class OutboxStatus(StrEnum):
+    HELD = "HELD"  # approved, waiting for someone to press Send (decision 98); never claimed
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
     DONE = "DONE"
@@ -18,11 +19,13 @@ class OutboxStatus(StrEnum):
     DEAD = "DEAD"  # unknown error: needs a human
 
 
-ACTIVE_OUTBOX = (OutboxStatus.PENDING, OutboxStatus.IN_PROGRESS)
+ACTIVE_OUTBOX = (OutboxStatus.PENDING, OutboxStatus.IN_PROGRESS)  # released: being sent
+LIVE_OUTBOX = (OutboxStatus.HELD, *ACTIVE_OUTBOX)  # a document has at most one of these
 
 
 class Outbox(UuidPk, ClientScoped, Timestamps, Base):
-    """An approved document waiting to post. Written in the same transaction as APPROVED.
+    """An approved document waiting to post. Written in the same transaction as APPROVED:
+    PENDING, or HELD until someone presses Send (decision 98).
 
     `id` is the idempotency key sent to the accounting system.
     """
@@ -44,6 +47,9 @@ class Outbox(UuidPk, ClientScoped, Timestamps, Base):
         default=LineGrouping.BY_ITEM,
         server_default=LineGrouping.BY_ITEM.value,
     )
+    # Who released it to be sent, and when (decision 98): the approver when sent straight away.
+    released_by: Mapped[str | None] = mapped_column(String(128))
+    released_at: Mapped[datetime | None]
     # Sent as a bill or as an expense (decision 89), decided at approval like `line_grouping`.
     sent_as: Mapped[ExpensesSentAs] = mapped_column(
         str_enum(ExpensesSentAs, "outbox_sent_as"),
@@ -60,7 +66,7 @@ class Outbox(UuidPk, ClientScoped, Timestamps, Base):
             "document_id",
             unique=True,
             postgresql_where=text(
-                "status IN ({})".format(", ".join(f"'{s.value}'" for s in ACTIVE_OUTBOX))
+                "status IN ({})".format(", ".join(f"'{s.value}'" for s in LIVE_OUTBOX))
             ),
         ),
     )

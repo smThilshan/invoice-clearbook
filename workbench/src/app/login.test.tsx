@@ -110,7 +110,7 @@ describe('login (decision 71)', () => {
       expenses_blocked: 'Xero cannot take expenses yet: they are sent as bills',
       expenses_reconnect: false, expenses_where: null,
       posting: { ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0,
-                 posted: 0, paused: 0, paused_reason: null, failed: 0, failed_reason: null },
+                 posted: 0, paused: 0, paused_reason: null, failed: 0, failed_reason: null, held: 0 },
     }  // prettier-ignore
     mockApi({
       '/health/ready': READY, '/auth/me': ME,

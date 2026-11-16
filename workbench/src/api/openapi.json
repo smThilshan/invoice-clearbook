@@ -382,6 +382,9 @@
               }
             ],
             "title": "Paid Through"
+          },
+          "send_mode": {
+            "$ref": "#/components/schemas/SendMode"
           }
         },
         "required": [
@@ -390,7 +393,8 @@
           "line_grouping",
           "expenses_sent_as",
           "paid_through",
-          "own_trns"
+          "own_trns",
+          "send_mode"
         ],
         "title": "ClientOut",
         "type": "object"
@@ -442,6 +446,16 @@
               }
             ],
             "title": "Paid Through"
+          },
+          "send_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SendMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "ClientSettings",
@@ -2443,6 +2457,10 @@
             ],
             "title": "Failed Reason"
           },
+          "held": {
+            "title": "Held",
+            "type": "integer"
+          },
           "not_yet": {
             "additionalProperties": {
               "type": "integer"
@@ -2516,7 +2534,8 @@
           "paused",
           "paused_reason",
           "failed",
-          "failed_reason"
+          "failed_reason",
+          "held"
         ],
         "title": "PostingOut",
         "type": "object"
@@ -2585,6 +2604,17 @@
             "title": "Offset",
             "type": "integer"
           },
+          "oldest": {
+            "additionalProperties": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/QueueCategory"
+            },
+            "title": "Oldest",
+            "type": "object"
+          },
           "processing": {
             "title": "Processing",
             "type": "integer"
@@ -2626,6 +2656,7 @@
           "offset",
           "documents",
           "counts",
+          "oldest",
           "processing",
           "stopped",
           "stopped_run_id",
@@ -2984,9 +3015,56 @@
         "title": "RunStatus",
         "type": "string"
       },
+      "SendBody": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "SendBody",
+        "type": "object"
+      },
+      "SendMode": {
+        "description": "When a client's approved documents go to its accounting system (decision 98).",
+        "enum": [
+          "AFTER_APPROVAL",
+          "ON_SEND"
+        ],
+        "title": "SendMode",
+        "type": "string"
+      },
+      "SendResult": {
+        "properties": {
+          "not_waiting": {
+            "title": "Not Waiting",
+            "type": "integer"
+          },
+          "sent": {
+            "title": "Sent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sent",
+          "not_waiting"
+        ],
+        "title": "SendResult",
+        "type": "object"
+      },
       "SendingList": {
         "description": "The queue's lists of approved documents (decision 70).",
         "enum": [
+          "held",
           "waiting",
           "failed",
           "posted",
@@ -3031,6 +3109,7 @@
           },
           "state": {
             "enum": [
+              "held",
               "waiting",
               "sending",
               "retrying",
@@ -4011,8 +4090,8 @@
     },
     "/clients/{client_id}/accounting/send": {
       "post": {
-        "description": "Ask the posting worker to send this client's approved documents now (task 5.1).",
-        "operationId": "send_waiting_clients__client_id__accounting_send_post",
+        "description": "Send (decision 98): exactly these approved documents, held for Send until now, go to the\naccounting system. 409 unless it is connected and synced.",
+        "operationId": "send_approved_clients__client_id__accounting_send_post",
         "parameters": [
           {
             "in": "path",
@@ -4024,12 +4103,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendBody"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AccountingStatus"
+                  "$ref": "#/components/schemas/SendResult"
                 }
               }
             },
@@ -4046,7 +4135,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Send Waiting",
+        "summary": "Send Approved",
         "tags": [
           "accounting system"
         ]
@@ -4485,7 +4574,7 @@
     },
     "/documents": {
       "get": {
-        "description": "Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list\nof approved documents instead (waiting, failed, posted; decision 70), or the documents back\nin review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked.",
+        "description": "Not sent first, then Ready, Check, Exception; oldest first inside each. `sending`: a list\nof approved documents instead (waiting, failed, posted; decision 70), or the documents back\nin review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked.",
         "operationId": "get_queue_documents_get",
         "parameters": [
           {
@@ -4899,7 +4988,7 @@
     },
     "/documents/{document_id}/approve": {
       "post": {
-        "description": "Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:\napproval takes the document as last saved. 422 if errors remain; nothing changes then.\nAfter the commit the posting worker is asked to send it (task 5.1).",
+        "description": "Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:\napproval takes the document as last saved. 422 if errors remain; nothing changes then.\nAfter the commit the posting worker is asked to send it (task 5.1), unless the client holds\napproved documents until Send (decision 98).",
         "operationId": "approve_document_documents__document_id__approve_post",
         "parameters": [
           {
@@ -5416,6 +5505,50 @@
           }
         },
         "summary": "Send Back",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/documents/{document_id}/undo-approval": {
+      "post": {
+        "description": "Back to review, while the approval still waits for Send (decision 98). 409 once it was\nsent: it is in the accounting system then.",
+        "operationId": "undo_approval_documents__document_id__undo_approval_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Approval",
         "tags": [
           "documents"
         ]

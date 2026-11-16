@@ -186,10 +186,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send Waiting
-         * @description Ask the posting worker to send this client's approved documents now (task 5.1).
+         * Send Approved
+         * @description Send (decision 98): exactly these approved documents, held for Send until now, go to the
+         *     accounting system. 409 unless it is connected and synced.
          */
-        post: operations["send_waiting_clients__client_id__accounting_send_post"];
+        post: operations["send_approved_clients__client_id__accounting_send_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -380,7 +381,7 @@ export interface paths {
         };
         /**
          * Get Queue
-         * @description Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list
+         * @description Not sent first, then Ready, Check, Exception; oldest first inside each. `sending`: a list
          *     of approved documents instead (waiting, failed, posted; decision 70), or the documents back
          *     in review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked.
          */
@@ -456,7 +457,8 @@ export interface paths {
          * Approve Document
          * @description Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
          *     approval takes the document as last saved. 422 if errors remain; nothing changes then.
-         *     After the commit the posting worker is asked to send it (task 5.1).
+         *     After the commit the posting worker is asked to send it (task 5.1), unless the client holds
+         *     approved documents until Send (decision 98).
          */
         post: operations["approve_document_documents__document_id__approve_post"];
         delete?: never;
@@ -659,6 +661,27 @@ export interface paths {
          *     give up, or if the request to create it may have reached the accounting system.
          */
         post: operations["send_back_documents__document_id__send_back_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{document_id}/undo-approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Approval
+         * @description Back to review, while the approval still waits for Send (decision 98). 409 once it was
+         *     sent: it is in the accounting system then.
+         */
+        post: operations["undo_approval_documents__document_id__undo_approval_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1259,6 +1282,7 @@ export interface components {
             own_trns: string[];
             /** Paid Through */
             paid_through: string | null;
+            send_mode: components["schemas"]["SendMode"];
         };
         /**
          * ClientSettings
@@ -1271,6 +1295,7 @@ export interface components {
             own_trns?: string[] | null;
             /** Paid Through */
             paid_through?: string | null;
+            send_mode?: components["schemas"]["SendMode"] | null;
         };
         /**
          * CodingOptions
@@ -1864,6 +1889,8 @@ export interface components {
             failed: number;
             /** Failed Reason */
             failed_reason: string | null;
+            /** Held */
+            held: number;
             /** Not Yet */
             not_yet: {
                 [key: string]: number;
@@ -1913,6 +1940,10 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /** Oldest */
+            oldest: {
+                [key: string]: string;
+            };
             /** Processing */
             processing: number;
             /** Sending Counts */
@@ -2064,12 +2095,30 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
+        /** SendBody */
+        SendBody: {
+            /** Document Ids */
+            document_ids: string[];
+        };
+        /**
+         * SendMode
+         * @description When a client's approved documents go to its accounting system (decision 98).
+         * @enum {string}
+         */
+        SendMode: "AFTER_APPROVAL" | "ON_SEND";
+        /** SendResult */
+        SendResult: {
+            /** Not Waiting */
+            not_waiting: number;
+            /** Sent */
+            sent: number;
+        };
         /**
          * SendingList
          * @description The queue's lists of approved documents (decision 70).
          * @enum {string}
          */
-        SendingList: "waiting" | "failed" | "posted" | "not_sent";
+        SendingList: "held" | "waiting" | "failed" | "posted" | "not_sent";
         /**
          * SendingOut
          * @description Where an approved document is on its way to the accounting system (decision 69).
@@ -2087,7 +2136,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted";
+            state: "held" | "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted";
         };
         /** SharePointFolderOut */
         SharePointFolderOut: {
@@ -2558,7 +2607,7 @@ export interface operations {
             };
         };
     };
-    send_waiting_clients__client_id__accounting_send_post: {
+    send_approved_clients__client_id__accounting_send_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2567,7 +2616,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendBody"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -2575,7 +2628,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AccountingStatus"];
+                    "application/json": components["schemas"]["SendResult"];
                 };
             };
             /** @description Validation Error */
@@ -3428,6 +3481,37 @@ export interface operations {
         };
     };
     send_back_documents__document_id__send_back_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_approval_documents__document_id__undo_approval_post: {
         parameters: {
             query?: never;
             header?: never;

@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -39,9 +40,13 @@ import type { ReviewContext } from '@/lib/reviewList'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { cn } from '@/lib/utils'
 
-export const PAGE_SIZE = 50
+import { SendBar, UndoApproval } from './SendApproved'
 
-const CATEGORIES: (QueueCategory | undefined)[] = [undefined, 'EXCEPTION', 'CHECK', 'READY']
+export const PAGE_SIZE = 50
+const NONE: ReadonlySet<string> = new Set()
+
+// The quick ones first; how long each category's oldest has waited shows on its card.
+const CATEGORIES: (QueueCategory | undefined)[] = [undefined, 'READY', 'CHECK', 'EXCEPTION']
 const LISTS = [
   { status: 'IN_REVIEW', label: 'In review' },
   { status: 'NON_POSTABLE', label: 'Parked (not postable)' },
@@ -52,6 +57,7 @@ type ListStatus = (typeof LISTS)[number]['status']
 // back to review not sent (shown only when there are some).
 const SENDING_LISTS: { key: SendingList; label: string }[] = [
   { key: 'not_sent', label: 'Not sent' },
+  { key: 'held', label: 'Approved, not sent' }, // waiting for Send (decision 98)
   { key: 'waiting', label: 'Waiting to send' },
   { key: 'failed', label: 'Could not send' },
   { key: 'posted', label: 'Posted' },
@@ -64,7 +70,7 @@ const CATEGORY_STYLES: Record<QueueCategory, string> = {
 }
 
 /**
- * Documents to review for one client: not sent first, then Exception, Check, Ready (task 4.4).
+ * Documents to review for one client: not sent first, then Ready, Check, Exception (task 4.4).
  * Every filter lives in the address, so refresh, back and the link from a run keep them. With
  * no folder in the address, the one chosen last for the client (after a run: its folder).
  */
@@ -104,6 +110,12 @@ export function QueuePage() {
       }
     : undefined
   const queue = useQueue(query)
+  // Decision 98: the documents ticked to Send, kept with the list they were ticked in, so a
+  // new list or page starts with none.
+  const listKey = JSON.stringify(query ?? null)
+  const [ticked, setTicked] = useState<{ list: string; ids: Set<string> }>()
+  const chosen = ticked?.list === listKey ? ticked.ids : NONE
+  const setChosen = (ids: Set<string>) => setTicked({ list: listKey, ids })
   const counts = queue.data?.counts
   const sendingCounts = queue.data?.sending_counts
   const system = useAccounting(clientId ?? '', false).data?.provider_name ?? 'the accounting system'
@@ -135,12 +147,12 @@ export function QueuePage() {
       )}
       <PageHeader
         title="Review queue"
-        description="Not sent first, then Exception, Check, Ready; oldest first inside each."
+        description="Not sent first, then Ready, Check, Exception; oldest first inside each."
       />
 
       {clientId && counts && !sending && (
         <section aria-label="Queue overview" className="grid gap-3 sm:grid-cols-3">
-          {(['EXCEPTION', 'CHECK', 'READY'] as const).map((key) => (
+          {(['READY', 'CHECK', 'EXCEPTION'] as const).map((key) => (
             <button
               key={key}
               type="button"
@@ -153,7 +165,10 @@ export function QueuePage() {
             >
               <span className="text-sm text-muted-foreground">{QUEUE_LABELS[key]}</span>
               <span className="mt-1 block text-2xl font-semibold tabular-nums">{counts[key] ?? 0}</span>
-              <span className="mt-1 block text-xs text-muted-foreground">documents to review</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                documents to review
+                {queue.data?.oldest[key] && ` · oldest ${waitingFor(queue.data.oldest[key])}`}
+              </span>
             </button>
           ))}
         </section>
@@ -202,8 +217,10 @@ export function QueuePage() {
           <Toggle label="Sent">
             {SENDING_LISTS.map((list) => {
               const count = sendingCounts?.[list.key] ?? 0
-              if (list.key === 'not_sent' && count === 0 && sending !== 'not_sent') return null
+              const onlyWhenSome = list.key === 'not_sent' || list.key === 'held'
+              if (onlyWhenSome && count === 0 && sending !== list.key) return null
               const alarming = (list.key === 'failed' || list.key === 'not_sent') && count > 0
+              const waiting = list.key === 'held' && count > 0
               return (
                 <ToggleButton
                   key={list.key}
@@ -215,7 +232,11 @@ export function QueuePage() {
                     <span
                       className={cn(
                         'ml-1.5 tabular-nums',
-                        alarming ? 'font-semibold text-destructive' : 'text-muted-foreground',
+                        alarming
+                          ? 'font-semibold text-destructive'
+                          : waiting
+                            ? 'font-semibold text-warning'
+                            : 'text-muted-foreground',
                       )}
                     >
                       {count}
@@ -283,7 +304,9 @@ export function QueuePage() {
       ) : queue.data.total === 0 ? (
         sending ? (
           <p className="rounded-lg border border-dashed p-6 text-center text-sm font-medium">
-            {sending === 'failed'
+            {sending === 'held'
+              ? `Nothing waiting for Send: every approved document went to ${system}.`
+              : sending === 'failed'
               ? 'Nothing failed to send.'
               : sending === 'not_sent'
                 ? `Nothing came back: every approved bill went to ${system}.`
@@ -303,10 +326,19 @@ export function QueuePage() {
         )
       ) : (
         <>
+          {sending === 'held' && clientId && (
+            <SendBar
+              clientId={clientId}
+              chosen={queue.data.documents.filter((d) => chosen.has(d.document_id))}
+              system={system}
+              onSent={() => setChosen(new Set())}
+            />
+          )}
           <DocumentTable
             documents={queue.data.documents}
             sendingList={Boolean(sending) && sending !== 'not_sent'} // back in review: its issues
             system={system}
+            selection={sending === 'held' ? { chosen, onChange: setChosen } : undefined}
           />
           <Pager
             page={page}
@@ -317,6 +349,12 @@ export function QueuePage() {
       )}
     </PageContainer>
   )
+}
+
+/** How long ago a document was taken in, in days: "today", "1 day", "12 days". */
+function waitingFor(iso: string): string {
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000)
+  return days < 1 ? 'today' : days === 1 ? '1 day' : `${days} days`
 }
 
 /** Search by supplier, invoice number or file name; the address follows after a short pause. */
@@ -422,10 +460,12 @@ function DocumentTable({
   documents,
   sendingList,
   system,
+  selection,
 }: {
   documents: DocumentSummary[]
   sendingList: boolean // a list of approved documents: where each is instead of its issues
   system: string
+  selection?: { chosen: ReadonlySet<string>; onChange: (chosen: Set<string>) => void } // to Send (98)
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -439,6 +479,17 @@ function DocumentTable({
       <Table aria-label="Documents" className="table-fixed">
         <TableHeader>
           <TableRow className="bg-muted/50 hover:bg-muted/50">
+            {selection && (
+              <TableHead className="w-10">
+                <Checkbox
+                  aria-label="Choose every document on this page"
+                  checked={documents.length > 0 && documents.every((d) => selection.chosen.has(d.document_id))}
+                  onCheckedChange={(on) =>
+                    selection.onChange(new Set(on === true ? documents.map((d) => d.document_id) : []))
+                  }
+                />
+              </TableHead>
+            )}
             <TableHead className="w-28">Category</TableHead>
             <TableHead>Supplier</TableHead>
             <TableHead className="hidden w-40 lg:table-cell">Number</TableHead>
@@ -461,6 +512,20 @@ function DocumentTable({
                 className={cn('cursor-pointer', doc.not_sent && 'bg-destructive/5 hover:bg-destructive/10')}
                 onClick={() => void navigate(`/documents/${doc.document_id}`, { state })}
               >
+                {selection && (
+                  <TableCell onClick={(event) => event.stopPropagation()}>
+                    <Checkbox
+                      aria-label={`Choose ${doc.vendor_name ?? doc.file}`}
+                      checked={selection.chosen.has(doc.document_id)}
+                      onCheckedChange={(on) => {
+                        const next = new Set(selection.chosen)
+                        if (on === true) next.add(doc.document_id)
+                        else next.delete(doc.document_id)
+                        selection.onChange(next)
+                      }}
+                    />
+                  </TableCell>
+                )}
                 {/* Came back not sent: a red bar and badge instead of its category, so it stands out. */}
                 <TableCell className={cn('border-l-4', doc.not_sent ? 'border-l-destructive' : 'border-l-transparent')}>
                   {doc.not_sent ? (
@@ -517,6 +582,7 @@ function DocumentTable({
 }
 
 const SENDING_LABELS: Record<string, string> = {
+  held: 'Waiting for Send',
   waiting: 'Waiting',
   sending: 'Sending',
   retrying: 'Trying again later',
@@ -541,6 +607,7 @@ function SendingCell({ document, system }: { document: DocumentSummary; system: 
         {SENDING_LABELS[sending.state]}
         {sending.state === 'retrying' && sending.next_try_at ? ` at ${formatDateTime(sending.next_try_at)}` : ''}
       </span>
+      {sending.state === 'held' && <UndoApproval documentId={document.document_id} />}
       {sending.reason && sending.state !== 'posted' && (
         <span className="truncate text-muted-foreground" title={sending.reason}>
           {sending.reason}

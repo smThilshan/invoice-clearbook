@@ -5,16 +5,18 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.domain.enums import Direction, DocumentStatus
+from app.domain.enums import Direction, DocumentStatus, SendMode
 from app.models import Client, Document, Run
 
 CLIENT = "test-client"
 
 
 def make_client(session: Session, inbox: Path, client_id: str = CLIENT) -> Client:
-    """A restaurant whose shared-drive folder is `inbox`."""
+    """A restaurant whose shared-drive folder is `inbox`, set up before decision 98: approved
+    documents are sent straight away (tests of holding them for Send set ON_SEND)."""
     inbox.mkdir(parents=True, exist_ok=True)
-    client = Client(client_id=client_id, name=f"Test {client_id}", inbox_path=str(inbox))
+    client = Client(client_id=client_id, name=f"Test {client_id}", inbox_path=str(inbox),
+                    send_mode=SendMode.AFTER_APPROVAL)  # fmt: skip
     session.add(client)
     session.flush()
     return client

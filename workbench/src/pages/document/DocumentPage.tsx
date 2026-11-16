@@ -42,6 +42,7 @@ import {
   useRestoreDocument,
   useReopenDeleted,
   useSendAgain,
+  useUndoApproval,
   useSendBack,
   useUpdateDocument,
 } from "@/api/queries";
@@ -139,8 +140,11 @@ export function DocumentPage() {
     approve.mutate(
       { id: doc.document_id, body: null },
       {
-        onSuccess: () => {
-          const flash = `Approved: ${doc.file}`;
+        onSuccess: (approved) => {
+          const flash =
+            approved.sending?.state === "held"
+              ? `Approved, waiting for Send: ${doc.file}`
+              : `Approved: ${doc.file}`;
           if (next) open(next, flash);
           else void navigate(listAddress(doc.client_id), { state: { flash } });
         },
@@ -348,6 +352,7 @@ function SendingStatus({ document }: { document: DocumentDetail }) {
     useAccounting(document.client_id, false).data?.provider_name ??
     "the accounting system";
   const reopen = useReopenDeleted();
+  const undo = useUndoApproval();
   if (!document.sending) return null;
   const [tone, text] = sendingText(document.sending, system);
   return (
@@ -370,6 +375,18 @@ function SendingStatus({ document }: { document: DocumentDetail }) {
             <ExternalLink className="size-3.5" aria-hidden />
           </a>
         )}
+        {document.sending.state === "held" && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            disabled={undo.isPending}
+            onClick={() => undo.mutate({ id: document.document_id, body: null })}
+          >
+            <Undo2 aria-hidden />
+            Undo approval
+          </Button>
+        )}
         {document.sending.state === "posted" && (
           <Button
             type="button"
@@ -390,11 +407,17 @@ function SendingStatus({ document }: { document: DocumentDetail }) {
       {reopen.isError && (
         <ErrorAlert title="Not sent again" error={reopen.error} />
       )}
+      {undo.isError && <ErrorAlert title="Not undone" error={undo.error} />}
     </div>
   );
 }
 
 function sendingText(sending: Sending, system: string): [string, ReactNode] {
+  if (sending.state === "held")
+    return [
+      "text-warning",
+      `Approved, waiting for Send: it goes to ${system} when someone sends it from the review queue (Approved, not sent).`,
+    ];
   if (sending.state === "posted")
     return [
       "text-success",

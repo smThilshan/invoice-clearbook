@@ -609,8 +609,12 @@ def one_of_each(session: Session, xero: FakePosting) -> dict[str, Document]:
     reason = "Not sent to Xero: made-up"
     session.execute(update(Document).where(Document.id == not_sent.id)
                     .values(status=S.IN_REVIEW, failure_reason=reason))  # fmt: skip
+    held, _ = approved(session, invoice_number="INV-6")
+    session.execute(update(Outbox).where(Outbox.document_id == held.id)
+                    .values(status=OutboxStatus.HELD))  # fmt: skip  # waits for Send (dec. 98)
     session.expire_all()
-    return {"posted": posted, "failed": failed, "waiting": waiting, "not_sent": not_sent}
+    return {"posted": posted, "failed": failed, "waiting": waiting, "not_sent": not_sent,
+            "held": held}  # fmt: skip
 
 
 def test_each_list_holds_its_approved_documents_and_counts_them_all(
@@ -622,8 +626,9 @@ def test_each_list_holds_its_approved_documents_and_counts_them_all(
         page = review.list_queue(session, client_id=CLIENT, sending=name)
 
         assert [d.id for d in page.documents] == [docs[name.value].id], name
-        assert page.sending_counts == {SendingList.WAITING: 1, SendingList.FAILED: 1,
-                                       SendingList.POSTED: 1, SendingList.NOT_SENT: 1}  # fmt: skip
+        assert page.sending_counts == {SendingList.HELD: 1, SendingList.WAITING: 1,
+                                       SendingList.FAILED: 1, SendingList.POSTED: 1,
+                                       SendingList.NOT_SENT: 1}  # fmt: skip
         assert page.counts == {}  # categories are for documents in review
 
 
@@ -636,7 +641,7 @@ def test_a_page_of_states_says_the_same_as_each_document_alone(
     together = posting.sending_states(session, docs)
 
     assert {d.id: posting.sending_of(session, d) for d in docs} == together
-    assert sorted(s.state for s in together.values()) == ["failed", "posted", "waiting"]
+    assert sorted(s.state for s in together.values()) == ["failed", "held", "posted", "waiting"]
 
 
 def test_posted_rows_link_to_the_bill_in_xero_through_the_api(
@@ -665,7 +670,9 @@ def test_posted_rows_link_to_the_bill_in_xero_through_the_api(
         "https://go.xero.com/organisationlogin/default.aspx?shortcode=%21aB1cD"
     )
     assert row["external_url"].endswith("InvoiceID%3Dxero-bill-1")
-    assert posted["sending_counts"] == {"waiting": 1, "failed": 1, "posted": 1, "not_sent": 1}
+    assert posted["sending_counts"] == {
+        "held": 1, "waiting": 1, "failed": 1, "posted": 1, "not_sent": 1
+    }  # fmt: skip
     [row] = failed["documents"]
     assert (row["sending"]["state"], row["external_url"]) == ("failed", None)
 

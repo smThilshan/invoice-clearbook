@@ -42,6 +42,7 @@ const PAGE: QueuePage = {
   limit: 50,
   offset: 0,
   counts: { EXCEPTION: 1, CHECK: 1, READY: 1 },
+  oldest: {},
   processing: 0,
   stopped: 0,
   stopped_run_id: null,
@@ -248,6 +249,21 @@ describe('review queue', () => {
     expect(await screen.findByText('This document could not be loaded')).toBeInTheDocument()
   })
 
+  it('shows Ready, Check, then Exception, each with how long its oldest has waited', async () => {
+    const twelveDaysAgo = new Date(Date.now() - 12.5 * 86_400_000).toISOString()
+    backend({ ...PAGE, oldest: { EXCEPTION: twelveDaysAgo, READY: new Date().toISOString() } })
+    renderApp('/queue?client=cafe-al-noor')
+
+    const overview = await screen.findByRole('region', { name: 'Queue overview' })
+    const cards = within(overview).getAllByRole('button')
+    expect(cards.map((card) => card.textContent?.split(/\d/)[0])).toEqual(['Ready', 'Check', 'Exception'])
+    expect(cards[0]).toHaveTextContent('oldest today')
+    expect(cards[1]).not.toHaveTextContent('oldest')
+    expect(cards[2]).toHaveTextContent('oldest 12 days')
+    const filter = within(screen.getByRole('group', { name: 'Category' })).getAllByRole('button')
+    expect(filter.map((b) => b.textContent?.replace(/\d+/g, ''))).toEqual(['All', 'Ready', 'Check', 'Exception'])
+  })
+
   it('says when there is nothing to review, and how to get documents', async () => {
     backend({ ...PAGE, total: 0, documents: [], counts: {} })
     renderApp('/queue?client=cafe-al-noor')
@@ -411,5 +427,90 @@ describe('approved documents (decision 70)', () => {
 
     await waitFor(() => expect(router.state.location.search).toBe('?client=cafe-al-noor'))
     expect(screen.getByRole('group', { name: 'Category' })).toBeInTheDocument()
+  })
+})
+
+describe('approved, not sent: Send and Undo (decision 98)', () => {
+  const held = (id: string, changes: Partial<DocumentSummary> = {}) =>
+    doc(id, { status: 'APPROVED', sending: { state: 'held', reason: null, next_try_at: null,
+             can_send_back: false, as_expense: false }, ...changes })  // prettier-ignore
+  const HELD: QueuePage = {
+    ...PAGE, total: 3, counts: {},
+    sending_counts: { held: 3, waiting: 0, failed: 0, posted: 0, not_sent: 0 },
+    documents: [
+      held('h1', { total: '1050.00' }),
+      held('h2', { total: '20.5', sending: { state: 'held', reason: null, next_try_at: null,
+                   can_send_back: false, as_expense: true } }),
+      held('h3', { total: '7.25', currency: 'USD' }),
+    ],
+  }  // prettier-ignore
+
+  function backend(extra: Record<string, unknown> = {}) {
+    return mockApi({
+      '/health/ready': READY, '/clients': CLIENTS, '/clients/cafe-al-noor/run-folders': FOLDERS,
+      '/clients/cafe-al-noor/accounting': { provider_name: 'Xero' }, '/documents': HELD,
+      'POST /clients/cafe-al-noor/accounting/send': { sent: 2, not_waiting: 0 }, ...extra,
+    })  // prettier-ignore
+  }
+
+  it('shows the list only when something waits, and opens it', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/queue?client=cafe-al-noor')
+
+    const sent = await screen.findByRole('group', { name: 'Sent' })
+    const list = await within(sent).findByRole('button', { name: /^Approved, not sent/ })
+    expect(list).toHaveTextContent('Approved, not sent3')
+    await user.click(list)
+
+    await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ sending: 'held' }))
+    expect(await screen.findByRole('region', { name: 'Send' })).toHaveTextContent('Tick the documents to send.')
+    expect(screen.getByRole('button', { name: 'Send to Xero' })).toBeDisabled()
+  })
+
+  it('sends exactly the ticked documents, after showing how many and how much', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/queue?client=cafe-al-noor&sending=held')
+
+    const [first, second] = await screen.findAllByRole('checkbox', { name: 'Choose Fresh Farms Trading LLC' })
+    await user.click(first!)
+    await user.click(second!)
+    await user.click(screen.getByRole('button', { name: 'Send to Xero' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Send 2 documents to Xero?')
+    expect(dialog).toHaveTextContent('Total AED 1,070.50.') // exact: 1050.00 + 20.5
+    expect(dialog).toHaveTextContent('1 of them is expenses: final in Xero at once, with no draft.')
+    await user.click(within(dialog).getByRole('button', { name: 'Send' }))
+
+    await waitFor(() =>
+      expect(api.bodies['POST /clients/cafe-al-noor/accounting/send']).toEqual({ document_ids: ['h1', 'h2'] }),
+    )
+    expect(await screen.findByText('2 documents on the way to Xero.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('ticks a whole page at once, with each currency totalled on its own', async () => {
+    backend()
+    const user = userEvent.setup()
+    renderApp('/queue?client=cafe-al-noor&sending=held')
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Choose every document on this page' }))
+    await user.click(screen.getByRole('button', { name: 'Send to Xero' }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Total AED 1,070.50 + USD 7.25.')
+  })
+
+  it('takes an approval back from its row, without opening the document', async () => {
+    const api = backend({ 'POST /documents/h1/undo-approval': doc('h1') })
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor&sending=held')
+
+    const [first] = (await screen.findAllByRole('button', { name: 'Undo approval' })) as [HTMLElement]
+    await user.click(first)
+
+    await waitFor(() => expect(api.calls).toContain('POST /documents/h1/undo-approval'))
+    expect(router.state.location.pathname).toBe('/queue')
   })
 })

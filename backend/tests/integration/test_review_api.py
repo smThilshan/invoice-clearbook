@@ -99,7 +99,7 @@ def moves(session: Session, doc: Document) -> list[tuple[S | None, S, str | None
 # --- queue -------------------------------------------------------------------------------
 
 
-def test_queue_puts_exception_first_then_check_then_ready(
+def test_queue_puts_ready_first_then_check_then_exception(
     api: TestClient,
     session: Session,
     storage: LocalStorage,  # noqa: F811
@@ -112,13 +112,15 @@ def test_queue_puts_exception_first_then_check_then_ready(
 
     assert body["total"] == 3
     assert [d["document_id"] for d in body["documents"]] == [
-        str(exception.id), str(check.id), str(ready.id)
+        str(ready.id), str(check.id), str(exception.id)
     ]  # fmt: skip
-    first = body["documents"][0]
-    assert (first["queue"], first["file"], first["invoice_number"]) == (
+    last = body["documents"][-1]
+    assert (last["queue"], last["file"], last["invoice_number"]) == (
         "EXCEPTION", "inv.pdf", "INV-00303"
     )  # fmt: skip
-    assert first["errors"] >= 1 and Decimal(first["total"]) == Decimal("1060.00")
+    assert last["errors"] >= 1 and Decimal(last["total"]) == Decimal("1060.00")
+    # How long each category's oldest has waited is on screen, so problems are not forgotten.
+    assert set(body["oldest"]) == {"READY", "CHECK", "EXCEPTION"}
 
 
 def test_queue_filters_and_pages(
@@ -127,7 +129,7 @@ def test_queue_filters_and_pages(
     storage: LocalStorage,  # noqa: F811
 ) -> None:
     ready = in_review(session, storage, "INV-00301")
-    in_review(session, storage, "INV-00303", total=Decimal("1060.00"))
+    exception = in_review(session, storage, "INV-00303", total=Decimal("1060.00"))
 
     only_ready = ok(api.get("/documents", params={"client_id": CLIENT, "queue": "READY"}))
     by_run = ok(api.get("/documents", params={"client_id": CLIENT, "run_id": str(ready.run_id)}))
@@ -137,7 +139,7 @@ def test_queue_filters_and_pages(
     assert [d["document_id"] for d in by_run["documents"]] == [str(ready.id)]
     assert (second["total"], [d["document_id"] for d in second["documents"]]) == (
         2,
-        [str(ready.id)],
+        [str(exception.id)],
     )
     assert (
         ok(api.get("/documents", params={"client_id": CLIENT, "status": "REJECTED"}))["documents"]

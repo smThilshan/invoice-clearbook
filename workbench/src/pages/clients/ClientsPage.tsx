@@ -9,19 +9,19 @@ import {
   Undo2,
   Unlink,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
-import type { Client, ExpensesSentAs, LineGrouping, PostingSummary, SyncResult } from '@/api/client'
+import type { Client, ExpensesSentAs, LineGrouping, PostingSummary, SendMode, SyncResult } from '@/api/client'
 import {
   useAccounting,
   useClients,
   useCodingOptions,
   useMe,
   useDisconnectAccounting,
-  useSendWaiting,
   useSetExpenseSending,
   useSetLineGrouping,
+  useSetSendMode,
   useSetOwnTrns,
   useSyncAccounting,
 } from '@/api/queries'
@@ -42,7 +42,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { EXPENSES_SENT_AS_LABELS, formatDateTime, LINE_GROUPING_LABELS } from '@/lib/labels'
+import { EXPENSES_SENT_AS_LABELS, formatDateTime, LINE_GROUPING_LABELS, SEND_MODE_LABELS } from '@/lib/labels'
 import { TAX_TYPE_LABELS } from '@/pages/document/formModel'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { RemoveCompanyDialog, RemovedCompanies } from '@/pages/clients/RemoveCompany'
@@ -119,17 +119,10 @@ export function ClientsPage() {
   )
 }
 
-/** How often the card checks back while bills are being sent, and when it stops waiting. */
-const SENDING_REFRESH_MS = 2_000
-const SENDING_PATIENCE_MS = 45_000
-
 function ClientRow({ client }: { client: Client }) {
-  // Sending (task 5.1): what the card knew when Send was clicked, to say afterwards what changed.
-  const [sending, setSending] = useState<{ before: PostingSummary; since: number } | null>(null)
-  const status = useAccounting(client.client_id, sending ? SENDING_REFRESH_MS : false)
+  const status = useAccounting(client.client_id, false)
   const disconnect = useDisconnectAccounting()
   const sync = useSyncAccounting()
-  const send = useSendWaiting()
   // Connecting the accounting system is an admin's, syncing everyone's (decision 71); the API
   // says so too.
   const admin = useMe().data?.role === 'ADMIN'
@@ -181,6 +174,7 @@ function ClientRow({ client }: { client: Client }) {
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
           <LinesSent client={client} system={system} admin={admin} />
+          <WhenSent client={client} system={system} admin={admin} />
           <OwnTrns client={client} admin={admin} />
           {connected && (
             <ExpensesSent
@@ -203,6 +197,7 @@ function ClientRow({ client }: { client: Client }) {
               clientId={client.client_id}
               showPaused={!reconnect}
               noun={noun}
+              where={where}
             />
           )}
         </div>
@@ -232,20 +227,6 @@ function ClientRow({ client }: { client: Client }) {
         </Alert>
       )}
       <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
-        {synced && !reconnect && summary && summary.ready > 0 && !sending && (
-          <Button
-            size="sm"
-            disabled={send.isPending}
-            onClick={() =>
-              send.mutate(client.client_id, {
-                onSuccess: () => setSending({ before: summary, since: Date.now() }),
-              })
-            }
-          >
-            <Send aria-hidden />
-            Send {plural(summary.ready, noun)} to {system}
-          </Button>
-        )}
         {connected && (
           <Button
             size="sm"
@@ -298,18 +279,6 @@ function ClientRow({ client }: { client: Client }) {
       {status.isError && <ErrorAlert title="Connection status could not be loaded" error={status.error} />}
       {disconnect.isError && <ErrorAlert title="Not disconnected" error={disconnect.error} />}
       {sync.isError && <ErrorAlert title="Not synced" error={sync.error} />}
-      {send.isError && <ErrorAlert title="Not sent" error={send.error} />}
-      {sending && summary && (
-        <SendingProgress
-          before={sending.before}
-          now={summary}
-          since={sending.since}
-          system={system}
-          where={where}
-          noun={noun}
-          onFinished={() => setSending(null)}
-        />
-      )}
       {sync.data && <SyncSummary result={sync.data} />}
     </li>
   )
@@ -344,6 +313,39 @@ function LinesSent({ client, system, admin }: { client: Client; system: string; 
         </Select>
       ) : (
         <span>{LINE_GROUPING_LABELS[client.line_grouping]}</span>
+      )}
+      {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
+    </div>
+  )
+}
+
+/** Decision 98: approved documents go straight away, or wait for someone to press Send in the
+ * review queue. Documents approved from now on; ones already approved keep theirs. */
+function WhenSent({ client, system, admin }: { client: Client; system: string; admin: boolean }) {
+  const change = useSetSendMode()
+  const label = `Sent to ${system}`
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">{label}:</span>
+      {admin ? (
+        <Select
+          value={client.send_mode}
+          disabled={change.isPending}
+          onValueChange={(value) => change.mutate({ clientId: client.client_id, sendMode: value as SendMode })}
+        >
+          <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(SEND_MODE_LABELS).map(([value, text]) => (
+              <SelectItem key={value} value={value}>
+                {text}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span>{SEND_MODE_LABELS[client.send_mode]}</span>
       )}
       {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
     </div>
@@ -546,6 +548,7 @@ function PostingLines({
   clientId,
   showPaused,
   noun,
+  where,
 }: {
   summary: PostingSummary
   synced: boolean
@@ -553,13 +556,29 @@ function PostingLines({
   clientId: string
   showPaused: boolean // false while the sign-in banner says it already
   noun: string // 'bill', or 'document' when expenses go as expenses too
+  where: string | null // where the accountant finds them in the accounting system
 }) {
   return (
     <ul aria-label="Approved documents" className="space-y-0.5 text-sm">
+      {summary.held > 0 && (
+        <li className="flex items-start gap-1.5 font-medium text-warning">
+          <Send className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            {plural(summary.held, `approved ${noun}`)} waiting for Send.{' '}
+            <Link
+              to={`/queue?${new URLSearchParams({ client: clientId, sending: 'held' })}`}
+              className="underline underline-offset-2"
+            >
+              Open the list
+            </Link>{' '}
+            to check and send them.
+          </span>
+        </li>
+      )}
       {summary.ready > 0 && (
         <li className="font-medium text-warning">
           {synced
-            ? `${plural(summary.ready, `approved ${noun}`)} ready to send to ${system}.`
+            ? `${plural(summary.ready, `approved ${noun}`)} on the way to ${system}.`
             : `${plural(summary.ready, `approved ${noun}`)} waiting: connect and sync the accounting system to send them.`}
         </li>
       )}
@@ -625,74 +644,10 @@ function PostingLines({
       {summary.posted > 0 && (
         <li className="flex items-center gap-1.5 text-muted-foreground">
           <CircleCheck className="size-3.5 text-success" aria-hidden />
-          {plural(summary.posted, noun)} sent to {system} so far.
+          {plural(summary.posted, noun)} sent to {system} so far{where ? `: find them in ${where}` : ''}.
         </li>
       )}
     </ul>
-  )
-}
-
-/** After Send: live progress, then what happened, in one sentence. */
-function SendingProgress({
-  before,
-  now,
-  since,
-  system,
-  where,
-  noun,
-  onFinished,
-}: {
-  before: PostingSummary
-  now: PostingSummary
-  since: number
-  system: string
-  where: string | null
-  noun: string
-  onFinished: () => void
-}) {
-  // The clock is read in the timer, not while drawing: the time waited so far.
-  const [waited, setWaited] = useState(0)
-  useEffect(() => {
-    const timer = window.setInterval(() => setWaited(Date.now() - since), SENDING_REFRESH_MS)
-    return () => window.clearInterval(timer)
-  }, [since])
-  const sent = now.posted - before.posted
-  const back = now.sent_back - before.sent_back
-  const moved = sent > 0 || back > 0 || now.retrying > before.retrying
-  const finished = now.ready === 0
-  const gaveUp = !finished && waited > SENDING_PATIENCE_MS
-
-  if (!finished && !gaveUp) {
-    return (
-      <p role="status" className="mt-3 flex items-center gap-2 text-sm">
-        <RefreshCw className="size-3.5 animate-spin" aria-hidden />
-        Sending {plural(now.ready, noun)} to {system}…{sent > 0 ? ` ${sent} sent so far.` : ''}
-      </p>
-    )
-  }
-  const parts = [
-    sent > 0 &&
-      `${plural(sent, noun)} sent to ${system}${where ? `: find them under ${where}` : ''}.`,
-    back > 0 && `${plural(back, noun)} came back to review with the reason.`,
-    now.retrying > 0 && `${plural(now.retrying, noun)} will be sent again automatically.`,
-  ].filter(Boolean)
-  return (
-    <div role="status" className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-      {gaveUp && !moved ? (
-        <span className="text-destructive">
-          Not sent yet: the sending service does not seem to be running. Ask the person who runs
-          the system to start it, then click Send again.
-        </span>
-      ) : (
-        <span>
-          <span className="font-medium">{gaveUp ? 'Still sending. ' : 'Done. '}</span>
-          {parts.join(' ')}
-        </span>
-      )}
-      <Button variant="ghost" size="sm" onClick={onFinished}>
-        OK
-      </Button>
-    </div>
   )
 }
 

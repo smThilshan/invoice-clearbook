@@ -2,7 +2,7 @@ from sqlalchemy import String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.enums import AccountingProvider, ExpensesSentAs, LineGrouping
+from app.domain.enums import AccountingProvider, ExpensesSentAs, LineGrouping, SendMode
 from app.models.base import Base, ClientScoped, Timestamps, UuidPk, str_enum
 
 
@@ -36,6 +36,13 @@ class Client(UuidPk, ClientScoped, Timestamps, Base):
         server_default=ExpensesSentAs.BILL.value,
     )
     paid_through: Mapped[str | None] = mapped_column(String(64))
+    # Decision 98: approved documents are sent straight away, or held until someone presses
+    # Send. New clients hold them; clients from before keep sending straight away.
+    send_mode: Mapped[SendMode] = mapped_column(
+        str_enum(SendMode, "send_mode"),
+        default=SendMode.ON_SEND,
+        server_default=SendMode.ON_SEND.value,
+    )
     # Its own TRNs (decision 92), 15 digits each: one per legal entity whose invoices it gets.
     # On a document, one of these is the customer's TRN, never the supplier's.
     own_trns: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")

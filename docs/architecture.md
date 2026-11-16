@@ -192,8 +192,12 @@ coding, validation, vendor match and the Workbench read only these tables. The p
 adapters need it (master data in 1.5, posting in 5.1) — no speculative methods.
 
 Posting (all adapters):
-- On Approve: status `APPROVED` + outbox row in ONE transaction.
-- Celery posting worker takes pending outbox rows (`SELECT … FOR UPDATE SKIP LOCKED`) and calls the client's adapter.
+- On Approve: status `APPROVED` + outbox row in ONE transaction. The row is `PENDING` (sent straight away) or
+  `HELD` until someone presses Send in the review queue, as the client is set (decision 98). Send moves exactly
+  the chosen held rows to `PENDING`; Undo takes a held approval back to review and removes its row (never sent).
+  Releasing a row is what teaches the supplier's coding, so an approval taken back teaches nothing.
+- Celery posting worker takes pending outbox rows (`SELECT … FOR UPDATE SKIP LOCKED`) and calls the client's
+  adapter. A held row is never taken.
 
 Xero adapter sub-steps, each result saved so a failure resumes from the failed step:
   1. Xero lookup (contact + invoice number, any status)

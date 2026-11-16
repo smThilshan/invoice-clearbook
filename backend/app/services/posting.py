@@ -116,7 +116,7 @@ class SendError(Exception):
 class Sending:
     """Where one approved document is on its way to the accounting system (decision 69)."""
 
-    state: str  # "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted"
+    state: str  # "held" | "waiting" | "sending" | "retrying" | "paused" | "failed" | "posted"
     reason: str | None = None  # why it is retrying, paused or failed
     next_try_at: datetime | None = None  # retrying: when
     can_send_back: bool = False  # failed, and the create request was never sent
@@ -242,6 +242,8 @@ def _where(document: Document, outbox: Outbox | None, paused: str | None, now: d
         return Sending("posted")
     if outbox is None:
         return Sending("waiting")
+    if outbox.status is OutboxStatus.HELD:
+        return Sending("held")
     if outbox.status is OutboxStatus.DEAD:
         progress = outbox.progress or {}
         return Sending("failed", outbox.last_error, can_send_back=CREATE_SENT not in progress)
@@ -388,6 +390,7 @@ class PostingSummary:
     sent_back: int  # back in review because they could not be sent
     posted: int  # in the accounting system
     paused: int = 0  # bills waiting for someone to connect again (decision 68)
+    held: int = 0  # approved, waiting for someone to press Send (decision 98)
     paused_reason: str | None = None
     failed: int = 0  # gave up: waiting for Try again or Send back (decision 69)
     failed_reason: str | None = None  # the latest one's
@@ -440,8 +443,14 @@ def summary(session: Session, client_id: str) -> PostingSummary:
             Document.failure_reason.is_not(None),
         )
     ).one()
+    held = session.scalars(
+        select(func.count()).where(
+            Outbox.client_id == client_id, Outbox.status == OutboxStatus.HELD
+        )
+    ).one()
     return PostingSummary(
         ready=ready,
+        held=held,
         retrying=retrying,
         retry_at=retry_at,
         retry_reason=retry_reason,

@@ -23,7 +23,14 @@ from app.api.accounting import RegistryDep
 from app.api.auth import AdminDep, require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.domain.enums import AccountClass, AccountingProvider, ExpensesSentAs, LineGrouping, TaxType
+from app.domain.enums import (
+    AccountClass,
+    AccountingProvider,
+    ExpensesSentAs,
+    LineGrouping,
+    SendMode,
+    TaxType,
+)
 from app.models import Client
 from app.pipeline import coding
 from app.pipeline.folders import InboxError, folder_date_from_path
@@ -58,6 +65,7 @@ class ClientOut(BaseModel):
     expenses_sent_as: ExpensesSentAs  # decision 89
     paid_through: str | None  # the account expenses are usually paid through; None = each time
     own_trns: list[str]  # its own TRNs, 15 digits each (decision 92)
+    send_mode: SendMode  # sent straight away, or held until Send (decision 98)
 
 
 class DeletionPreviewOut(BaseModel):
@@ -89,6 +97,7 @@ class ClientSettings(BaseModel):
     expenses_sent_as: ExpensesSentAs | None = None
     paid_through: str | None = None  # send null to choose on each expense
     own_trns: list[str] | None = None  # the whole list; [] = none known (decision 92)
+    send_mode: SendMode | None = None  # decision 98: documents approved from now on
 
 
 class ClientCreate(BaseModel):
@@ -256,6 +265,8 @@ def update_client(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     if body.line_grouping is not None:
         client.line_grouping = body.line_grouping
+    if body.send_mode is not None:
+        client.send_mode = body.send_mode
     session.commit()
     return _out(client)
 
@@ -380,6 +391,7 @@ def _out(client: Client) -> ClientOut:
         expenses_sent_as=client.expenses_sent_as,
         paid_through=client.paid_through,
         own_trns=client.own_trns,
+        send_mode=client.send_mode,
     )
 
 

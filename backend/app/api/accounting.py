@@ -7,6 +7,7 @@ to the Workbench with the outcome. No login yet: the API listens on localhost on
 """
 
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
@@ -15,18 +16,18 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
 from app.adapters.accounting.registry import PROVIDERS, Registry, by_slug
-from app.api.auth import require_admin
+from app.api.auth import UserDep, require_admin
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import AccountingProvider, ExpensesSentAs, TaxType
 from app.models import Client, LedgerAccount
-from app.services import posting
+from app.services import approval, posting
 from app.services.accounting_connections import (
     AccountingConnectionError,
     connection_of,
@@ -36,6 +37,7 @@ from app.services.accounting_connections import (
     start,
 )
 from app.services.accounting_sync import sync
+from app.services.approval import MAX_SEND
 from app.services.clients import expenses_blocked, get_client
 from app.services.master_data import Counts
 
@@ -78,6 +80,7 @@ class PostingOut(BaseModel):
     paused_reason: str | None
     failed: int  # gave up: Try again or Send back on the document (decision 69)
     failed_reason: str | None
+    held: int  # approved, waiting for someone to press Send (decision 98)
 
 
 class AccountingStatus(BaseModel):
@@ -279,15 +282,27 @@ def sync_accounting(
     )
 
 
+class SendBody(BaseModel):
+    document_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_SEND)
+
+
+class SendResult(BaseModel):
+    sent: int  # released now, on their way
+    not_waiting: int  # sent already, undone, or not this company's: left as they are
+
+
 @router.post("/clients/{client_id}/accounting/send")
-def send_waiting(
+def send_approved(
     client_id: str,
+    body: SendBody,
     session: SessionDep,
     settings: SettingsDep,
     registry: RegistryDep,
+    user: UserDep,
     enqueue: Annotated[Callable[[str], object], Depends(get_enqueue_sweep)],
-) -> AccountingStatus:
-    """Ask the posting worker to send this client's approved documents now (task 5.1)."""
+) -> SendResult:
+    """Send (decision 98): exactly these approved documents, held for Send until now, go to the
+    accounting system. 409 unless it is connected and synced."""
     status_now = accounting_status(client_id, session, settings, registry)
     if status_now.needs_reconnect:
         raise HTTPException(
@@ -297,8 +312,16 @@ def send_waiting(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "connect and sync the accounting system first"
         )
-    enqueue(client_id)
-    return status_now
+    wanted = list(dict.fromkeys(body.document_ids))
+    released = approval.release(session, client_id=client_id, document_ids=wanted,
+                                settings=settings, actor=user.email)  # fmt: skip
+    session.commit()
+    if released:
+        try:
+            enqueue(client_id)
+        except Exception:  # released and saved: the worker's start-up sweep sends them
+            logger.warning("client %s: could not ask the worker to send now", client_id)
+    return SendResult(sent=len(released), not_waiting=len(wanted) - len(released))
 
 
 def _found(session: Session, client_id: str) -> Client:

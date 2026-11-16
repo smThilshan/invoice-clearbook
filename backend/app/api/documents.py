@@ -31,7 +31,7 @@ from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType, QueueCategory
 from app.domain.invoice import Invoice
 from app.domain.state_machine import InvalidTransitionError, StaleStatusError
-from app.models import Document, Extraction
+from app.models import Document, Extraction, OutboxStatus
 from app.pipeline.descriptions import cleaned_count
 from app.pipeline.line_totals import repaired_count
 from app.pipeline.no_vat import cleared_vat
@@ -67,7 +67,7 @@ class IssueOut(BaseModel):
 class SendingOut(BaseModel):
     """Where an approved document is on its way to the accounting system (decision 69)."""
 
-    state: Literal["waiting", "sending", "retrying", "paused", "failed", "posted"]
+    state: Literal["held", "waiting", "sending", "retrying", "paused", "failed", "posted"]
     reason: str | None  # why it is retrying, paused or failed
     next_try_at: datetime | None
     can_send_back: bool  # failed before the create request was sent
@@ -102,6 +102,7 @@ class QueuePageOut(BaseModel):
     offset: int
     documents: list[DocumentSummary]
     counts: dict[QueueCategory, int]  # per category for the same filters (task 4.16)
+    oldest: dict[QueueCategory, datetime]  # per category: when its oldest one was taken in
     processing: int  # the client's documents still being processed: not in the list yet
     stopped: int  # not finished because their run was stopped: waiting for Resume
     stopped_run_id: uuid.UUID | None  # the latest such run
@@ -204,7 +205,7 @@ def get_queue(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> QueuePageOut:
-    """Not sent first, then Exception, Check, Ready; oldest first inside each. `sending`: a list
+    """Not sent first, then Ready, Check, Exception; oldest first inside each. `sending`: a list
     of approved documents instead (waiting, failed, posted; decision 70), or the documents back
     in review not sent (not_sent); `status` then unused. `folder`: inside a folder a run picked."""
     if get_client(session, client_id) is None:
@@ -218,6 +219,7 @@ def get_queue(
         offset=offset,
         documents=_summaries(session, page.documents),
         counts=page.counts,
+        oldest=page.oldest,
         processing=page.processing,
         sending_counts=page.sending_counts,
         stopped=page.stopped,
@@ -412,7 +414,8 @@ def approve_document(
 ) -> DocumentDetail:
     """Re-check, then APPROVED + outbox row in one transaction (task 4.8). Save edits first:
     approval takes the document as last saved. 422 if errors remain; nothing changes then.
-    After the commit the posting worker is asked to send it (task 5.1)."""
+    After the commit the posting worker is asked to send it (task 5.1), unless the client holds
+    approved documents until Send (decision 98)."""
     document = _found(session, document_id, for_update=True)
     try:
         with session.begin_nested():
@@ -422,10 +425,25 @@ def approve_document(
     except (ReviewError, StaleStatusError) as exc:
         raise _http_error(exc) from exc
     session.commit()
+    if outbox.status is OutboxStatus.PENDING:
+        try:
+            enqueue_posting(str(outbox.id))
+        except Exception:  # approved and safe in the outbox: the worker's start-up sweep sends it
+            logger.warning("outbox %s: could not ask the worker to post it now", outbox.id)
+    return _detail(session, document)
+
+
+@router.post("/{document_id}/undo-approval")
+def undo_approval(document_id: uuid.UUID, session: SessionDep, user: UserDep) -> DocumentDetail:
+    """Back to review, while the approval still waits for Send (decision 98). 409 once it was
+    sent: it is in the accounting system then."""
+    document = _found(session, document_id, for_update=True)
     try:
-        enqueue_posting(str(outbox.id))
-    except Exception:  # approved and safe in the outbox: the worker's start-up sweep sends it
-        logger.warning("outbox %s: could not ask the worker to post it now", outbox.id)
+        with session.begin_nested():
+            approval.undo_approval(session, document, actor=user.email)
+    except (ReviewError, StaleStatusError) as exc:
+        raise _http_error(exc) from exc
+    session.commit()
     return _detail(session, document)
 
 
@@ -523,7 +541,11 @@ def _check_page(document: Document, page: int) -> None:
 def _http_error(exc: Exception) -> HTTPException:
     if isinstance(
         exc,
-        review.NotEditableError | StaleStatusError | deletion.NotRejectedError | posting.SendError,
+        review.NotEditableError
+        | StaleStatusError
+        | deletion.NotRejectedError
+        | posting.SendError
+        | approval.NotHeldError,
     ):
         return HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))

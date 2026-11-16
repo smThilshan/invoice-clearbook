@@ -7,12 +7,12 @@ import { mockApi, renderApp, reply } from '@/test/render'
 
 const READY: Readiness = { status: 'ok', database: 'ok', redis: 'ok', model: 'ok' }
 const CLIENTS = [
-  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null, own_trns: [] },
-  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null, own_trns: [] },
+  { client_id: 'cafe-al-noor', name: 'Cafe Al Noor', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null, own_trns: [], send_mode: 'AFTER_APPROVAL' },
+  { client_id: 'spice-route', name: 'Spice Route', line_grouping: 'BY_ACCOUNT', expenses_sent_as: 'BILL', paid_through: null, own_trns: [], send_mode: 'AFTER_APPROVAL' },
 ]
 const NOTHING: PostingSummary = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
-  paused: 0, paused_reason: null, failed: 0, failed_reason: null,
+  paused: 0, paused_reason: null, failed: 0, failed_reason: null, held: 0,
 }  // prettier-ignore
 const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url: '/xero/connect' }
 const NOT_CONNECTED: AccountingStatus = {
@@ -190,30 +190,20 @@ describe('clients', () => {
     const zoho: AccountingStatus = {
       ...CONNECTED, provider: 'ZOHO', provider_name: 'Zoho Books', master_data_from: 'ZOHO',
       bills_where: 'Purchases, Bills, Pending Approval', expenses_where: 'Purchases, Expenses',
-      expenses_blocked: null, waiting: 2, posting: { ...NOTHING, ready: 2 },
+      expenses_blocked: null, waiting: 2, posting: { ...NOTHING, ready: 2, posted: 3 },
     }  // prettier-ignore
-    let status = zoho
     mockApi({
       '/health/ready': READY, '/clients': [{ ...CLIENTS[0], expenses_sent_as: 'EXPENSE', paid_through: '4600361' }],
-      '/clients/cafe-al-noor/accounting': () => status,
+      '/clients/cafe-al-noor/accounting': zoho,
       '/clients/cafe-al-noor/coding-options': { accounts: [], tax_types: [], paid_through: [] },
-      'POST /clients/cafe-al-noor/accounting/send': () => {
-        status = { ...zoho, waiting: 0, posting: { ...NOTHING, posted: 2 } }
-        return zoho
-      },
     })  // prettier-ignore
-    const user = userEvent.setup()
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByText('2 approved documents ready to send to Zoho Books.')).toBeInTheDocument()
-    await user.click(within(row).getByRole('button', { name: 'Send 2 documents to Zoho Books' }))
-
-    const done = await within(row).findByText(/^Done\./, {}, { timeout: 6000 })
-    expect(done.parentElement).toHaveTextContent(
-      'Done. 2 documents sent to Zoho Books: find them under Purchases, Bills, Pending Approval (bills) and Purchases, Expenses (expenses).',
+    expect(await within(row).findByText('2 approved documents on the way to Zoho Books.')).toBeInTheDocument()
+    expect(row).toHaveTextContent(
+      '3 documents sent to Zoho Books so far: find them in Purchases, Bills, Pending Approval (bills) and Purchases, Expenses (expenses).',
     )
-    expect(within(row).getByText('2 documents sent to Zoho Books so far.')).toBeInTheDocument()
   })
 
   it('says why expenses still go as bills', async () => {
@@ -285,34 +275,47 @@ describe('clients', () => {
     expect(result).toHaveTextContent('1 other rate(s) are for sales or not matched')
   })
 
-  it('sends the bills ready to go, then says what happened to them', async () => {
-    let sent = false
-    const api = mockApi({
-      '/health/ready': READY,
-      '/clients': CLIENTS.slice(0, 1),
-      '/clients/cafe-al-noor/accounting': () => (sent ? SENT : SYNCED_WAITING),
-      'POST /clients/cafe-al-noor/accounting/send': () => {
-        sent = true
-        return SYNCED_WAITING
-      },
-    })
-    const user = userEvent.setup()
+  it('sends nothing from here: approved documents waiting for Send link to their list', async () => {
+    const held = { ...SYNCED_WAITING, posting: { ...NOTHING, held: 3 } }
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': held })  // prettier-ignore
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByText('3 approved bills ready to send to Xero.')).toBeInTheDocument()
-    await user.click(within(row).getByRole('button', { name: 'Send 3 bills to Xero' }))
+    expect(await within(row).findByText(/3 approved bills waiting for Send/)).toBeInTheDocument()
+    expect(within(row).getByRole('link', { name: 'Open the list' })).toHaveAttribute(
+      'href', '/queue?client=cafe-al-noor&sending=held',
+    )  // prettier-ignore
+    expect(within(row).queryByRole('button', { name: /^Send/ })).not.toBeInTheDocument() // Send is in the queue
+  })
 
-    await waitFor(() => expect(api.calls).toContain('POST /clients/cafe-al-noor/accounting/send'))
-    const done = await within(row).findByText(/^Done\./, {}, { timeout: 6000 })
-    expect(done.parentElement).toHaveTextContent(
-      'Done. 2 bills sent to Xero: find them under Bills to pay, Awaiting approval. 1 bill came back to review with the reason.',
-    )
-    expect(within(row).getByText(/1 bill not sent to Xero, back in review/)).toBeInTheDocument()
+  it('says what was sent and what came back to review, with a link to it', async () => {
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1),
+              '/clients/cafe-al-noor/accounting': SENT })  // prettier-ignore
+    renderApp('/clients')
+
+    const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
+    expect(await within(row).findByText(/1 bill not sent to Xero, back in review/)).toBeInTheDocument()
     expect(within(row).getByRole('link', { name: 'Show them' })).toHaveAttribute(
       'href', '/queue?client=cafe-al-noor&sending=not_sent',
     )  // prettier-ignore
-    expect(within(row).queryByRole('button', { name: /Send .* to Xero/ })).not.toBeInTheDocument()
+    expect(row).toHaveTextContent('2 bills sent to Xero so far: find them in Bills to pay, Awaiting approval.')
+  })
+
+  it('lets an admin choose when approved documents are sent', async () => {
+    const api = mockApi({
+      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
+      'PATCH /clients/cafe-al-noor': { ...CLIENTS[0], send_mode: 'ON_SEND' },
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/clients')
+
+    const setting = await screen.findByRole('combobox', { name: 'Sent to Xero' })
+    expect(setting).toHaveTextContent('Right after approval')
+    await user.click(setting)
+    await user.click(await screen.findByRole('option', { name: /^When someone presses Send/ }))
+
+    await waitFor(() => expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({ send_mode: 'ON_SEND' }))
   })
 
   it('says plainly when approved documents cannot be sent yet, with no button', async () => {
@@ -338,8 +341,8 @@ describe('clients', () => {
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByRole('button', { name: 'Send 3 bills to Zoho Books' })).toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: 'Sync from Zoho Books' })).toBeInTheDocument()
+    expect(await within(row).findByRole('button', { name: 'Sync from Zoho Books' })).toBeInTheDocument()
+    expect(within(row).getByText('3 approved bills on the way to Zoho Books.')).toBeInTheDocument()
     expect(row).not.toHaveTextContent('Xero')
   })
 

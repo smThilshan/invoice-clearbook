@@ -41,7 +41,8 @@ ALLOWED_TRANSITIONS: Final[Mapping[S, frozenset[S]]] = MappingProxyType(
         S.VERIFIED: frozenset({S.IN_REVIEW, S.NON_POSTABLE}),
         # READ: the model reads it again after an app or model update (decision 55)
         S.IN_REVIEW: frozenset({S.APPROVED, S.REJECTED, S.NON_POSTABLE, S.READ}),
-        S.APPROVED: frozenset({S.POSTING}),
+        # IN_REVIEW: an approval undone while it waits for Send (decision 98); never once sent
+        S.APPROVED: frozenset({S.POSTING, S.IN_REVIEW}),
         S.POSTING: frozenset({S.POSTED, S.POST_ERROR}),  # retries stay in POSTING
         S.POST_ERROR: frozenset({S.IN_REVIEW}),
         # IN_REVIEW: the accounting system confirmed the posted document was deleted there, so it

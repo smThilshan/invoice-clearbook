@@ -1,7 +1,8 @@
 """Review (task 4.2): the accountant's queue, edits and rejections.
 
 - Queue: documents in review, those that came back not sent first (with the reason), then
-  Exception, Check, Ready; oldest first inside each.
+  Ready, Check, Exception (the quick ones first; how old the oldest of each is shows on
+  screen, so problems are not forgotten); oldest first inside each.
 - Edit: the accountant sends the whole corrected invoice. Fields that differ from the working
   copy, plus fields they confirmed unchanged, become human-verified (decision 24); then every
   deterministic check runs again, without the model. Setting the type to non-postable parks
@@ -21,7 +22,7 @@ import uuid
 from collections.abc import Callable, Collection, Sequence
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Final
 
@@ -52,7 +53,7 @@ EDITABLE: Final = frozenset({DocumentStatus.IN_REVIEW, DocumentStatus.NON_POSTAB
 CONFIRMABLE: Final = frozenset(Invoice.model_fields) - {"evidence"}
 
 _QUEUE_ORDER = case(
-    {QueueCategory.EXCEPTION: 0, QueueCategory.CHECK: 1, QueueCategory.READY: 2},
+    {QueueCategory.READY: 0, QueueCategory.CHECK: 1, QueueCategory.EXCEPTION: 2},
     value=Document.queue,
     else_=3,
 )
@@ -73,6 +74,7 @@ class RejectReason(StrEnum):
 class SendingList(StrEnum):
     """The queue's lists of approved documents (decision 70)."""
 
+    HELD = "held"  # approved, waiting for someone to press Send (decision 98)
     WAITING = "waiting"  # on its way: waiting, sending, retrying or paused
     FAILED = "failed"  # gave up: Try again or Send back
     POSTED = "posted"  # in the accounting system
@@ -97,6 +99,7 @@ class QueuePage:
     # selected), and the client's documents still being processed (not in the list yet).
     counts: dict[QueueCategory, int]
     processing: int
+    oldest: dict[QueueCategory, datetime] = field(default_factory=dict)  # per category, taken in
     sending_counts: dict["SendingList", int] = field(default_factory=dict)  # same filters
     # Not finished because their run was stopped (task 4.19): waiting for Resume, not processing.
     stopped: int = 0
@@ -130,6 +133,7 @@ def list_queue(
         for name in SendingList
     }
     counts: dict[QueueCategory, int] = {}
+    oldest: dict[QueueCategory, datetime] = {}
     if sending is not None:
         query = scope.where(_sending(sending))
         newest_first = sending is not SendingList.WAITING  # what just happened, on top
@@ -139,13 +143,13 @@ def list_queue(
         )
     else:
         base = scope.where(Document.status == status)
-        counts = {
-            category: count
-            for category, count in session.execute(
-                base.with_only_columns(Document.queue, func.count()).group_by(Document.queue)
-            )
-            if category is not None
-        }
+        per_category = session.execute(
+            base.with_only_columns(
+                Document.queue, func.count(), func.min(Document.created_at)
+            ).group_by(Document.queue)
+        ).all()
+        counts = {category: count for category, count, _ in per_category if category is not None}
+        oldest = {category: first for category, _, first in per_category if category is not None}
         query = base.where(Document.queue == queue) if queue is not None else base
         order = (_NOT_SENT_FIRST, _QUEUE_ORDER, Document.created_at, Document.id)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -167,6 +171,7 @@ def list_queue(
         list(documents),
         total,
         counts,
+        oldest=oldest,
         processing=sum(row.documents for row in runs if row.status is not RunStatus.STOPPED),
         sending_counts=sending_counts,
         stopped=sum(row.documents for row in stopped),
@@ -176,9 +181,12 @@ def list_queue(
 
 def _sending(name: SendingList) -> Any:
     gave_up = exists().where(Outbox.document_id == Document.id, Outbox.status == OutboxStatus.DEAD)
+    held = exists().where(Outbox.document_id == Document.id, Outbox.status == OutboxStatus.HELD)
     match name:
+        case SendingList.HELD:
+            return and_(Document.status == DocumentStatus.APPROVED, held)
         case SendingList.WAITING:
-            return and_(Document.status.in_(SENDABLE), ~gave_up)
+            return and_(Document.status.in_(SENDABLE), ~gave_up, ~held)
         case SendingList.FAILED:
             return and_(Document.status.in_(SENDABLE), gave_up)
         case SendingList.POSTED:

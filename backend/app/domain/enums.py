@@ -60,6 +60,13 @@ class LineGrouping(StrEnum):
     BY_ACCOUNT = "BY_ACCOUNT"  # every item with the same account and VAT code in one line
 
 
+class SendMode(StrEnum):
+    """When a client's approved documents go to its accounting system (decision 98)."""
+
+    AFTER_APPROVAL = "AFTER_APPROVAL"  # straight away (every client before decision 98)
+    ON_SEND = "ON_SEND"  # held until someone presses Send; Undo takes an approval back till then
+
+
 class ExpensesSentAs(StrEnum):
     """How a client's expenses (paid when bought, decision 88) are sent (decision 89)."""
 

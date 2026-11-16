@@ -1,8 +1,13 @@
 """Approve (task 4.8): the last step of review, the first of posting.
 
     re-check (no model) -> any error: refused, nothing changes
-    -> IN_REVIEW -> APPROVED  +  outbox row (PENDING)  +  supplier mapping  +  corrections
+    -> IN_REVIEW -> APPROVED  +  outbox row  +  corrections
        all in the caller's one transaction (rule 11)
+
+Decision 98: the outbox row is PENDING (sent straight away) or HELD until someone presses Send,
+as the client is set. A held approval can be undone (back to review, its row removed: it was
+never sent). Releasing it (Send, or approval when sent straight away) is what teaches the
+supplier mapping, so an approval taken back teaches nothing.
 
 Only the Celery posting worker (Phase 5) reads the outbox and calls the accounting system; the
 database lets only APPROVED documents move to POSTING (decision 19). Warnings do not block: the
@@ -12,9 +17,11 @@ Supplier mapping (architecture §9, source 1): a document whose lines all use on
 VAT type) teaches that the supplier is coded so. The same choice again counts one more consistent
 approval; a different one starts over at one. Coding trusts a mapping after
 `coding_min_consistent_approvals` (default 3). Documents with mixed accounts teach nothing, and a
-document approved again (sent back, or deleted there and sent again) does not count twice.
+document released again (sent back, or deleted there and sent again) does not count twice.
 """
 
+import uuid
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 
 from sqlalchemy import exists, select
@@ -22,10 +29,10 @@ from sqlalchemy.orm import Session
 
 from app.adapters.storage import Storage
 from app.core.config import Settings
-from app.domain.enums import DocumentStatus, ExpensesSentAs, LineGrouping, TaxType
+from app.domain.enums import DocumentStatus, ExpensesSentAs, LineGrouping, SendMode, TaxType
 from app.domain.invoice import Invoice
 from app.domain.state_machine import transition
-from app.models import Client, Document, Outbox, VendorMapping
+from app.models import Client, Document, Outbox, OutboxStatus, VendorMapping
 from app.pipeline.payment import EXPENSE, PURCHASES
 from app.pipeline.verify.step import expense_sending, recheck_document, working_copy
 from app.services.corrections import sync_corrections
@@ -40,6 +47,13 @@ class ApprovalBlockedError(ReviewError):
             f"{errors} error{'s' if errors != 1 else ''} must be fixed before approval"
         )
         self.errors = errors
+
+
+class NotHeldError(ReviewError):
+    """Only an approval still waiting for Send can be undone or sent."""
+
+
+MAX_SEND = 200  # documents released by one Send
 
 
 def approve_document(
@@ -64,13 +78,9 @@ def approve_document(
     summary = {"queue": assessment.queue.value, "warnings": assessment.warnings}
     transition(session, document, DocumentStatus.APPROVED, actor=actor, details=summary)
     document.failure_reason = None  # an earlier "not sent" reason is now answered
-    grouping = (
-        session.scalar(select(Client.line_grouping).where(Client.client_id == document.client_id))
-        or LineGrouping.BY_ITEM
-    )
-    approved_before = session.scalar(
-        select(exists().where(Outbox.document_id == document.id))
-    )  # sent back, or deleted in the accounting system and sent again (decision 76)
+    grouping, send_mode = session.execute(
+        select(Client.line_grouping, Client.send_mode).where(Client.client_id == document.client_id)
+    ).one()
     as_expenses, _ = expense_sending(session, document.client_id)
     sent_as = (
         ExpensesSentAs.EXPENSE
@@ -78,15 +88,80 @@ def approve_document(
         else ExpensesSentAs.BILL
     )  # decision 89: as it was checked; every retry sends it the same way
     outbox = Outbox(client_id=document.client_id, document_id=document.id,
-                    line_grouping=grouping, sent_as=sent_as)  # fmt: skip
+                    line_grouping=grouping or LineGrouping.BY_ITEM, sent_as=sent_as,
+                    status=OutboxStatus.HELD)  # fmt: skip
     session.add(outbox)
-    if not approved_before:  # one document is one approval for the supplier's coding
+    session.flush()
+    if send_mode is not SendMode.ON_SEND:
+        _release(session, outbox, document, settings=settings, actor=actor)
+    return outbox
+
+
+def release(
+    session: Session,
+    *,
+    client_id: str,
+    document_ids: Sequence[uuid.UUID],
+    settings: Settings,
+    actor: str,
+) -> list[Outbox]:
+    """Send (decision 98): exactly these documents of this client, if their approval still waits
+    for it; any other (sent already, undone, another client's) is left as it is. Rows are
+    locked, so two people pressing Send release each document once. The caller commits, then
+    asks the worker to send them."""
+    if len(document_ids) > MAX_SEND:
+        raise ReviewError(f"send at most {MAX_SEND} documents at a time")
+    rows = session.scalars(
+        select(Outbox)
+        .where(
+            Outbox.client_id == client_id,
+            Outbox.document_id.in_(document_ids),
+            Outbox.status == OutboxStatus.HELD,
+        )
+        .order_by(Outbox.created_at)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for outbox in rows:
+        document = session.get_one(Document, outbox.document_id)
+        _release(session, outbox, document, settings=settings, actor=actor)
+    return list(rows)
+
+
+def undo_approval(session: Session, document: Document, *, actor: str) -> None:
+    """Back to review before it was sent (decision 98): its held row is removed, nothing was
+    sent and nothing was learned. The caller locked the document and commits."""
+    outbox = session.scalars(
+        select(Outbox)
+        .where(Outbox.document_id == document.id, Outbox.status == OutboxStatus.HELD)
+        .with_for_update()
+    ).first()
+    if document.status is not DocumentStatus.APPROVED or outbox is None:
+        raise NotHeldError(
+            "only an approval still waiting for Send can be undone: once sent, it is in the "
+            "accounting system"
+        )
+    session.delete(outbox)
+    transition(session, document, DocumentStatus.IN_REVIEW, actor=actor,
+               reason="approval undone before sending")  # fmt: skip
+    session.flush()
+
+
+def _release(
+    session: Session, outbox: Outbox, document: Document, *, settings: Settings, actor: str
+) -> None:
+    """HELD -> PENDING, and what the approval teaches (once per document)."""
+    released_before = session.scalar(
+        select(exists().where(Outbox.document_id == document.id, Outbox.id != outbox.id))
+    )  # sent back, or deleted in the accounting system and sent again (decision 76)
+    outbox.status = OutboxStatus.PENDING
+    outbox.released_by, outbox.released_at = actor, datetime.now(UTC)
+    invoice = working_copy(document)
+    if not released_before and invoice is not None:  # one document teaches once
         _learn_supplier_coding(session, document, invoice)
         trusted_after = settings.coding_min_consistent_approvals
         _learn_supplier_payment(session, document, invoice, trusted_after)
         _learn_paid_through(session, document, invoice)
     session.flush()
-    return outbox
 
 
 def _learn_supplier_coding(session: Session, document: Document, invoice: Invoice) -> None:

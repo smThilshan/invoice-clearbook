@@ -47,7 +47,7 @@ const XERO = { key: 'XERO' as const, name: 'Xero', configured: true, connect_url
 const ZOHO = { key: 'ZOHO' as const, name: 'Zoho Books', configured: true, connect_url: '/zoho/connect' }
 const NOTHING_SENT = {
   ready: 0, retrying: 0, retry_at: null, retry_reason: null, not_yet: {}, sent_back: 0, posted: 0,
-  paused: 0, paused_reason: null, failed: 0, failed_reason: null,
+  paused: 0, paused_reason: null, failed: 0, failed_reason: null, held: 0,
 }  // prettier-ignore
 /** Connected to Zoho Books and synced: ready to run (decision 79). */
 const SYNCED: AccountingStatus = {

@@ -1,5 +1,5 @@
 /** Words the accountants see for backend codes. One place, so every screen says the same. */
-import type { DocumentStatus, DocumentType, ExpensesSentAs, LineGrouping, QueueCategory } from '@/api/client'
+import type { DocumentStatus, DocumentType, ExpensesSentAs, LineGrouping, QueueCategory, SendMode } from '@/api/client'
 
 /** QUEUED: found by the folder scan, not taken in yet (run progress only). */
 export type FileStatusCode = DocumentStatus | 'QUEUED'
@@ -85,6 +85,12 @@ export function formatAmount(amount: string): string {
 export const EXPENSES_SENT_AS_LABELS: Record<ExpensesSentAs, (system: string) => string> = {
   BILL: (system) => `As bills: approved again in ${system}, paid there`,
   EXPENSE: (system) => `As expenses: paid through an account, final in ${system} once approved here`,
+}
+
+/** Decision 98: when approved documents go to the accounting system. */
+export const SEND_MODE_LABELS: Record<SendMode, string> = {
+  ON_SEND: 'When someone presses Send in the review queue',
+  AFTER_APPROVAL: 'Right after approval',
 }
 
 export const LINE_GROUPING_LABELS: Record<LineGrouping, string> = {
