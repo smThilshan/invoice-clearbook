@@ -39,7 +39,7 @@ function doc(id: string, changes: Partial<DocumentSummary> = {}): DocumentSummar
 
 const PAGE: QueuePage = {
   total: 3,
-  limit: 50,
+  limit: 20,
   offset: 0,
   counts: { EXCEPTION: 1, CHECK: 1, READY: 1 },
   oldest: {},
@@ -108,7 +108,7 @@ describe('review queue', () => {
     expect(rows[2]).toHaveTextContent('None') // no issues
     expect(screen.getByText('1–3 of 3')).toBeInTheDocument()
     expect(queueCalls(api)[0]).toEqual({
-      client_id: 'cafe-al-noor', status: 'IN_REVIEW', limit: '50', offset: '0',
+      client_id: 'cafe-al-noor', status: 'IN_REVIEW', limit: '20', offset: '0',
     })  // prettier-ignore
   })
 
@@ -198,19 +198,19 @@ describe('review queue', () => {
   it('pages through long queues', async () => {
     const api = backend((request: Request) => {
       const offset = Number(new URL(request.url).searchParams.get('offset'))
-      return { ...PAGE, total: 120, offset, documents: [doc(`p${offset}`)] }
+      return { ...PAGE, total: 50, offset, documents: [doc(`p${offset}`)] }
     })
     const user = userEvent.setup()
     renderApp('/queue?client=cafe-al-noor')
 
-    expect(await screen.findByText('1–50 of 120')).toBeInTheDocument()
+    expect(await screen.findByText('1–20 of 50')).toBeInTheDocument() // 20 a page
     expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: /next/i }))
     await user.click(await screen.findByRole('button', { name: /next/i }))
 
-    expect(await screen.findByText('101–120 of 120')).toBeInTheDocument()
+    expect(await screen.findByText('41–50 of 50')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /next/i })).toBeDisabled()
-    expect(queueCalls(api).at(-1)).toMatchObject({ offset: '100' })
+    expect(queueCalls(api).at(-1)).toMatchObject({ limit: '20', offset: '40' })
   })
 
   it('remembers the last client on this computer', async () => {

@@ -42,7 +42,7 @@ import { cn } from '@/lib/utils'
 
 import { SendBar, UndoApproval } from './SendApproved'
 
-export const PAGE_SIZE = 50
+export const PAGE_SIZE = 20
 const NONE: ReadonlySet<string> = new Set()
 
 // The quick ones first; how long each category's oldest has waited shows on its card.
