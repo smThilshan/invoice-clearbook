@@ -3016,21 +3016,38 @@
         "type": "string"
       },
       "SendBody": {
+        "description": "These documents, or all of them: `all_waiting` is how many the person saw waiting.",
         "properties": {
+          "all_waiting": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Waiting"
+          },
           "document_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 200,
-            "minItems": 1,
-            "title": "Document Ids",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
           }
         },
-        "required": [
-          "document_ids"
-        ],
         "title": "SendBody",
         "type": "object"
       },
@@ -4090,7 +4107,7 @@
     },
     "/clients/{client_id}/accounting/send": {
       "post": {
-        "description": "Send (decision 98): exactly these approved documents, held for Send until now, go to the\naccounting system. 409 unless it is connected and synced.",
+        "description": "Send (decision 98): exactly these approved documents, held for Send until now, or all of\nthem when as many wait as the person saw, go to the accounting system. 409 unless it is\nconnected and synced, or when more or fewer wait than they saw.",
         "operationId": "send_approved_clients__client_id__accounting_send_post",
         "parameters": [
           {

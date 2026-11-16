@@ -17,6 +17,7 @@ import {
   type RejectBody,
   type SharePointRunCreate,
   type RunProgress,
+  type SendBody,
   type SendMode,
   uploadRun,
 } from './client'
@@ -208,8 +209,7 @@ export function useDisconnectAccounting() {
 export function useSendApproved() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ clientId, documentIds }: { clientId: string; documentIds: string[] }) =>
-      api.sendApproved(clientId, documentIds),
+    mutationFn: ({ clientId, body }: { clientId: string; body: SendBody }) => api.sendApproved(clientId, body),
     onSettled: (_result, _error, { clientId }) => {
       void client.invalidateQueries({ queryKey: queryKeys.queues })
       void client.invalidateQueries({ queryKey: ['accounting', clientId] })

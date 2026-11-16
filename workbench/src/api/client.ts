@@ -18,6 +18,8 @@ export type ClientCreate = Schemas['ClientCreate']
 export type LineGrouping = Schemas['LineGrouping']
 export type SendMode = Schemas['SendMode']
 export type SendResult = Schemas['SendResult']
+/** These documents, or all of them: `all_waiting` is how many the person saw waiting. */
+export type SendBody = { document_ids: string[] } | { all_waiting: number }
 export type ExpensesSentAs = Schemas['ExpensesSentAs']
 export type ClientSettings = Schemas['ClientSettings']
 export type DeletionPreview = Schemas['DeletionPreviewOut']
@@ -158,10 +160,8 @@ export const api = {
   syncAccounting: (clientId: string) =>
     sendJson<SyncResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/sync`, {}),
   /** Decision 98: exactly these approved documents, held until now, go to the accounting system. */
-  sendApproved: (clientId: string, documentIds: string[]) =>
-    sendJson<SendResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, {
-      document_ids: documentIds,
-    }),
+  sendApproved: (clientId: string, body: SendBody) =>
+    sendJson<SendResult>('POST', `/clients/${encodeURIComponent(clientId)}/accounting/send`, body),
   /** A new client from just a name; its id is made from the name (decision 35). */
   createClient: (body: ClientCreate) => sendJson<Client>('POST', '/clients', body),
   /** Decision 91: removed companies (admin only), hidden but kept, to restore. */

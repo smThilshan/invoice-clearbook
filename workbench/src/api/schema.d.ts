@@ -187,8 +187,9 @@ export interface paths {
         put?: never;
         /**
          * Send Approved
-         * @description Send (decision 98): exactly these approved documents, held for Send until now, go to the
-         *     accounting system. 409 unless it is connected and synced.
+         * @description Send (decision 98): exactly these approved documents, held for Send until now, or all of
+         *     them when as many wait as the person saw, go to the accounting system. 409 unless it is
+         *     connected and synced, or when more or fewer wait than they saw.
          */
         post: operations["send_approved_clients__client_id__accounting_send_post"];
         delete?: never;
@@ -2095,10 +2096,15 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
-        /** SendBody */
+        /**
+         * SendBody
+         * @description These documents, or all of them: `all_waiting` is how many the person saw waiting.
+         */
         SendBody: {
+            /** All Waiting */
+            all_waiting?: number | null;
             /** Document Ids */
-            document_ids: string[];
+            document_ids?: string[] | null;
         };
         /**
          * SendMode

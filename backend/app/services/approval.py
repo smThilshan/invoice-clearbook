@@ -53,6 +53,10 @@ class NotHeldError(ReviewError):
     """Only an approval still waiting for Send can be undone or sent."""
 
 
+class ListChangedError(ReviewError):
+    """Send all: more or fewer approvals wait now than the person saw."""
+
+
 MAX_SEND = 200  # documents released by one Send
 
 
@@ -121,10 +125,37 @@ def release(
         .order_by(Outbox.created_at)
         .with_for_update(skip_locked=True)
     ).all()
+    _release_rows(session, rows, settings=settings, actor=actor)
+    return list(rows)
+
+
+def release_all(
+    session: Session, *, client_id: str, expected: int, settings: Settings, actor: str
+) -> list[Outbox]:
+    """Send all (decision 98): every approval of this client waiting for Send, when they are the
+    `expected` number the person saw; otherwise nothing is sent, so nobody sends a document
+    approved by someone else since. The caller commits, then asks the worker to send them."""
+    rows = session.scalars(
+        select(Outbox)
+        .where(Outbox.client_id == client_id, Outbox.status == OutboxStatus.HELD)
+        .order_by(Outbox.created_at)
+        .with_for_update()
+    ).all()
+    if len(rows) != expected:
+        raise ListChangedError(
+            f"{len(rows)} approved documents wait for Send now, not {expected}: check the list "
+            "again, then send"
+        )
+    _release_rows(session, rows, settings=settings, actor=actor)
+    return list(rows)
+
+
+def _release_rows(
+    session: Session, rows: Sequence[Outbox], *, settings: Settings, actor: str
+) -> None:
     for outbox in rows:
         document = session.get_one(Document, outbox.document_id)
         _release(session, outbox, document, settings=settings, actor=actor)
-    return list(rows)
 
 
 def undo_approval(session: Session, document: Document, *, actor: str) -> None:

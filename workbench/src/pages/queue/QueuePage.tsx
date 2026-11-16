@@ -40,7 +40,7 @@ import type { ReviewContext } from '@/lib/reviewList'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { cn } from '@/lib/utils'
 
-import { SendBar, UndoApproval } from './SendApproved'
+import { SendBar, SendOrUndo } from './SendApproved'
 
 export const PAGE_SIZE = 20
 const NONE: ReadonlySet<string> = new Set()
@@ -57,7 +57,7 @@ type ListStatus = (typeof LISTS)[number]['status']
 // back to review not sent (shown only when there are some).
 const SENDING_LISTS: { key: SendingList; label: string }[] = [
   { key: 'not_sent', label: 'Not sent' },
-  { key: 'held', label: 'Approved, not sent' }, // waiting for Send (decision 98)
+  { key: 'held', label: 'Approved' }, // waiting for Send, always shown (decision 98)
   { key: 'waiting', label: 'Waiting to send' },
   { key: 'failed', label: 'Could not send' },
   { key: 'posted', label: 'Posted' },
@@ -217,8 +217,7 @@ export function QueuePage() {
           <Toggle label="Sent">
             {SENDING_LISTS.map((list) => {
               const count = sendingCounts?.[list.key] ?? 0
-              const onlyWhenSome = list.key === 'not_sent' || list.key === 'held'
-              if (onlyWhenSome && count === 0 && sending !== list.key) return null
+              if (list.key === 'not_sent' && count === 0 && sending !== list.key) return null
               const alarming = (list.key === 'failed' || list.key === 'not_sent') && count > 0
               const waiting = list.key === 'held' && count > 0
               return (
@@ -305,7 +304,7 @@ export function QueuePage() {
         sending ? (
           <p className="rounded-lg border border-dashed p-6 text-center text-sm font-medium">
             {sending === 'held'
-              ? `Nothing waiting for Send: every approved document went to ${system}.`
+              ? `Nothing approved waits here: approved documents stay here until you send them to ${system}.`
               : sending === 'failed'
               ? 'Nothing failed to send.'
               : sending === 'not_sent'
@@ -329,6 +328,7 @@ export function QueuePage() {
           {sending === 'held' && clientId && (
             <SendBar
               clientId={clientId}
+              waiting={sendingCounts?.held ?? 0}
               chosen={queue.data.documents.filter((d) => chosen.has(d.document_id))}
               system={system}
               onSent={() => setChosen(new Set())}
@@ -607,7 +607,7 @@ function SendingCell({ document, system }: { document: DocumentSummary; system: 
         {SENDING_LABELS[sending.state]}
         {sending.state === 'retrying' && sending.next_try_at ? ` at ${formatDateTime(sending.next_try_at)}` : ''}
       </span>
-      {sending.state === 'held' && <UndoApproval documentId={document.document_id} />}
+      {sending.state === 'held' && <SendOrUndo document={document} system={system} />}
       {sending.reason && sending.state !== 'posted' && (
         <span className="truncate text-muted-foreground" title={sending.reason}>
           {sending.reason}

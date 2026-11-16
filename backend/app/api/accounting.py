@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -283,7 +283,16 @@ def sync_accounting(
 
 
 class SendBody(BaseModel):
-    document_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_SEND)
+    """These documents, or all of them: `all_waiting` is how many the person saw waiting."""
+
+    document_ids: list[uuid.UUID] | None = Field(default=None, min_length=1, max_length=MAX_SEND)
+    all_waiting: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def one_way(self) -> "SendBody":
+        if (self.document_ids is None) == (self.all_waiting is None):
+            raise ValueError("send either document_ids or all_waiting")
+        return self
 
 
 class SendResult(BaseModel):
@@ -301,8 +310,9 @@ def send_approved(
     user: UserDep,
     enqueue: Annotated[Callable[[str], object], Depends(get_enqueue_sweep)],
 ) -> SendResult:
-    """Send (decision 98): exactly these approved documents, held for Send until now, go to the
-    accounting system. 409 unless it is connected and synced."""
+    """Send (decision 98): exactly these approved documents, held for Send until now, or all of
+    them when as many wait as the person saw, go to the accounting system. 409 unless it is
+    connected and synced, or when more or fewer wait than they saw."""
     status_now = accounting_status(client_id, session, settings, registry)
     if status_now.needs_reconnect:
         raise HTTPException(
@@ -312,9 +322,18 @@ def send_approved(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "connect and sync the accounting system first"
         )
-    wanted = list(dict.fromkeys(body.document_ids))
-    released = approval.release(session, client_id=client_id, document_ids=wanted,
-                                settings=settings, actor=user.email)  # fmt: skip
+    if body.all_waiting is not None:
+        try:
+            released = approval.release_all(session, client_id=client_id,
+                                            expected=body.all_waiting, settings=settings,
+                                            actor=user.email)  # fmt: skip
+        except approval.ListChangedError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        wanted = [row.document_id for row in released]
+    else:
+        wanted = list(dict.fromkeys(body.document_ids or []))
+        released = approval.release(session, client_id=client_id, document_ids=wanted,
+                                    settings=settings, actor=user.email)  # fmt: skip
     session.commit()
     if released:
         try:

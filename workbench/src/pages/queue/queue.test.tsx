@@ -453,30 +453,29 @@ describe('approved, not sent: Send and Undo (decision 98)', () => {
     })  // prettier-ignore
   }
 
-  it('shows the list only when something waits, and opens it', async () => {
-    const api = backend()
+  it('always offers the Approved list, and opens it', async () => {
+    const api = backend({ '/documents': { ...PAGE, sending_counts: { held: 0, waiting: 0, failed: 0, posted: 0, not_sent: 0 } } })
     const user = userEvent.setup()
     renderApp('/queue?client=cafe-al-noor')
 
     const sent = await screen.findByRole('group', { name: 'Sent' })
-    const list = await within(sent).findByRole('button', { name: /^Approved, not sent/ })
-    expect(list).toHaveTextContent('Approved, not sent3')
+    const list = await within(sent).findByRole('button', { name: /^Approved/ })
+    expect(list).toHaveTextContent('Approved0') // even with nothing waiting
     await user.click(list)
 
     await waitFor(() => expect(queueCalls(api).at(-1)).toMatchObject({ sending: 'held' }))
-    expect(await screen.findByRole('region', { name: 'Send' })).toHaveTextContent('Tick the documents to send.')
-    expect(screen.getByRole('button', { name: 'Send to Xero' })).toBeDisabled()
   })
 
-  it('sends exactly the ticked documents, after showing how many and how much', async () => {
+  it('sends the ticked documents, after showing how many and how much', async () => {
     const api = backend()
     const user = userEvent.setup()
     renderApp('/queue?client=cafe-al-noor&sending=held')
 
+    expect(await screen.findByRole('region', { name: 'Send' })).toHaveTextContent('Send one from its row, tick several, or send all.')
     const [first, second] = await screen.findAllByRole('checkbox', { name: 'Choose Fresh Farms Trading LLC' })
     await user.click(first!)
     await user.click(second!)
-    await user.click(screen.getByRole('button', { name: 'Send to Xero' }))
+    await user.click(screen.getByRole('button', { name: 'Send ticked (2)' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toHaveTextContent('Send 2 documents to Xero?')
@@ -491,15 +490,45 @@ describe('approved, not sent: Send and Undo (decision 98)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('ticks a whole page at once, with each currency totalled on its own', async () => {
-    backend()
+  it('sends all of them, saying how many it saw, on every page', async () => {
+    const api = backend()
     const user = userEvent.setup()
     renderApp('/queue?client=cafe-al-noor&sending=held')
 
-    await user.click(await screen.findByRole('checkbox', { name: 'Choose every document on this page' }))
-    await user.click(screen.getByRole('button', { name: 'Send to Xero' }))
+    await user.click(await screen.findByRole('button', { name: 'Send all (3)' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Send all 3 approved documents to Xero?')
+    await user.click(within(dialog).getByRole('button', { name: 'Send' }))
 
-    expect(await screen.findByRole('dialog')).toHaveTextContent('Total AED 1,070.50 + USD 7.25.')
+    await waitFor(() => expect(api.bodies['POST /clients/cafe-al-noor/accounting/send']).toEqual({ all_waiting: 3 }))
+  })
+
+  it('says so when more were approved meanwhile, and sends nothing', async () => {
+    backend({ 'POST /clients/cafe-al-noor/accounting/send': reply(409, {
+      detail: '4 approved documents wait for Send now, not 3: check the list again, then send' }) })  // prettier-ignore
+    const user = userEvent.setup()
+    renderApp('/queue?client=cafe-al-noor&sending=held')
+
+    await user.click(await screen.findByRole('button', { name: 'Send all (3)' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Send' }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('4 approved documents wait for Send now, not 3')
+  })
+
+  it('sends one from its row, without opening the document', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    const router = renderApp('/queue?client=cafe-al-noor&sending=held')
+
+    const [first] = (await screen.findAllByRole('button', { name: 'Send' })) as [HTMLElement]
+    await user.click(first)
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Send 1 document to Xero?')
+    expect(dialog).toHaveTextContent('Total AED 1,050.00.')
+    await user.click(within(dialog).getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(api.bodies['POST /clients/cafe-al-noor/accounting/send']).toEqual({ document_ids: ['h1'] }))
+    expect(router.state.location.pathname).toBe('/queue')
   })
 
   it('takes an approval back from its row, without opening the document', async () => {

@@ -119,6 +119,28 @@ def test_send_releases_exactly_the_documents_chosen_once_and_learns_then(
     assert learned(session) is not None  # the supplier's coding is learned once it is sent
 
 
+def test_send_all_sends_every_waiting_approval_when_as_many_wait_as_were_seen(
+    api: TestClient,  # noqa: F811
+    session: Session,
+    storage: LocalStorage,  # noqa: F811
+) -> None:
+    holds(session)
+    first = in_review(session, storage, "INV-00301")
+    second = in_review(session, storage, "INV-00302")
+    ok(approve(api, first))
+
+    with pytest.raises(approval.ListChangedError, match="1 approved documents wait for Send now"):
+        approval.release_all(session, client_id=CLIENT, expected=2, settings=SETTINGS, actor=ACTOR)
+    assert outbox_rows(session, first)[0].status is OutboxStatus.HELD  # nothing was sent
+
+    ok(approve(api, second))  # now two wait, as the screen says
+    sent = approval.release_all(session, client_id=CLIENT, expected=2, settings=SETTINGS,
+                                actor=ACTOR)  # fmt: skip
+
+    assert {row.document_id for row in sent} == {first.id, second.id}
+    assert {row.status for row in sent} == {OutboxStatus.PENDING}
+
+
 def test_send_leaves_alone_what_is_not_waiting_or_not_this_companys(
     session: Session,
     xero: FakePosting,

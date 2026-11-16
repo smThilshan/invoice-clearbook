@@ -422,6 +422,33 @@ def test_send_releases_the_held_documents_chosen_as_the_logged_in_user(
     assert status["posting"]["held"] == 0
 
 
+def test_send_all_needs_the_number_seen_and_never_both_ways(
+    api: TestClient, session: Session, xero: FakeXero
+) -> None:
+    from app.api.accounting import get_enqueue_sweep
+    from tests.integration.factories import make_document
+
+    asked: list[str] = []
+    api.app.dependency_overrides[get_enqueue_sweep] = lambda: asked.append  # type: ignore[attr-defined]
+    connect(session, xero)
+    api.post(f"/clients/{CLIENT}/accounting/sync")
+    for _ in range(2):
+        held = make_document(session, status=DocumentStatus.APPROVED)
+        session.add(Outbox(client_id=CLIENT, document_id=held.id, status=OutboxStatus.HELD))
+    session.flush()
+    send = f"/clients/{CLIENT}/accounting/send"
+
+    changed = api.post(send, json={"all_waiting": 3})
+    neither = api.post(send, json={})
+    both = api.post(send, json={"all_waiting": 2, "document_ids": [str(held.id)]})
+    sent = api.post(send, json={"all_waiting": 2})
+
+    assert changed.status_code == 409 and "2 approved documents wait" in changed.json()["detail"]
+    assert (neither.status_code, both.status_code) == (422, 422)
+    assert sent.json() == {"sent": 2, "not_waiting": 0}
+    assert asked == [CLIENT]
+
+
 # --- A connection that needs a new sign-in (decision 68) -----------------------------------------
 
 
