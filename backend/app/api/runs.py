@@ -11,6 +11,7 @@ from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth import UserDep
@@ -18,7 +19,7 @@ from app.api.sharepoint import MicrosoftDep
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.domain.enums import DocumentStatus, DocumentType
-from app.models import Run, RunStatus
+from app.models import Client, Run, RunStatus
 from app.pipeline.folders import InboxError
 from app.services.clients import get_client
 from app.services.places import find_place
@@ -28,6 +29,7 @@ from app.services.runs import (
     RunState,
     Step,
     force_stop_run,
+    open_runs,
     resume_run,
     run_progress,
     start_run,
@@ -116,6 +118,43 @@ class RunProgressOut(BaseModel):
 
 class TypicalTime(BaseModel):
     typical_ms: int | None  # recent work time per file; null before any file was measured
+
+
+class OpenRun(BaseModel):
+    """A run with files not settled yet, for finding it again from the Run screen."""
+
+    run_id: uuid.UUID
+    client_id: str
+    client_name: str
+    folder: str
+    status: RunStatus  # RUNNING or STOPPED
+    state: RunState
+    created_at: datetime
+    files_found: int
+    settled: int  # files in review, parked, failed or duplicate
+
+
+@router.get("/open")
+def get_open_runs(session: Annotated[Session, Depends(get_session)]) -> list[OpenRun]:
+    """Runs still going or stopped part way, newest first (only recent ones)."""
+    progress = open_runs(session, now=datetime.now(UTC))
+    ids = {p.run.client_id for p in progress}
+    rows = session.execute(select(Client.client_id, Client.name).where(Client.client_id.in_(ids)))
+    names: dict[str, str] = {row.client_id: row.name for row in rows}
+    return [
+        OpenRun(
+            run_id=p.run.id,
+            client_id=p.run.client_id,
+            client_name=names.get(p.run.client_id, p.run.client_id),
+            folder=p.run.folder,
+            status=p.status,
+            state=p.state,
+            created_at=p.run.created_at,
+            files_found=p.run.files_found,
+            settled=p.settled,
+        )
+        for p in progress
+    ]
 
 
 @router.get("/typical-time")

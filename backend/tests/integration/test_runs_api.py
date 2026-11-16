@@ -1,17 +1,18 @@
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.db import get_session
-from app.domain.enums import Direction
+from app.domain.enums import Direction, DocumentStatus
 from app.main import create_app
-from app.models import Run, RunStatus
-from tests.integration.factories import CLIENT, make_client
+from app.models import Client, Run, RunStatus
+from tests.integration.factories import CLIENT, make_client, make_document
 from tests.login import log_in
 
 pytestmark = pytest.mark.integration
@@ -316,3 +317,57 @@ def test_force_stop_only_on_a_stopped_run_and_resume_clears_it(client: TestClien
     assert too_early.status_code == 409
     assert (forced.status_code, forced.json()["force_stop"]) == (200, True)
     assert resumed.json()["force_stop"] is False
+
+
+def _listed(session: Session, run_id: object, names: dict[str, DocumentStatus | None]) -> Run:
+    """The run's scan found `names` in its folder; each one taken in with its status (None: not
+    yet)."""
+    run = session.get_one(Run, run_id)
+    run.files = [f"{run.folder}/{name}" for name in names]
+    run.files_found = len(names)
+    for path, status in zip(run.files, names.values(), strict=True):
+        if status is not None:
+            make_document(session, run_id=run.id, source_path=path, status=status)
+    session.flush()
+    return run
+
+
+def test_a_run_left_for_another_screen_is_found_again(client: TestClient, session: Session) -> None:
+    scanning = start(client, folder="Supplier bills")["run_id"]
+    working = start(client, folder="October 2026/21")["run_id"]
+    _listed(session, working, {"a.pdf": DocumentStatus.IN_REVIEW, "b.pdf": DocumentStatus.READ})
+    session.get_one(Run, scanning).created_at -= timedelta(minutes=5)  # one transaction: same time
+    name = session.scalars(select(Client.name).where(Client.client_id == CLIENT)).one()
+
+    response = client.get("/runs/open")
+
+    assert response.status_code == 200
+    assert [
+        (r["run_id"], r["client_name"], r["status"], r["state"], r["files_found"], r["settled"])
+        for r in response.json()
+    ] == [
+        (working, name, "RUNNING", "processing", 2, 1),
+        (scanning, name, "RUNNING", "scanning", 0, 0),
+    ]  # newest first
+
+
+def test_a_stopped_run_with_files_left_is_found_again(client: TestClient, session: Session) -> None:
+    run_id = start(client, folder="October 2026/21")["run_id"]
+    _listed(session, run_id, {"a.pdf": None})
+    client.post(f"/runs/{run_id}/stop")
+
+    assert [(r["run_id"], r["status"]) for r in client.get("/runs/open").json()] == [
+        (run_id, "STOPPED")
+    ]
+
+
+def test_finished_failed_and_old_runs_are_not_offered(client: TestClient, session: Session) -> None:
+    finished = start(client, folder="October 2026/21")["run_id"]
+    _listed(session, finished, {"a.pdf": DocumentStatus.IN_REVIEW, "b.pdf": DocumentStatus.FAILED})
+    failed = session.get_one(Run, start(client, folder="October 2026")["run_id"])
+    failed.status = RunStatus.FAILED
+    old = session.get_one(Run, start(client, folder="Supplier bills")["run_id"])
+    old.created_at = datetime.now(UTC) - timedelta(days=3)
+    session.flush()
+
+    assert client.get("/runs/open").json() == []

@@ -61,6 +61,8 @@ _ACTIVE = {
 }
 TYPICAL_SAMPLE = 20  # recent documents the typical time per file is taken from
 MARK_EXPIRES = timedelta(minutes=35)  # longer than the job time limit (30 min)
+OPEN_RUN_DAYS = timedelta(days=2)  # an older run is no longer offered on the Run screen
+OPEN_RUNS_CHECKED = 20  # newest runs measured for it
 
 
 class RunState(StrEnum):
@@ -99,6 +101,11 @@ class RunProgress:
     @property
     def counts(self) -> dict[str, int]:
         return dict(Counter(file.status_label for file in self.files))
+
+    @property
+    def settled(self) -> int:
+        """Files that will not move on by themselves: in review, parked, failed or duplicate."""
+        return sum(1 for f in self.files if f.status is not None and f.status not in IN_PROGRESS)
 
     @property
     def status(self) -> RunStatus:
@@ -172,6 +179,24 @@ def run_progress(session: Session, run: Run) -> RunProgress:
     pending = any(f.status is None or f.status in IN_PROGRESS for f in files)
     state = RunState.PROCESSING if pending else RunState.FINISHED
     return RunProgress(run, state, files, typical_work_ms(session) if pending else None)
+
+
+def open_runs(session: Session, *, now: datetime) -> list[RunProgress]:
+    """Runs with files not settled yet, going or stopped, newest first: offered on the Run
+    screen so a run left for another screen is found again. A run's stored status stays
+    RUNNING once its files have settled (the real one is derived), so each candidate is
+    measured; only recent ones, so the cost does not grow with the history."""
+    candidates = session.scalars(
+        select(Run)
+        .where(
+            Run.status.in_((RunStatus.RUNNING, RunStatus.STOPPED)),
+            Run.created_at >= now - OPEN_RUN_DAYS,
+        )
+        .order_by(Run.created_at.desc())
+        .limit(OPEN_RUNS_CHECKED)
+    )
+    progress = (run_progress(session, run) for run in candidates)
+    return [p for p in progress if p.state is not RunState.FINISHED]
 
 
 def typical_work_ms(session: Session) -> int | None:

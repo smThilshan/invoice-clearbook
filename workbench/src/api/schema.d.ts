@@ -781,6 +781,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Open Runs
+         * @description Runs still going or stopped part way, newest first (only recent ones).
+         */
+        get: operations["get_open_runs_runs_open_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/sharepoint": {
         parameters: {
             query?: never;
@@ -1739,6 +1759,34 @@ export interface components {
          * @enum {string}
          */
         ModelStatus: "ok" | "unreachable" | "missing" | "incompatible" | "not_loaded";
+        /**
+         * OpenRun
+         * @description A run with files not settled yet, for finding it again from the Run screen.
+         */
+        OpenRun: {
+            /** Client Id */
+            client_id: string;
+            /** Client Name */
+            client_name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Files Found */
+            files_found: number;
+            /** Folder */
+            folder: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Settled */
+            settled: number;
+            state: components["schemas"]["RunState"];
+            status: components["schemas"]["RunStatus"];
+        };
         /** PageTextOut */
         PageTextOut: {
             /** Height */
@@ -3589,6 +3637,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_open_runs_runs_open_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenRun"][];
                 };
             };
         };

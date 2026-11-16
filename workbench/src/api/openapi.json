@@ -2183,6 +2183,60 @@
         "title": "ModelStatus",
         "type": "string"
       },
+      "OpenRun": {
+        "description": "A run with files not settled yet, for finding it again from the Run screen.",
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "client_name": {
+            "title": "Client Name",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "files_found": {
+            "title": "Files Found",
+            "type": "integer"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "settled": {
+            "title": "Settled",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          }
+        },
+        "required": [
+          "run_id",
+          "client_id",
+          "client_name",
+          "folder",
+          "status",
+          "state",
+          "created_at",
+          "files_found",
+          "settled"
+        ],
+        "title": "OpenRun",
+        "type": "object"
+      },
       "PageTextOut": {
         "properties": {
           "height": {
@@ -5624,6 +5678,32 @@
           }
         },
         "summary": "Create Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/open": {
+      "get": {
+        "description": "Runs still going or stopped part way, newest first (only recent ones).",
+        "operationId": "get_open_runs_runs_open_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OpenRun"
+                  },
+                  "title": "Response Get Open Runs Runs Open Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Open Runs",
         "tags": [
           "runs"
         ]

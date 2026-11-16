@@ -2,7 +2,7 @@ import { Building2, FileSearch, FolderInput, KeyRound, LogOut, PanelLeftClose, P
 import { type ReactNode, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 
-import { useLogout, useMe } from '@/api/queries'
+import { useLogout, useMe, useOpenRuns } from '@/api/queries'
 
 import { SystemStatus } from '@/components/SystemStatus'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
@@ -49,7 +49,7 @@ function NavItem({
       aria-label={label}
       className={({ isActive }) =>
         cn(
-          'flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium sm:shrink',
+          'relative flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium sm:shrink',
           folded && 'sm:justify-center sm:px-2',
           isActive || inside ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground hover:bg-muted',
         )
@@ -57,6 +57,21 @@ function NavItem({
     >
       {children}
     </NavLink>
+  )
+}
+
+/** A dot on Run while runs are not finished: the way back to them is on the Run screen. */
+function OpenRunsDot({ folded }: { folded: boolean }) {
+  const count = useOpenRuns().data?.length ?? 0
+  if (count === 0) return null
+  const title = count === 1 ? '1 run not finished' : `${count} runs not finished`
+  return (
+    <span
+      role="img"
+      aria-label={title}
+      title={title}
+      className={cn('ml-auto size-2 shrink-0 rounded-full bg-primary', folded && 'sm:absolute sm:top-1.5 sm:right-1.5')}
+    />
   )
 }
 
@@ -150,6 +165,7 @@ export function AppLayout() {
             <NavItem key={to} to={to} also={also} label={label} folded={folded}>
               <Icon className="size-4 shrink-0" aria-hidden />
               <span className={cn(folded && 'sm:hidden')}>{label}</span>
+              {to === '/run' && <OpenRunsDot folded={folded} />}
             </NavItem>
           ))}
           <button

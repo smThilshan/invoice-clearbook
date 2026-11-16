@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils'
 
 import { AccountingReadiness } from './AccountingReadiness'
 import { ComputerPicker } from './ComputerPicker'
+import { OpenRuns } from './OpenRuns'
 import { SharePointPicker } from './SharePointPicker'
 
 /** Where the documents are: a folder on SharePoint, read live (decision 83), or on the user's
@@ -172,6 +173,7 @@ export function RunPage() {
         title="Run"
         description="Pick an organization or business, choose the documents (a folder on SharePoint, or one on your computer), confirm the date, and start processing. Sub-folders are included."
       />
+      <OpenRuns />
 
       {returned.connected && (
         <Alert>

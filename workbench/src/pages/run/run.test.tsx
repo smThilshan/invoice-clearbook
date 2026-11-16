@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   AccountingStatus,
+  OpenRun,
   Readiness,
   RunProgress,
   SharePointFolder,
@@ -469,6 +470,44 @@ class FakeUpload {
     }, 0)
   }
 }
+
+describe('run screen: runs not finished', () => {
+  const going: OpenRun = {
+    run_id: RUN_ID, client_id: 'cafe-al-noor', client_name: 'Cafe Al Noor', folder: 'October 2026/21',
+    status: 'RUNNING', state: 'processing', created_at: '2026-10-21T08:00:00Z', files_found: 4, settled: 1,
+  }  // prettier-ignore
+
+  it('finds a run left for another screen again, from the Run screen and the menu', async () => {
+    backend({ '/runs/open': [going] })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    const runs = await screen.findByRole('list', { name: 'Runs not finished' })
+    expect(within(runs).getByText(/1 of 4 done/)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '1 run not finished' })).toBeInTheDocument()
+    await user.click(within(runs).getByRole('link', { name: 'Open the run of Cafe Al Noor' }))
+
+    expect(await screen.findByRole('list', { name: 'Files' })).toBeInTheDocument() // its progress page
+  })
+
+  it('says a stopped run is stopped, and starting another run is still offered', async () => {
+    backend({ '/runs/open': [{ ...going, status: 'STOPPED' }] })
+    renderApp('/run')
+
+    const runs = await screen.findByRole('list', { name: 'Runs not finished' })
+    expect(within(runs).getByText(/stopped, 1 of 4 done/)).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Organization or Business' })).toBeInTheDocument()
+  })
+
+  it('shows nothing when every run has finished', async () => {
+    backend({ '/runs/open': [] })
+    renderApp('/run')
+
+    expect(await screen.findByRole('combobox', { name: 'Organization or Business' })).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Runs not finished' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /not finished/ })).not.toBeInTheDocument()
+  })
+})
 
 describe('run screen: documents on my computer', () => {
   const realXhr = globalThis.XMLHttpRequest

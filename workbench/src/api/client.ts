@@ -34,6 +34,7 @@ export type RunAccepted = Schemas['RunAccepted']
 export type UploadAccepted = Schemas['UploadAccepted']
 export type FolderDate = Schemas['FolderDate']
 export type RunProgress = Schemas['RunProgressOut']
+export type OpenRun = Schemas['OpenRun']
 export type FileStatus = Schemas['FileStatus']
 export type FileStep = Schemas['Step']
 export type StepTimings = Schemas['StepTimingsOut']
@@ -193,6 +194,8 @@ export const api = {
   sharePointLink: (url: string) => request<SharePointFolder>(`/sharepoint/link?${new URLSearchParams({ url })}`),
   /** Latest runs that took in documents, newest first (the queue's run filter). */
   runs: (clientId: string) => request<RunOption[]>(`/clients/${encodeURIComponent(clientId)}/runs`),
+  /** Runs still going or stopped part way, newest first: found again from the Run screen. */
+  openRuns: () => request<OpenRun[]>('/runs/open'),
   /** Recent work time per file, for the estimate before a run (task 4.17). */
   typicalTime: () => request<{ typical_ms: number | null }>('/runs/typical-time'),
   /** Run a SharePoint folder, sub-folders included: the server fetches it, then runs it. */

@@ -28,6 +28,7 @@ export const queryKeys = {
   removedClients: ['clients', 'removed'] as const,
   sharePoint: ['sharepoint'] as const,
   run: (runId: string) => ['run', runId] as const,
+  openRuns: ['open-runs'] as const,
   runs: (clientId: string) => ['runs', clientId] as const,
   queue: (query: QueueQuery) => ['queue', query] as const,
   queues: ['queue'] as const,
@@ -40,6 +41,7 @@ export const queryKeys = {
 const READINESS_REFRESH_MS = 30_000
 export const RUN_REFRESH_MS = 3_000
 export const QUEUE_REFRESH_MS = 30_000
+const OPEN_RUNS_REFRESH_MS = 10_000
 
 /** Who is logged in; null when nobody is (decision 71). A 401 from any other call sets it to
  * null too (api/queryClient.ts). */
@@ -278,11 +280,16 @@ export function useTypicalTime() {
 }
 
 export function useStartSharePointRun() {
-  return useMutation({ mutationFn: (body: SharePointRunCreate) => api.startSharePointRun(body) })
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: SharePointRunCreate) => api.startSharePointRun(body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.openRuns }),
+  })
 }
 
 /** Upload files chosen on this computer and start their run (decision 78). */
 export function useUploadRun() {
+  const client = useQueryClient()
   return useMutation({
     mutationFn: (upload: {
       clientId: string
@@ -290,6 +297,7 @@ export function useUploadRun() {
       folderDate: string | null
       onProgress: (fraction: number) => void
     }) => uploadRun(upload.clientId, upload.files, upload.folderDate, upload.onProgress),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.openRuns }),
   })
 }
 
@@ -300,6 +308,17 @@ export function useRuns(clientId: string | undefined) {
     queryFn: () => api.runs(clientId ?? ''),
     enabled: clientId !== undefined,
     refetchInterval: QUEUE_REFRESH_MS, // a run started elsewhere shows up by itself
+  })
+}
+
+/** Runs still going or stopped part way, for the Run screen and the menu. Checked often while
+ * one is going, now and then otherwise; when it cannot be checked, nothing is shown. */
+export function useOpenRuns() {
+  return useQuery({
+    queryKey: queryKeys.openRuns,
+    queryFn: api.openRuns,
+    refetchInterval: (query) => (query.state.data?.some((r) => r.status === 'RUNNING') ? OPEN_RUNS_REFRESH_MS : QUEUE_REFRESH_MS),
+    retry: false,
   })
 }
 
@@ -416,7 +435,10 @@ function useRunControl(control: (runId: string) => Promise<RunProgress>) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: control,
-    onSuccess: (progress) => client.setQueryData(queryKeys.run(progress.run_id), progress),
+    onSuccess: (progress) => {
+      client.setQueryData(queryKeys.run(progress.run_id), progress)
+      void client.invalidateQueries({ queryKey: queryKeys.openRuns })
+    },
   })
 }
 
