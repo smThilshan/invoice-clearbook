@@ -5,9 +5,9 @@ import { useNavigate } from 'react-router'
 import { useChangePassword, useLogout, useMe } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
+import { PasswordInput } from '@/components/PasswordInput'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { usePageTitle } from '@/lib/usePageTitle'
 
@@ -96,9 +96,8 @@ function PasswordForm({ currentLabel }: { currentLabel: string }) {
     <form aria-label="Change password" className="space-y-4" onSubmit={submit}>
       <div className="space-y-1.5">
         <Label htmlFor="current-password">{currentLabel}</Label>
-        <Input
+        <PasswordInput
           id="current-password"
-          type="password"
           autoComplete="current-password"
           required
           autoFocus
@@ -108,9 +107,8 @@ function PasswordForm({ currentLabel }: { currentLabel: string }) {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="new-password">New password</Label>
-        <Input
+        <PasswordInput
           id="new-password"
-          type="password"
           autoComplete="new-password"
           required
           aria-describedby="new-password-hint"
@@ -123,9 +121,8 @@ function PasswordForm({ currentLabel }: { currentLabel: string }) {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="new-password-again">New password again</Label>
-        <Input
+        <PasswordInput
           id="new-password-again"
-          type="password"
           autoComplete="new-password"
           required
           value={again}

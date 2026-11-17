@@ -4,6 +4,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router'
 
 import { useLogin, useMe } from '@/api/queries'
 import { ErrorAlert } from '@/components/ErrorAlert'
+import { PasswordInput } from '@/components/PasswordInput'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -51,9 +52,8 @@ export function LoginPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
                 required
                 value={password}

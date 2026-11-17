@@ -57,6 +57,25 @@ describe('login (decision 71)', () => {
     expect(await within(form).findByText('Wrong email or password.')).toBeInTheDocument()
   })
 
+  it('shows the typed password with the eye and hides it again, without sending anything', async () => {
+    const api = mockApi({ '/health/ready': READY, '/auth/me': NOBODY })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    const form = await screen.findByRole('form', { name: 'Log in' })
+    const password = within(form).getByLabelText('Password')
+    await user.type(password, 'made-up password 1')
+    expect(password).toHaveAttribute('type', 'password') // hidden at first
+
+    await user.click(within(form).getByRole('button', { name: 'Show password' }))
+    expect(password).toHaveAttribute('type', 'text')
+    expect(password).toHaveValue('made-up password 1')
+
+    await user.click(within(form).getByRole('button', { name: 'Hide password' }))
+    expect(password).toHaveAttribute('type', 'password')
+    expect(api.bodies['POST /auth/login']).toBeUndefined() // the eye never logs in
+  })
+
   it('goes to the login page when the session ends in the middle of the work', async () => {
     mockApi({ '/health/ready': READY, '/clients': NOBODY })
     const router = renderApp('/clients')
@@ -170,6 +189,25 @@ describe('login (decision 71)', () => {
     await user.click(within(form).getByRole('button', { name: 'Change password' }))
 
     expect(await within(form).findByText('The current password is wrong.')).toBeInTheDocument()
+  })
+
+  it('gives each password box its own eye, so only the one asked for is shown', async () => {
+    mockApi({ '/health/ready': READY, '/auth/me': { ...ME, must_change_password: true } })
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    const form = await screen.findByRole('form', { name: 'Change password' })
+    const given = within(form).getByLabelText('Password you were given')
+    const boxes = [given, within(form).getByLabelText('New password'),
+                   within(form).getByLabelText('New password again')]  // prettier-ignore
+    const eyes = within(form).getAllByRole('button', { name: 'Show password' })
+    expect(eyes).toHaveLength(3)
+    const givenEye = eyes[0]!
+
+    await user.click(givenEye)
+
+    expect(boxes.map((box) => box.getAttribute('type'))).toEqual(['text', 'password', 'password'])
+    expect(givenEye).toHaveAccessibleName('Hide password')
   })
 
   it('lets anyone change their password from the user menu', async () => {
