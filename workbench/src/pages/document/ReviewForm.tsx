@@ -21,6 +21,7 @@ import type {
   Issue,
   ValueKind,
 } from '@/api/client'
+import { AccountPicker } from '@/components/AccountPicker'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -833,18 +834,8 @@ function Lines({
       )}
       {editable && fields.length > 1 && (
         <div role="group" aria-label="All lines" className="grid gap-2 rounded-lg border border-dashed p-3 sm:grid-cols-2">
-          <Select value="" onValueChange={(v) => setAll('account_code', v)}>
-            <SelectTrigger aria-label="Account for all lines" className="w-full">
-              <SelectValue placeholder="Account for all lines" />
-            </SelectTrigger>
-            <SelectContent>
-              {accounts.map((a) => (
-                <SelectItem key={a.code} value={a.code}>
-                  {a.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <AccountPicker label="Account for all lines" placeholder="Account for all lines" value=""
+            accounts={accounts} onChange={(code) => setAll('account_code', code)} />
           <Select value="" onValueChange={(v) => setAll('tax_type', v)}>
             <SelectTrigger aria-label="VAT for all lines" className="w-full">
               <SelectValue placeholder="VAT for all lines" />
@@ -868,7 +859,6 @@ function Lines({
             suggested && suggested.account_code === account
               ? SOURCE_HINTS[String(suggested.account_source)]
               : undefined
-          const unknownAccount = account && !accounts.some((a) => a.code === account)
           const focus = (name: 'description' | 'qty' | 'unit_price' | 'amount', label: string) => () =>
             onFocusField({
               name: `lines.${index}.${name}`,
@@ -910,24 +900,11 @@ function Lines({
                     control={control}
                     name={`lines.${index}.account_code`}
                     render={({ field: f }) => (
-                      <Select value={f.value || NONE} disabled={!editable}
-                        onValueChange={(v) => f.onChange(v === NONE ? '' : v)}>
-                        <SelectTrigger aria-label={`Account for line ${index + 1}`} className="w-full"
-                          aria-invalid={worst(lineIssues('account_code')) === 'ERROR' || undefined}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={NONE}>Choose an account</SelectItem>
-                          {unknownAccount && (
-                            <SelectItem value={account}>{account} (not in the master data)</SelectItem>
-                          )}
-                          {accounts.map((a) => (
-                            <SelectItem key={a.code} value={a.code}>
-                              {a.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <AccountPicker label={`Account for line ${index + 1}`} placeholder="Choose an account"
+                        clearLabel="Choose an account" value={f.value ?? ''} onChange={f.onChange}
+                        accounts={accounts}
+                        suggested={typeof suggested?.account_code === 'string' ? suggested.account_code : undefined}
+                        disabled={!editable} invalid={worst(lineIssues('account_code')) === 'ERROR'} />
                     )}
                   />
                   {hint && <p className="text-xs text-muted-foreground">{hint}</p>}

@@ -421,6 +421,41 @@ describe('review screen', () => {
       .toBe('1579923000000000400')
   })
 
+  it('finds an account by typing part of its name or code, and chooses it with the keyboard', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('combobox', { name: 'Account for line 2' }))
+    const search = await screen.findByRole('combobox', { name: 'Search accounts' })
+    expect(search).toHaveFocus() // type straight away
+    await user.type(search, 'bev')
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['5010 Beverage Cost'])
+    await user.clear(search)
+    await user.type(search, 'xyz')
+    expect(screen.getByText('No account matches.')).toBeInTheDocument()
+    await user.clear(search)
+    await user.type(search, '5000{Enter}') // by code
+
+    expect(screen.getByRole('combobox', { name: 'Account for line 2' })).toHaveTextContent('5000 Food Cost')
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect((sent(api).invoice.lines as { account_code: string }[])[1]?.account_code).toBe('5000')
+  })
+
+  it('puts the account suggested for the line on top, and can take an account off a line', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('combobox', { name: 'Account for line 1' }))
+    const suggested = await screen.findByRole('group', { name: 'Suggested' })
+    expect(within(suggested).getAllByRole('option').map((o) => o.textContent)).toEqual(['5000 Food Cost'])
+    await user.click(screen.getByRole('option', { name: 'Choose an account' }))
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect((sent(api).invoice.lines as { account_code: string | null }[])[0]?.account_code).toBeNull()
+  })
+
   it('sets one account and VAT on every line at once (decision 49)', async () => {
     const api = await open()
     const user = userEvent.setup()
