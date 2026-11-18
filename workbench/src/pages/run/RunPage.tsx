@@ -14,6 +14,7 @@ import {
   useUploadRun,
 } from '@/api/queries'
 import { ClientSelect } from '@/components/ClientSelect'
+import { DateInput } from '@/components/DateInput'
 import { ErrorAlert } from '@/components/ErrorAlert'
 import { SharePointConnection } from '@/components/SharePointConnection'
 import { PageContainer, PageHeader } from '@/components/PageHeader'
@@ -24,6 +25,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { type Choice, formatBytes, tooMuch } from '@/lib/chosenFiles'
+import { isIsoDate } from '@/lib/dates'
 import { blocksRun, readinessOf } from '@/lib/readiness'
 import { formatDate } from '@/lib/labels'
 import { lastTrail, rememberClient, rememberTrail } from '@/lib/remember'
@@ -66,6 +68,7 @@ export function RunPage() {
   const blocked = client !== undefined && blocksRun(readinessOf(accounting.data, accounting.isError))
   const [trail, setTrail] = useState<Step[]>([])
   const [date, setDate] = useState('')
+  const dateOk = date === '' || isIsoDate(date) // a half-typed date never starts a run
   const sharePoint = useSharePointStatus()
   usePageTitle('Run')
   const startRun = useStartSharePointRun()
@@ -254,13 +257,9 @@ export function RunPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <Label htmlFor="folder-date">Folder date</Label>
-            <Input
-              id="folder-date"
-              type="date"
-              className="w-48"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-            />
+            <div className="w-48">
+              <DateInput id="folder-date" value={date} onChange={setDate} />
+            </div>
             <p className="text-sm text-muted-foreground" data-testid="date-hint">
               {source === 'sharepoint'
                 ? dateHint(date, current?.date ?? null, current?.path ?? '')
@@ -287,7 +286,7 @@ export function RunPage() {
           <Button
             size="lg"
             onClick={upload}
-            disabled={uploadRun.isPending || choice.invoices.length === 0 || tooMuch(choice) !== null}
+            disabled={uploadRun.isPending || choice.invoices.length === 0 || tooMuch(choice) !== null || !dateOk}
           >
             <Upload aria-hidden />
             {uploadRun.isPending ? 'Uploading…' : `Upload and run ${client.name}: ${chosenName}`}
@@ -310,7 +309,7 @@ export function RunPage() {
           <Button
             size="lg"
             onClick={run}
-            disabled={startRun.isPending || !ready || (sharePointFiles === 0)}
+            disabled={startRun.isPending || !ready || (sharePointFiles === 0) || !dateOk}
           >
             <Play aria-hidden />
             {startRun.isPending ? 'Starting…' : `Run ${client.name}: ${current.name}`}

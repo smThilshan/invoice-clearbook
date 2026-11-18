@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -290,6 +290,52 @@ describe('review screen', () => {
 
     await waitFor(() => expect(sent(api)).toBeDefined())
     expect(sent(api).invoice.invoice_date).toBe('2026-12-03')
+  })
+
+  it('shows and takes dates day/month/year on every computer, and sends the same date', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+    const date = screen.getByLabelText('Date')
+    expect(date).toHaveValue('04/05/2026') // 4 May, never 05/04
+    expect(within(document.querySelector('[data-field="invoice_date"]')!).getByText('4 May 2026'))
+      .toBeInTheDocument()
+
+    await user.clear(date)
+    await user.type(date, '10/11/2026')
+    expect(within(document.querySelector('[data-field="invoice_date"]')!).getByText('10 Nov 2026'))
+      .toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).invoice.invoice_date).toBe('2026-11-10')
+  })
+
+  it('takes a date picked from the calendar', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+
+    fireEvent.change(screen.getByTestId('field-due_date-calendar'), { target: { value: '2026-10-17' } })
+    expect(screen.getByLabelText('Due date')).toHaveValue('17/10/2026')
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await waitFor(() => expect(sent(api)).toBeDefined())
+    expect(sent(api).invoice.due_date).toBe('2026-10-17')
+  })
+
+  it('flags a date that does not exist and never saves it', async () => {
+    const api = await open()
+    const user = userEvent.setup()
+    const date = screen.getByLabelText('Date')
+
+    await user.clear(date)
+    await user.type(date, '31/02/2026')
+    await user.tab()
+    expect(screen.getByText('Not a date: write day/month/year, for example 17/10/2026.')).toBeInTheDocument()
+    expect(date).toHaveAttribute('aria-invalid', 'true')
+    await user.click(screen.getByRole('button', { name: 'Save & re-check' }))
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(sent(api)).toBeUndefined()
   })
 
   it('says when the VAT the AI read was cleared on a document that is no tax invoice', async () => {

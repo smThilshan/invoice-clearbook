@@ -22,6 +22,7 @@ import type {
   ValueKind,
 } from '@/api/client'
 import { AccountPicker } from '@/components/AccountPicker'
+import { DateInput } from '@/components/DateInput'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { isIsoDate } from '@/lib/dates'
 import { formatAmount, formatDate, TYPE_LABELS } from '@/lib/labels'
 import { formatScaled, parseAmount, sumAmounts, withinTolerance } from '@/lib/money'
 import { useDebounced } from '@/lib/useDebounced'
@@ -200,6 +202,7 @@ export function ReviewForm({
             key={spec.name}
             spec={spec}
             register={register}
+            control={control}
             setValue={setValue}
             issues={issues.byField.get(spec.name)}
             verified={verified.has(spec.name)}
@@ -215,6 +218,7 @@ export function ReviewForm({
           <HeaderInput
             spec={{ name: 'original_invoice_ref', kind: 'code' }}
             register={register}
+            control={control}
             setValue={setValue}
             issues={issues.byField.get('original_invoice_ref')}
             verified={verified.has('original_invoice_ref')}
@@ -361,6 +365,7 @@ function headerTarget(spec: FieldSpec): ActiveField {
 function HeaderInput({
   spec,
   register,
+  control,
   setValue,
   issues,
   verified,
@@ -373,6 +378,7 @@ function HeaderInput({
 }: {
   spec: FieldSpec
   register: UseFormRegister<FormValues>
+  control: Control<FormValues>
   setValue: UseFormSetValue<FormValues>
   issues: Issue[] | undefined
   verified: boolean
@@ -396,9 +402,29 @@ function HeaderInput({
           </span>
         )}
       </div>
+      {spec.kind === 'date' ? (
+        <Controller
+          control={control}
+          name={spec.name}
+          rules={{ validate: (v) => !v || isIsoDate(String(v)) || 'Not a date' }} // never saved
+          render={({ field: f }) => (
+            <DateInput
+              id={id}
+              aria-invalid={level === 'ERROR' || undefined}
+              className={cn(level === 'WARNING' && 'border-warning/40 bg-warning-soft')}
+              onFocus={onFocus}
+              name={f.name}
+              ref={f.ref}
+              value={String(f.value ?? '')}
+              onChange={f.onChange}
+              onBlur={f.onBlur}
+            />
+          )}
+        />
+      ) : (
       <Input
         id={id}
-        type={spec.kind === 'date' ? 'date' : 'text'}
+        type="text"
         inputMode={spec.kind === 'amount' ? 'decimal' : undefined}
         aria-invalid={level === 'ERROR' || undefined}
         readOnly={spec.workedOut}
@@ -411,6 +437,7 @@ function HeaderInput({
         onFocus={onFocus}
         {...register(spec.name)}
       />
+      )}
       {spec.workedOut && <p className="text-xs text-muted-foreground">Total less VAT, worked out</p>}
       {correction && <AiRead value={shown(correction.model_value, spec.kind)} />}
       {!correction && cleared && (

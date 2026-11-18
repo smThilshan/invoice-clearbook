@@ -167,7 +167,7 @@ describe('run screen: documents on SharePoint', () => {
     expect(screen.getByRole('navigation', { name: 'Folder path' })).toHaveTextContent(
       'All sites' + 'ROAST HUB' + 'Documents' + 'ROAST' + 'April' + 'April 11',
     )
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-11')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('11/04/2026')
     expect(screen.getByTestId('date-hint')).toHaveTextContent('which has no year: 2026 is assumed.')
     expect(await screen.findByTestId('file-count')).toHaveTextContent(
       '2 invoice files (PDF or photo) in this folder. 1 other file left out.',
@@ -217,7 +217,7 @@ describe('run screen: documents on SharePoint', () => {
     expect(await screen.findByTestId('file-count')).toHaveTextContent(
       '1 invoice file here and 1 sub-folder: a run takes everything inside.',
     )
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-30')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('30/04/2026')
     await user.click(screen.getByRole('button', { name: 'Run Cafe Al Noor: April' }))
     await waitFor(() => expect(api.bodies['POST /runs/sharepoint']).toMatchObject({ item_id: 'f-april' }))
   })
@@ -257,7 +257,7 @@ describe('run screen: documents on SharePoint', () => {
     await browseTo(user, 'April', 'April 11')
     await user.click(within(screen.getByRole('navigation', { name: 'Folder path' })).getByRole('button', { name: 'April' }))
 
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-30')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('30/04/2026')
     expect(await screen.findByRole('button', { name: /^April 11/ })).toBeInTheDocument()
   })
 
@@ -272,7 +272,7 @@ describe('run screen: documents on SharePoint', () => {
 
     expect(await screen.findByRole('navigation', { name: 'Folder path' })).toHaveTextContent('All sites' + 'April')
     expect(api.calls).toContain('GET /sharepoint/link?url=https%3A%2F%2Fmissan.sharepoint.com%2F%3Af%3A%2Fs%2FROASTHUB%2FApril')
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-30')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('30/04/2026')
   })
 
   it('says why a pasted link could not be opened', async () => {
@@ -300,6 +300,27 @@ describe('run screen: documents on SharePoint', () => {
     expect(screen.getByTestId('date-hint')).toHaveTextContent('the period check is skipped')
     await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
     await waitFor(() => expect(api.bodies['POST /runs/sharepoint']).toMatchObject({ folder_date: null }))
+  })
+
+  it('takes a folder date day/month/year, and starts no run on a date that does not exist', async () => {
+    const api = backend()
+    const user = userEvent.setup()
+    renderApp('/run')
+
+    await pickClient(user)
+    await browseTo(user, 'April', 'April 11')
+    const date = screen.getByLabelText('Folder date')
+    await user.clear(date)
+    await user.type(date, '31/04/2026')
+    await user.tab()
+
+    expect(screen.getByText('Not a date: write day/month/year, for example 17/10/2026.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Run Cafe Al Noor/ })).toBeDisabled()
+
+    await user.clear(date)
+    await user.type(date, '30/04/2026')
+    await user.click(screen.getByRole('button', { name: /^Run Cafe Al Noor/ }))
+    await waitFor(() => expect(api.bodies['POST /runs/sharepoint']).toMatchObject({ folder_date: '2026-04-30' }))
   })
 
   it('says why the run did not start', async () => {
@@ -343,7 +364,7 @@ describe('run screen: documents on SharePoint', () => {
     renderApp('/run')
     await pickClient(user)
     expect(await screen.findByRole('navigation', { name: 'Folder path' })).toHaveTextContent('April 11')
-    expect(screen.getByLabelText('Folder date')).toHaveValue('2026-04-11')
+    expect(screen.getByLabelText('Folder date')).toHaveValue('11/04/2026')
   })
 
   it('asks an admin to connect SharePoint, coming back to the Run page', async () => {
