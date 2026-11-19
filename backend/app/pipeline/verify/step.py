@@ -50,7 +50,14 @@ from app.domain.enums import (
 )
 from app.domain.invoice import Invoice, Line
 from app.domain.state_machine import transition
-from app.models import AccountingConnection, Client, Document, Extraction, VendorMapping
+from app.models import (
+    AccountingConnection,
+    Client,
+    Contact,
+    Document,
+    Extraction,
+    VendorMapping,
+)
 from app.pipeline import coding
 from app.pipeline.dates import DateLimits, folder_for, photo_date, resolve_date
 from app.pipeline.folders import folder_year_known
@@ -65,6 +72,7 @@ from app.pipeline.verify.charges import ensure_charge_text, find_charges, load_c
 from app.pipeline.verify.duplicates import check_duplicates, claim_keys, vendor_key
 from app.pipeline.verify.grounding import check_grounding
 from app.pipeline.verify.issues import Issue, Severity
+from app.pipeline.verify.normalize import normalize_trn
 from app.pipeline.verify.paid_through import PaidThrough, choose_paid_through
 from app.pipeline.verify.rules import RuleContext, check_vat, run_rules
 from app.pipeline.verify.supplier_history import SupplierHistory, load_supplier_history
@@ -304,7 +312,8 @@ def assess(
     issues += filled
     park = False
     if invoice is not None:
-        issues += check_grounding(invoice, pages, verified=verified, own_trns=own_trns)
+        issues += check_grounding(invoice, pages, verified=verified, own_trns=own_trns,
+                                  known_trns=_known_trns(session, document.client_id))  # fmt: skip
 
         # Keys are per type (decision 18): a type changed in review (a bill now a receipt)
         # releases the old key before the new type is saved, then claims one for it. Else the
@@ -666,6 +675,28 @@ def _own_trns(session: Session, client_id: str) -> tuple[str, ...]:
     """The client's own TRNs (decision 92); none known = the TRN checks work as before."""
     trns = session.scalar(select(Client.own_trns).where(Client.client_id == client_id))
     return tuple(trns or ())
+
+
+_CHECKED = (DocumentStatus.APPROVED, DocumentStatus.POSTING, DocumentStatus.POSTED)
+
+
+def _known_trns(session: Session, client_id: str) -> frozenset[str]:
+    """Supplier TRNs already confirmed for this client (decision 104): on its approved
+    documents (an accountant checked them) and on its synced suppliers. A scan whose TRN line
+    our scanner skipped is then a warning, not an error."""
+    approved = session.scalars(
+        select(Document.invoice["vendor_trn"].astext).where(
+            Document.client_id == client_id, Document.status.in_(_CHECKED)
+        )
+    )
+    synced = session.scalars(
+        select(Contact.tax_number).where(
+            Contact.client_id == client_id, Contact.tax_number.is_not(None)
+        )
+    )
+    return frozenset(
+        trn for trn in (normalize_trn(value or "") for value in [*approved, *synced]) if trn
+    )
 
 
 def _provider(session: Session, document: Document, settings: Settings) -> AccountingProvider:

@@ -394,7 +394,17 @@ def test_a_number_on_a_scan_ocr_could_not_read_is_a_warning() -> None:
     assert "could not read this scan" in issue.message
 
 
-def test_a_number_not_on_a_well_read_scan_stays_an_error() -> None:
+def test_a_number_the_scanner_read_nothing_like_is_a_warning_never_not_printed() -> None:
+    """Decision 104: on a well-read scan our scanner may still skip a line."""
     [issue] = number_issues("CRS/18113", PRINTED)
 
+    assert issue.severity is Severity.WARNING
+    assert issue.message.startswith("Our scanner could not read the document number on this photo")
+    assert "not found on the document" not in issue.message
+
+
+def test_a_number_the_scanner_read_differently_says_so_and_stays_an_error() -> None:
+    [issue] = number_issues("INV-00291", PRINTED.replace("INV-00291", "INV-00292"))
+
     assert issue.severity is Severity.ERROR
+    assert "what it read there differs" in issue.message

@@ -229,10 +229,11 @@ CRS_HEADER = (0.16, 0.43, f"[RN : {SUPPLIER_UNCLEAR}")
 def vendor_trn_issues(
     lines: tuple[tuple[float, float, str], ...],
     source: Literal["text_layer", "ocr"] = "ocr",
+    known: tuple[str, ...] = (),
     **trns: str,
 ) -> list[Issue]:
     invoice = Invoice(document_type=DocumentType.BILL, **trns)
-    return [i for i in check_grounding(invoice, [page(*lines, source=source)])
+    return [i for i in check_grounding(invoice, [page(*lines, source=source)], known_trns=known)
             if i.field == "vendor_trn"]  # fmt: skip
 
 
@@ -256,6 +257,56 @@ def test_more_than_one_character_off_stays_an_error(printed: str) -> None:
     [issue] = vendor_trn_issues(((0.16, 0.43, f"TRM : {printed}"),), vendor_trn=SUPPLIER)
 
     assert issue.severity is Severity.ERROR
+
+
+# Al Ain Farms, live 2026-11-19: OCR skipped "VAT REGISTRATION NO:100296342700003" (small,
+# beside the excise number) but read the customer's TRN. The TRN is printed: never say it is
+# not on the document (decision 104). Made-up values in the same layout.
+SKIPPED_TRN_LINE = (
+    (0.05, 0.10, "TAX INVOICE"),
+    (0.07, 0.30, "EXCISE NO:1000523074"),
+    (0.09, 0.20, "INV0ICE NO.136726210815"),
+    (0.14, 0.05, "CUSTOMER ID"),
+    (0.14, 0.30, "367013"),
+    (0.16, 0.05, "NAME"),
+    (0.16, 0.30, "MADE-UP COFFEE SHOP LLC"),
+    (0.18, 0.05, "ADDRESS"),
+    (0.18, 0.30, "SCIENCE PARK, DUBAI"),
+    (0.20, 0.05, "TRN NUMBER"),
+    (0.20, 0.30, CUSTOMER),
+)
+
+
+def test_a_known_supplier_trn_whose_line_the_scanner_skipped_is_a_warning_saying_so() -> None:
+    [issue] = vendor_trn_issues(SKIPPED_TRN_LINE, known=(SUPPLIER,), vendor_trn=SUPPLIER)
+
+    assert issue.severity is Severity.WARNING
+    assert issue.message == (
+        "Our scanner could not read the supplier VAT registration no on this photo, so "
+        f"{SUPPLIER} was not checked automatically. It is the TRN on this supplier's approved "
+        "documents. Please confirm it matches the document."
+    )
+
+
+def test_an_unknown_supplier_trn_whose_line_was_skipped_must_be_checked() -> None:
+    """The model misreads a digit (bynur agro: two TRNs for one supplier): a TRN nobody has
+    confirmed blocks approval until the accountant ticks it, said honestly."""
+    [issue] = vendor_trn_issues(SKIPPED_TRN_LINE, known=(CUSTOMER,), vendor_trn=SUPPLIER)
+
+    assert issue.severity is Severity.ERROR
+    assert issue.message.startswith(
+        f"Our scanner did not read the supplier VAT registration no {SUPPLIER} on this photo"
+    )
+    assert "tick 'Checked against the original'" in issue.message
+    assert "not found on the document" not in issue.message
+
+
+def test_a_supplier_trn_missing_from_a_digital_pdf_stays_an_error() -> None:
+    [issue] = vendor_trn_issues(((0.05, 0.10, "TAX INVOICE"),), source="text_layer",
+                                vendor_trn=SUPPLIER)  # fmt: skip
+
+    assert issue.severity is Severity.ERROR
+    assert "was not found on the document" in issue.message
 
 
 def test_one_unclear_character_is_no_excuse_on_a_digital_pdf() -> None:

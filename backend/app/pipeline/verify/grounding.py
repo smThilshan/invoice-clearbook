@@ -15,7 +15,12 @@ number on a scan where OCR read no amount and no date at all. A supplier TRN wit
 unclear counts only outside a customer block (the buyer's TRN is not the supplier's).
 
 A value not found is an error (architecture §8), except the due date (often printed as terms
-like "Net 30"): a warning. Also a warning when OCR read no money amount at all (for an amount)
+like "Net 30"): a warning. Decision 104: on a scan or photo "not found" never says the value
+is not printed (our scanner may have skipped the line): the message says what happened. A
+document number or supplier TRN the scanner read nothing like (the line skipped) is then a
+warning; one it read differently ("INV-00292" for INV-00291) stays an error, as do a total or
+VAT amount (the money's only independent witness) and a date, confirmed by the accountant.
+Also a warning when OCR read no money amount at all (for an amount)
 or no date at all (for a date) on a scan (decision 60): handwritten values, which OCR does not
 read, or an unclear photo. Then there is nothing to compare with, and the accountant checks it
 on the image. When OCR did read amounts or dates, a value not among them stays an error. In
@@ -33,6 +38,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from difflib import SequenceMatcher
 
 from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
@@ -92,6 +98,7 @@ class _Witness:
     unread_money: bool  # a scan on which OCR read no money amount ("75.00")
     unread_dates: bool  # a scan on which OCR read no date
     ocr_words: tuple[str, ...]  # OCR pages' words as read, for values with one unclear character
+    scan: bool  # every page read by OCR: a value not found may only be unread (decision 104)
 
 
 def check_grounding(
@@ -100,8 +107,10 @@ def check_grounding(
     *,
     verified: Collection[str] = (),
     own_trns: Collection[str] = (),
+    known_trns: Collection[str] = (),
 ) -> list[Issue]:
-    """`own_trns`: the client's own TRNs (decision 92), to tell whose TRN is whose."""
+    """`own_trns`: the client's own TRNs (decision 92), to tell whose TRN is whose.
+    `known_trns`: supplier TRNs already confirmed for the client (decision 104)."""
     if invoice.document_type is DocumentType.NON_POSTABLE:
         return []  # parked, never posted (same as the validation rules)
     witness = _witness(pages)
@@ -110,7 +119,7 @@ def check_grounding(
         *_vat_printed(invoice, pages),
         *_dates(invoice, witness),
         *_number(invoice, witness),
-        *_trn(invoice, witness, find_printed_trns(pages, own_trns), pages),
+        *_trn(invoice, witness, find_printed_trns(pages, own_trns), pages, known_trns),
     ]
     return [issue for issue in issues if issue.field not in verified]
 
@@ -133,6 +142,7 @@ def _witness(pages: Sequence[PageText]) -> _Witness:
         ocr_words=tuple(
             word for page in pages if page.source == "ocr" for word in page.text.split()
         ),
+        scan=scan,
     )
 
 
@@ -146,7 +156,7 @@ def _amounts(invoice: Invoice, witness: _Witness) -> list[Issue]:
             if witness.unread_money:
                 issues.append(_unread(field, label, value, "money amount"))
             else:
-                issues.append(_not_found(field, label, value, Severity.ERROR))
+                issues.append(_not_found(field, label, value, Severity.ERROR, witness.scan))
     return issues
 
 
@@ -183,7 +193,7 @@ def _dates(invoice: Invoice, witness: _Witness) -> list[Issue]:
             if witness.unread_dates:
                 issues.append(_unread(field, label, value, "date"))
             else:
-                issues.append(_not_found(field, label, value, severity))
+                issues.append(_not_found(field, label, value, severity, witness.scan))
     return issues
 
 
@@ -220,11 +230,17 @@ def _number(invoice: Invoice, witness: _Witness) -> list[Issue]:
                 "read this scan (no amounts or dates). Check the number on the image.",
             )
         ]
-    return [_not_found("invoice_number", "document number", number, Severity.ERROR)]
+    skipped = _nothing_like(wanted, {_compact(word) for word in witness.ocr_words})
+    return [_not_found("invoice_number", "document number", number, Severity.ERROR,
+                       witness.scan, skipped=skipped)]  # fmt: skip
 
 
 def _trn(
-    invoice: Invoice, witness: _Witness, printed: PrintedTrns, pages: Sequence[PageText]
+    invoice: Invoice,
+    witness: _Witness,
+    printed: PrintedTrns,
+    pages: Sequence[PageText],
+    known: Collection[str] = (),
 ) -> list[Issue]:
     """Against the TRNs our own finder read next to their labels (decision 29) when it found
     them; otherwise the value must at least appear somewhere on the document: exactly, or on a
@@ -244,7 +260,14 @@ def _trn(
             if reading is not None and reading[1] is not None:
                 issues.append(_unclear("vendor_trn", label, invoice.vendor_trn, reading[1]))
             else:
-                issues.append(_not_found("vendor_trn", label, invoice.vendor_trn, Severity.ERROR))
+                # Only a TRN already confirmed for the client: the model does misread a digit
+                # (two TRNs for one supplier), and a skipped line hides it (decision 104).
+                skipped = _nothing_like(digits, witness.digit_runs) and digits in known
+                issues.append(
+                    _not_found("vendor_trn", label, invoice.vendor_trn, Severity.ERROR,
+                               witness.scan, skipped=skipped,
+                               known=" It is the TRN on this supplier's approved documents.")
+                )  # fmt: skip
     if printed.customer is not None:
         issues += _against_printed(invoice.recipient_trn, printed.customer, "recipient_trn",
                                    "customer TRN", Severity.WARNING)  # fmt: skip
@@ -314,13 +337,56 @@ def _compact(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", to_ascii_digits(text).upper())
 
 
-def _not_found(field: str, label: str, value: object, severity: Severity) -> Issue:
+def _not_found(
+    field: str,
+    label: str,
+    value: object,
+    severity: Severity,
+    scan: bool,
+    *,
+    skipped: bool = False,
+    known: str = "",
+) -> Issue:
+    """On a digital PDF its exact text is the document: the value is not on it. On a scan or
+    photo (decision 104) never say it is not printed: `skipped` (our scanner read nothing like
+    it) is a warning; otherwise what the scanner read differs, and `severity` stands."""
+    if not scan:
+        return Issue(
+            "not_on_document",
+            severity,
+            field,
+            f"The {label} {value} was not found on the document: check it against the original.",
+        )
+    if skipped:
+        return Issue(
+            "not_on_document",
+            Severity.WARNING,
+            field,
+            f"Our scanner could not read the {label} on this photo, so {value} was not checked "
+            f"automatically.{known} Please confirm it matches the document.",
+        )
     return Issue(
         "not_on_document",
         severity,
         field,
-        f"The {label} {value} was not found on the document: check it against the original.",
+        f"Our scanner did not read the {label} {value} on this photo: what it read there "
+        "differs, or it missed it. Confirm it matches the document, then tick 'Checked against "
+        "the original' and save.",
     )
+
+
+def _nothing_like(wanted: str, read: Collection[str]) -> bool:
+    """Our scanner read nothing resembling `wanted` (compacted): no reading shares half of it
+    in one piece (at least 4 characters), so the line was skipped, not read differently
+    (decision 104). Values under 6 characters are never excused: too many look alike."""
+    if len(wanted) < _NUMBER_MIN_UNCLEAR:
+        return False
+    least = max(4, len(wanted) // 2)
+    for text in read:
+        match = SequenceMatcher(None, text, wanted, autojunk=False).find_longest_match()
+        if match.size >= least:
+            return False
+    return True
 
 
 def _unread(field: str, label: str, value: object, kind: str) -> Issue:
