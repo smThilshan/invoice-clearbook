@@ -77,6 +77,10 @@ class FakeZoho:
         return [json.loads(r.content) for r in self.requests
                 if r.method == "POST" and r.url.path == f"/books/v3/{path}"]  # fmt: skip
 
+    def put(self, path: str) -> list[dict[str, Any]]:
+        return [json.loads(r.content) for r in self.requests
+                if r.method == "PUT" and r.url.path == f"/books/v3/{path}"]  # fmt: skip
+
     def _answer(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if (special := self.override(request)) is not None:
@@ -111,6 +115,9 @@ class FakeZoho:
             self.expenses.append(expense)
             return httpx.Response(201, json={"code": 0, "expense": expense})
         expense = next(e for e in self.expenses if path.split("/")[1] == e["expense_id"])
+        if request.method == "PUT":
+            expense.update(json.loads(request.content))  # Zoho replaces what is sent
+            return ok(expense=expense)
         if path.endswith("/receipt"):
             expense["expense_receipt_name"] = "receipt.pdf"
             return httpx.Response(201, json={"code": 0})
@@ -207,7 +214,10 @@ def test_the_same_expense_already_in_zoho_is_refused_before_anything_is_created(
 
 def test_after_a_crash_during_the_create_the_expense_is_found_not_made_twice() -> None:
     zoho = FakeZoho()
-    send(zoho)
+    zoho.override = lambda r: httpx.Response(503, json={}) if r.method == "PUT" else None
+    with pytest.raises(PostingUnavailable):
+        send(zoho)  # created; the ID it saved is then lost, as in a crash before saving it
+    zoho.override = lambda _: None
     progress = {"priced": True, "contact_id": "4610", "contact_created": True, "checked": True,
                 CREATE_SENT: True}  # fmt: skip
 
@@ -217,9 +227,12 @@ def test_after_a_crash_during_the_create_the_expense_is_found_not_made_twice() -
     assert posted.external_id == "4800"
 
 
-def test_a_retry_finds_its_own_expense_instead_of_calling_it_a_duplicate() -> None:
+def test_a_retry_before_the_key_is_cleared_finds_its_own_expense() -> None:
     zoho = FakeZoho()
-    send(zoho)
+    zoho.override = lambda r: httpx.Response(503, json={}) if r.method == "PUT" else None
+    with pytest.raises(PostingUnavailable):
+        send(zoho)  # created, then Zoho busy: its progress is forgotten (cannot happen, saved)
+    zoho.override = lambda _: None
 
     posted = send(zoho)  # a new attempt of the same outbox row, from the start
 
@@ -299,3 +312,104 @@ def test_a_deleted_expense_is_gone(answer: httpx.Response, gone: bool) -> None:
 
     assert zoho.books().is_deleted("4800", expense=True) is gone
     assert zoho.requests[-1].url.path == "/books/v3/expenses/4800"
+
+
+# --- our sending key is not left on the expense (decision 100) -------------------------------
+
+
+def test_the_key_is_used_to_create_then_only_the_printed_number_is_left() -> None:
+    zoho = FakeZoho()
+
+    send(zoho)
+
+    [created] = zoho.posted("expenses")
+    [cleared] = zoho.put("expenses/4800")
+    assert created["reference_number"] == f"72175 {OURS}"  # a crash during the create finds it
+    assert cleared == created | {"reference_number": "72175"}  # the same expense, sent whole
+    assert zoho.expenses[0]["reference_number"] == "72175"
+    methods = [r.method for r in zoho.requests if r.method in ("POST", "PUT")
+               and "/expenses" in r.url.path]  # fmt: skip
+    assert methods == ["POST", "PUT"]
+
+
+def test_without_a_printed_number_the_reference_is_left_empty() -> None:
+    zoho = FakeZoho()
+
+    send(zoho, replace(EXPENSE, reference=None))
+
+    assert zoho.expenses[0]["reference_number"] == ""
+
+
+def test_a_long_printed_number_is_cut_only_as_far_as_zoho_needs() -> None:
+    zoho = FakeZoho()
+    number = "R" * 60
+
+    send(zoho, replace(EXPENSE, reference=number))
+
+    assert zoho.posted("expenses")[0]["reference_number"] == f"{'R' * 16} {OURS}"
+    assert zoho.expenses[0]["reference_number"] == "R" * 49
+
+
+ANOTHER = "9" * 32  # another outbox row's key
+
+
+@pytest.mark.parametrize("there", ["72175", f"72175 {ANOTHER}"], ids=["cleared", "with a key"])
+def test_the_same_printed_number_already_in_zoho_is_refused(there: str) -> None:
+    zoho = FakeZoho([{"contact_id": "4610", "contact_name": "Made-up Department Store LLC"}])
+    zoho.expenses.append({"expense_id": "4799", "date": "2026-03-11", "vendor_id": "4610",
+                          "total": 1, "reference_number": there})  # fmt: skip
+
+    with pytest.raises(PostingRefused, match="already in Zoho Books"):
+        send(zoho)
+
+    assert not zoho.posted("expenses")
+
+
+def test_a_number_that_only_starts_the_same_is_not_a_duplicate() -> None:
+    zoho = FakeZoho([{"contact_id": "4610", "contact_name": "Made-up Department Store LLC"}])
+    zoho.expenses.append({"expense_id": "4799", "date": "2026-03-11", "vendor_id": "4610",
+                          "total": 1, "reference_number": "721750"})  # fmt: skip
+
+    send(zoho)
+
+    assert len(zoho.posted("expenses")) == 1
+
+
+def test_after_a_crash_during_the_create_the_expense_is_found_by_its_key_then_cleared() -> None:
+    zoho = FakeZoho()
+    zoho.expenses.append({"expense_id": "4790", "date": "2026-03-11", "total": 210.5,
+                          "expense_receipt_name": "",
+                          "reference_number": f"72175 {OURS}"})  # fmt: skip
+    progress = {"priced": True, "contact_id": "4610", "contact_created": True, "checked": True,
+                CREATE_SENT: True}  # fmt: skip
+
+    posted = send(zoho, progress=progress)
+
+    assert (posted.external_id, zoho.posted("expenses")) == ("4790", [])
+    assert zoho.expenses[0]["reference_number"] == "72175"
+
+
+def test_once_cleared_a_fresh_attempt_is_refused_as_a_duplicate_never_made_twice() -> None:
+    """Saved progress is never lost (each step is committed), but if it were, the same
+    supplier, date and total still stop a second expense."""
+    zoho = FakeZoho()
+    send(zoho)
+
+    with pytest.raises(PostingRefused, match="already in Zoho Books"):
+        send(zoho)
+
+    assert len(zoho.expenses) == 1
+
+
+def test_zoho_refusing_the_update_leaves_the_expense_sent() -> None:
+    zoho = FakeZoho()
+    zoho.override = lambda r: (
+        httpx.Response(400, json={"code": 4000, "message": "cannot edit"})
+        if r.method == "PUT" else None
+    )  # fmt: skip
+    progress: dict[str, Any] = {}
+
+    posted = send(zoho, progress=progress)
+
+    assert (posted.external_id, progress["cleared"]) == ("4800", False)
+    assert zoho.expenses[0]["reference_number"] == f"72175 {OURS}"

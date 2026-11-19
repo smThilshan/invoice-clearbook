@@ -68,6 +68,10 @@ class FakeZoho:
         return [json.loads(r.content) for r in self.requests
                 if r.method == "POST" and r.url.path == f"/books/v3/{path}"]  # fmt: skip
 
+    def put(self, path: str) -> list[dict[str, Any]]:
+        return [json.loads(r.content) for r in self.requests
+                if r.method == "PUT" and r.url.path == f"/books/v3/{path}"]  # fmt: skip
+
     def _answer(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if (special := self.override(request)) is not None:
@@ -104,6 +108,9 @@ class FakeZoho:
             self.bills.append(bill)
             return httpx.Response(201, json={"code": 0, "bill": bill})
         bill = next(b for b in self.bills if path.split("/")[1] == b["bill_id"])
+        if request.method == "PUT":
+            bill.update(json.loads(request.content))  # Zoho replaces what is sent
+            return ok(bill=bill)
         if path.endswith("/submit"):
             bill["status"] = "pending_approval"
             return ok()
@@ -326,3 +333,90 @@ def test_asking_a_busy_zoho_if_a_bill_is_gone_means_try_later() -> None:
 
     with pytest.raises(PostingUnavailable):
         zoho.books().is_deleted("4700")
+
+
+# --- our sending key is not left on the bill (decision 100) ----------------------------------
+
+
+def test_the_key_is_used_to_create_then_the_order_number_is_left_empty() -> None:
+    zoho = FakeZoho()
+
+    send(zoho)
+
+    [created] = zoho.posted("bills")
+    [cleared] = zoho.put("bills/4700")
+    assert created["reference_number"] == KEY  # a crash during the create finds it by this
+    assert cleared == created | {"reference_number": ""}  # the same bill, sent whole
+    assert (zoho.bills[0]["reference_number"], zoho.bills[0]["bill_number"]) == ("", "INV-1")
+    order = [(r.method, r.url.path.rsplit("/", 1)[-1]) for r in zoho.requests
+             if r.method in ("POST", "PUT") and "/bills" in r.url.path]  # fmt: skip
+    assert order[:3] == [("POST", "bills"), ("PUT", "4700"), ("POST", "submit")]  # still a draft
+
+
+def test_after_a_crash_during_the_create_the_bill_is_found_by_its_key_then_cleared() -> None:
+    zoho = FakeZoho()
+    zoho.bills.append({"bill_id": "4690", "reference_number": KEY, "status": "draft",
+                       "total": "47.04", "documents": []})  # fmt: skip
+    progress = {"contact_id": "46199", "contact_created": True, "checked": True, CREATE_SENT: True}
+
+    send(zoho, progress=progress)
+
+    assert zoho.posted("bills") == []  # never made twice
+    assert (zoho.bills[0]["reference_number"], progress["cleared"]) == ("", True)
+
+
+def test_a_crash_after_the_bill_is_saved_clears_it_without_looking_for_it() -> None:
+    zoho = FakeZoho()
+    zoho.bills.append({"bill_id": "4690", "reference_number": KEY, "status": "draft",
+                       "total": "47.04", "documents": []})  # fmt: skip
+    progress = {"contact_id": "46199", "contact_created": True, "checked": True,
+                CREATE_SENT: True, "bill_id": "4690"}  # fmt: skip
+
+    send(zoho, progress=progress)
+
+    assert zoho.posted("bills") == []
+    searched = [r for r in zoho.requests if "reference_number" in r.url.params]
+    assert searched == []
+    assert zoho.bills[0]["reference_number"] == ""
+
+
+def test_once_cleared_a_fresh_attempt_is_refused_as_a_duplicate_never_made_twice() -> None:
+    """Saved progress is never lost (each step is committed), but if it were, the bill's own
+    number from this supplier still stops a second one."""
+    zoho = FakeZoho()
+    send(zoho)
+
+    with pytest.raises(PostingRefused, match="INV-1 from this supplier is already in Zoho"):
+        send(zoho)
+
+    assert len(zoho.bills) == 1
+
+
+def test_zoho_refusing_the_update_leaves_the_bill_sent_and_says_so() -> None:
+    zoho = FakeZoho()
+    zoho.override = lambda r: (
+        httpx.Response(400, json={"code": 4000, "message": "cannot edit"})
+        if r.method == "PUT" else None
+    )  # fmt: skip
+
+    posted = send(zoho)
+
+    assert posted.external_id == "4700"
+    assert zoho.bills[0]["reference_number"] == KEY
+    assert zoho.comments[0].endswith(
+        "Its order number is our sending key: Zoho Books would not take it cleared."
+    )
+
+
+def test_a_busy_zoho_during_the_update_means_try_again_and_the_bill_is_not_made_twice() -> None:
+    zoho = FakeZoho()
+    progress: dict[str, Any] = {}
+    zoho.override = lambda r: httpx.Response(503, json={}) if r.method == "PUT" else None
+
+    with pytest.raises(PostingUnavailable):
+        send(zoho, progress=progress)
+    zoho.override = lambda _: None
+    send(zoho, progress=progress)
+
+    assert len(zoho.posted("bills")) == 1
+    assert zoho.bills[0]["reference_number"] == ""

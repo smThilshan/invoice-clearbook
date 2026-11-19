@@ -5,14 +5,17 @@
              bill number (a duplicate goes back to review)
     create_sent  saved right before the create request: the bill may exist from now on
     bill     created (Zoho makes it a draft), our outbox key as its reference number
+    cleared  the same bill sent again with no reference number (Order Number): our key is not
+             left for the accountants (decision 100)
     submitted  submitted for approval: Pending Approval, never final (as rule 13 for Xero);
              an organisation without bill approvals keeps it as a draft
     attached the original file on the bill; if Zoho will not take it, the bill stays
     noted    a comment: created by automation, who approved it
 
-Zoho has no idempotency key: our reference is searched before every create, so a crash after
-the create finds the bill instead of making a second one. A sub-step whose result is in
-`progress` is not done again.
+Zoho has no idempotency key: our key is the reference number from the create until the bill's ID
+is saved, and searched before every create, so a crash after the create finds the bill instead of
+making a second one. Once the ID is saved no retry searches by the key, so it is cleared. A
+sub-step whose result is in `progress` is not done again.
 """
 
 from collections.abc import Callable, MutableMapping
@@ -79,6 +82,9 @@ def post_bill(
                 found = str(zoho.post("bills", body)["bill"]["bill_id"])
             progress["bill_id"] = found
             save("bill")
+        if "cleared" not in progress:
+            progress["cleared"] = _clear_key(zoho, bill, progress)
+            save("cleared")
         if "submitted" not in progress:
             progress["submitted"] = _submit(zoho, progress["bill_id"])
             save("submitted")
@@ -137,7 +143,25 @@ def account_ids(zoho: ZohoClient) -> dict[str, str]:
     return accounts
 
 
-def _bill(bill: PostingBill, vendor_id: str, accounts: dict[str, str], key: str) -> dict[str, Any]:
+def _clear_key(zoho: ZohoClient, bill: PostingBill, progress: MutableMapping[str, Any]) -> bool:
+    """Send the bill again exactly as created, with no reference number instead of our key: the
+    PO number read is for the checks only, never sent. False = Zoho refused: the bill is fine,
+    the key stays on it."""
+    body = _bill(bill, progress["contact_id"], account_ids(zoho), "")
+    try:
+        zoho.put(f"bills/{progress['bill_id']}", body)
+    except ZohoApiError as exc:
+        if exc.temporary or exc.access:
+            raise
+        return False
+    return True
+
+
+def _bill(
+    bill: PostingBill, vendor_id: str, accounts: dict[str, str], reference: str
+) -> dict[str, Any]:
+    """The bill as sent. `reference`: our key at the create (found again by a retry: Zoho has no
+    idempotency key), then "" once the bill's ID is saved."""
     lines = []
     for number, line in enumerate(bill.lines, 1):
         account_id = accounts.get(line.account_code)
@@ -159,7 +183,7 @@ def _bill(bill: PostingBill, vendor_id: str, accounts: dict[str, str], key: str)
     body: dict[str, Any] = {
         "vendor_id": vendor_id,
         "bill_number": bill.invoice_number,
-        "reference_number": key,  # found again by a retry: Zoho has no idempotency key
+        "reference_number": reference,
         "is_inclusive_tax": bill.amount_type is AmountType.INCLUSIVE,
         "line_items": lines,
     }
@@ -210,6 +234,8 @@ def _note(bill: PostingBill, progress: MutableMapping[str, Any]) -> str:
         note += " Left as a draft: bill approvals are off in this organisation."
     if bill.attachment and not progress["attached"]:
         note += " The original file could not be attached: it is in Missan's folders."
+    if not progress.get("cleared", True):
+        note += " Its order number is our sending key: Zoho Books would not take it cleared."
     return note
 
 

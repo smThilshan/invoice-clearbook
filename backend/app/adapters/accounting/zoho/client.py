@@ -68,6 +68,11 @@ class ZohoClient:
         headers = {"Content-Type": "application/json"} if body is not None else {}
         return self._send("POST", resource, params={}, content=content, headers=headers)
 
+    def put(self, resource: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Update a record. Zoho replaces what is sent (lines left out are deleted): send all."""
+        headers = {"Content-Type": "application/json"}
+        return self._send("PUT", resource, params={}, content=to_json(body), headers=headers)
+
     def post_file(
         self, resource: str, name: str, content: bytes, mime_type: str, field: str = "attachment"
     ) -> dict[str, Any]:

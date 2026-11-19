@@ -8,7 +8,9 @@
              this vendor's expense of the same date and total (a duplicate goes back to review)
     create_sent  saved right before the create request: the expense may exist from now on
     expense  created, paid through the chosen account: final at once (Zoho has no approval or
-             draft for expenses), the note in its description
+             draft for expenses), the note in its description, our key ending its reference
+    cleared  the same expense sent again with only the printed number as its reference: our key
+             is not left for the accountants (decision 100)
     attached the original as its receipt; if Zoho will not take it, the expense stays
 
 What the trial on 2026-11-09 proved: an expense with VAT needs `tax_treatment` on the expense
@@ -16,7 +18,8 @@ What the trial on 2026-11-09 proved: an expense with VAT needs `tax_treatment` o
 "Undeposited Funds", so it is always sent; Zoho does not refuse a duplicate reference; the
 receipt goes as form field `receipt`; a deleted expense reads 404, code 1002; the reference
 takes fewer than 50 characters. Zoho has no idempotency key: our key (without its dashes, 32
-characters) ends the reference and is searched before every create.
+characters) ends the reference from the create until the expense's ID is saved, and is searched
+before every create; once the ID is saved no retry searches by it, so it is cleared.
 """
 
 from collections.abc import Callable, MutableMapping, Sequence
@@ -47,6 +50,7 @@ CENT = Decimal("0.01")
 HUNDRED = Decimal(100)
 MAX_TEXT = 100  # Zoho's limit on an expense's description and line description
 MAX_REFERENCE = 49  # "less than 50 characters", Zoho said in the test (its docs say 100)
+KEY_LENGTH = 32  # an outbox key without its dashes
 VAT_REGISTERED = "vat_registered"
 
 
@@ -84,6 +88,9 @@ def post_expense(
                 found = str(zoho.post("expenses", body)["expense"]["expense_id"])
             progress["expense_id"] = found
             save("expense")
+        if "cleared" not in progress:
+            progress["cleared"] = _clear_key(zoho, expense, progress, accounts)
+            save("cleared")
         if "attached" not in progress:
             progress["attached"] = _attach(zoho, expense, progress["expense_id"])
             save("attached")
@@ -177,8 +184,8 @@ def _refuse_if_already_in_zoho(
         total += expense.vat
     for found in zoho.get("expenses", **search).get("expenses", []):
         same_total = vendor_id is not None and Decimal(str(found.get("total"))) == total
-        same_number = bool(expense.reference) and (found.get("reference_number") or "").startswith(
-            f"{expense.reference} "
+        same_number = bool(expense.reference) and _same_number(
+            found.get("reference_number") or "", expense.reference or ""
         )
         if same_total or same_number:
             raise PostingRefused(
@@ -192,9 +199,38 @@ def _tax_rates(zoho: ZohoClient) -> dict[str, Decimal]:
     return {str(t["tax_id"]): Decimal(str(t.get("tax_percentage") or 0)) for t in taxes}
 
 
+def _same_number(reference: str, printed: str) -> bool:
+    """A reference in Zoho holds this printed number: alone (cleared, decision 100), or cut and
+    followed by a sending key (sent before, or not cleared)."""
+    number = printed.strip()
+    if not number:
+        return False
+    with_key = number[: MAX_REFERENCE - KEY_LENGTH - 1]
+    return reference == number[:MAX_REFERENCE] or reference.startswith(f"{with_key} ")
+
+
+def _clear_key(
+    zoho: ZohoClient,
+    expense: PostingExpense,
+    progress: MutableMapping[str, Any],
+    accounts: dict[str, str],
+) -> bool:
+    """Send the expense again exactly as created, with only the printed number as its reference.
+    False = Zoho refused: the expense is fine, the key stays in its reference."""
+    body = _expense(expense, progress["contact_id"], accounts, None)
+    try:
+        zoho.put(f"expenses/{progress['expense_id']}", body)
+    except ZohoApiError as exc:
+        if exc.temporary or exc.access:
+            raise
+        return False
+    return True
+
+
 def _expense(
-    expense: PostingExpense, vendor_id: str | None, accounts: dict[str, str], key: str
+    expense: PostingExpense, vendor_id: str | None, accounts: dict[str, str], key: str | None
 ) -> dict[str, Any]:
+    """The expense as sent: with our key ending the reference at the create, without it after."""
     paid_through = accounts.get(expense.paid_through)
     if paid_through is None:
         raise PostingRefused(
@@ -255,13 +291,17 @@ def _amount(line: PostingLine) -> Decimal:
     return (line.quantity * line.unit_amount).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def _reference(printed: str | None, key: str) -> str:
+def _reference(printed: str | None, key: str | None) -> str:
     """The printed number, then our key (found again by a retry), within Zoho's limit: a long
-    number is cut, never the key."""
+    number is cut, never the key. Without a key (cleared): the printed number within the limit;
+    "" when none was printed."""
+    number = (printed or "").strip()
+    if key is None:
+        return number[:MAX_REFERENCE]
     ours = _compact(key)
-    if not printed:
+    if not number:
         return ours
-    return f"{printed.strip()[: MAX_REFERENCE - len(ours) - 1]} {ours}"
+    return f"{number[: MAX_REFERENCE - len(ours) - 1]} {ours}"
 
 
 def _compact(key: str) -> str:
