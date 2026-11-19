@@ -73,6 +73,7 @@ from app.models import AccountingConnection, Client, Contact, Document, Outbox
 from app.models.outbox import ACTIVE_OUTBOX, OutboxStatus
 from app.pipeline.coding import ChartOfAccounts, load_chart
 from app.pipeline.total_line import TotalLine, total_line
+from app.pipeline.verify.rules import vat_not_carried
 from app.pipeline.verify.step import working_copy
 from app.services.accounting_connections import (
     AccountingConnectionError,
@@ -699,6 +700,9 @@ def _posting_lines(
 ) -> list[PostingLine]:
     """The lines as the accounting system takes them; what stops them is added to `problems`
     (then the lines are not to be sent)."""
+    problem = vat_not_carried(invoice)  # the checks block approval with it (decision 102)
+    if problem:
+        problems.append(problem)
     if invoice.amount_type is None:
         problems.append("VAT type (included / added / no VAT) is missing")
     if not invoice.lines:

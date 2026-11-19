@@ -507,6 +507,61 @@ def test_zero_vat_without_a_supplier_vat_registration_no_says_vat_cannot_be_recl
     assert "no input VAT can be reclaimed" in issue.message
 
 
+# --- VAT entered must go with the document (decision 102) ----------------------------------
+
+
+def test_no_vat_chosen_while_vat_is_entered_blocks_approval_and_offers_the_proven_type() -> None:
+    issue = only(invoice(amount_type=AmountType.NO_TAX), "no_vat_with_vat")
+
+    assert (issue.severity, issue.field, issue.suggestion) == (
+        Severity.ERROR, "amount_type", "EXCLUSIVE",
+    )  # fmt: skip
+    assert issue.message.startswith("No VAT is chosen, but VAT 50.00 is entered")
+    assert "vat_type_mismatch" not in codes(invoice(amount_type=AmountType.NO_TAX))  # said once
+
+
+def test_the_al_ain_receipt_sent_as_41_instead_of_43_05_is_now_stopped() -> None:
+    """Live, 2026-11-18: 5 x 8.20 = 41.00, VAT 2.05, total 43.05, No VAT chosen, the line on No
+    VAT: approved with a warning and sent as 41.00."""
+    receipt = invoice(
+        document_type=DocumentType.RECEIPT, amount_type=AmountType.NO_TAX,
+        subtotal=Decimal("41.00"), vat=Decimal("2.05"), total=Decimal("43.05"),
+        lines=[Line(description="FULL CREAM MILK 2L", qty=Decimal(5), unit_price=Decimal("8.20"),
+                    amount=Decimal("41.00"), tax_type=TaxType.NONE)],
+    )  # fmt: skip
+
+    issue = only(receipt, "no_vat_with_vat")
+
+    assert (issue.severity, issue.suggestion) == (Severity.ERROR, "EXCLUSIVE")
+
+
+def test_vat_entered_with_no_line_on_5_percent_blocks_approval() -> None:
+    inv = invoice(lines=coded(TaxType.NONE, TaxType.ZERO), subtotal=Decimal("100.00"),
+                  vat=Decimal("5.00"), total=Decimal("105.00"))  # fmt: skip
+
+    issue = only(inv, "vat_on_no_line")
+
+    assert (issue.severity, issue.field) == (Severity.ERROR, "lines")
+    assert "no line has the 5% VAT code" in issue.message
+
+
+def test_vat_on_one_5_percent_line_with_others_without_vat_is_fine() -> None:
+    inv = invoice(lines=coded(TaxType.STANDARD_5, TaxType.NONE), subtotal=Decimal("100.00"),
+                  vat=Decimal("2.50"), total=Decimal("102.50"))  # fmt: skip
+
+    assert not codes(inv) & {"vat_on_no_line", "no_vat_with_vat"}
+
+
+def test_lines_not_coded_yet_are_left_to_coding() -> None:
+    assert "vat_on_no_line" not in codes(invoice())  # the clean bill: lines without a code
+
+
+def test_no_vat_with_no_vat_entered_is_fine() -> None:
+    for vat in (None, Decimal("0")):
+        receipt = no_vat_receipt(coded(TaxType.NONE, TaxType.NONE)).model_copy(update={"vat": vat})
+        assert not codes(receipt) & {"vat_on_no_line", "no_vat_with_vat"}
+
+
 # --- line VAT codes (decision 53) ---------------------------------------------------------
 
 

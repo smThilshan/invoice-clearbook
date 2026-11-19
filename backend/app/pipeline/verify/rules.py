@@ -205,6 +205,8 @@ def check_vat_type(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
             )
         ]
     if from_amounts is not None and from_amounts is not invoice.amount_type:
+        if vat_not_carried(invoice):
+            return []  # check_vat_carried says it, as an error with the same suggestion
         return [
             Issue(
                 "vat_type_mismatch",
@@ -288,6 +290,56 @@ def check_vat(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
             )
         )
     return issues
+
+
+def vat_not_carried(invoice: Invoice) -> str | None:
+    """Why the VAT entered would not reach the accounting system, which works VAT out from the
+    VAT type and the lines' codes (decision 53); None = it would (decision 102). One function:
+    the checks block approval with it, sending refuses with it."""
+    vat = invoice.vat
+    if not vat:
+        return None  # no VAT: a 5% line is check_line_vat_codes'
+    if invoice.amount_type is AmountType.NO_TAX:
+        return (
+            f"No VAT is chosen, but VAT {vat:.2f} is entered: the accounting system would get "
+            "no VAT, so not the approved total"
+        )
+    coded = [line.tax_type for line in invoice.lines]
+    if coded and None not in coded and TaxType.STANDARD_5 not in coded:
+        return (
+            f"VAT {vat:.2f} is entered, but no line has the 5% VAT code: the accounting system "
+            "would get no VAT, so not the approved total"
+        )
+    return None
+
+
+def check_vat_carried(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
+    """Decision 102: VAT that is entered must go with the document. Choosing No VAT, or No VAT
+    on every line, while VAT is entered dropped it (a receipt of 43.05 with VAT 2.05 went to Zoho
+    as 41.00). Nothing is changed (rule 8): the VAT type the amounts prove is offered."""
+    problem = vat_not_carried(invoice)
+    if problem is None:
+        return []
+    if invoice.amount_type is AmountType.NO_TAX:
+        from_amounts = vat_type_from_amounts(invoice)
+        return [
+            Issue(
+                "no_vat_with_vat",
+                Severity.ERROR,
+                "amount_type",
+                f"{problem}. If the VAT is on the document, choose whether it is added on top or "
+                "included. If it cannot be reclaimed, remove the VAT and add it into the lines.",
+                from_amounts.value if from_amounts else None,
+            )
+        ]
+    return [
+        _error(
+            "vat_on_no_line",
+            "lines",
+            f"{problem}. Choose Standard 5% on the lines the VAT is charged on, or remove the VAT "
+            "if it cannot be reclaimed and add it into the lines.",
+        )
+    ]
 
 
 def check_line_vat_codes(invoice: Invoice, ctx: RuleContext) -> list[Issue]:
@@ -489,6 +541,7 @@ RULES: tuple[Rule, ...] = (
     check_line_math,
     check_vat_type,
     check_vat,
+    check_vat_carried,
     check_line_vat_codes,
     check_trn,
     check_dates,

@@ -123,9 +123,19 @@ def xero(session: Session, tmp_path: Path) -> FakePosting:
         TaxRate(client_id=CLIENT, provider=AccountingProvider.XERO, external_id="INPUT",
                 code="INPUT", name="Tax on Purchases", rate=Decimal("5"),
                 tax_type=TaxType.STANDARD_5),
+        TaxRate(client_id=CLIENT, provider=AccountingProvider.XERO, external_id="NONE",
+                code="NONE", name="No VAT", rate=Decimal("0"), tax_type=TaxType.NONE),
     ])  # fmt: skip
     session.flush()
     return FakePosting()
+
+
+NO_VAT_LINES = [
+    Line(description="Rice 5kg", qty=Decimal("2"), unit_price=Decimal("300.00"),
+         amount=Decimal("600.00"), account_code="429", tax_type=TaxType.NONE),
+    Line(description="Cooking oil", qty=Decimal("3"), unit_price=Decimal("133.33"),
+         amount=Decimal("400.00"), account_code="429", tax_type=TaxType.NONE),
+]  # fmt: skip
 
 
 def approved(
@@ -313,8 +323,9 @@ def test_a_receipt_is_posted_as_a_bill_due_on_its_own_date(
 ) -> None:
     """Decision 50: Awaiting Approval like every bill; the payment is recorded in Xero."""
     receipt, _ = approved(
-        session, document_type=DocumentType.RECEIPT, amount_type=AmountType.NO_TAX
-    )
+        session, document_type=DocumentType.RECEIPT, amount_type=AmountType.NO_TAX,
+        vat=Decimal(0), total=Decimal("1000.00"), lines=NO_VAT_LINES,
+    )  # fmt: skip
     session.execute(update(Document).where(Document.id == receipt.id)
                     .values(document_type=DocumentType.RECEIPT))  # fmt: skip
 
@@ -334,6 +345,26 @@ def test_a_receipt_with_a_printed_due_date_keeps_it(session: Session, xero: Fake
     send(session, xero)
 
     assert xero.bills[0].due_date == date(2026, 10, 20)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"amount_type": AmountType.NO_TAX}, {"lines": NO_VAT_LINES}],
+    ids=["no VAT chosen", "no line on 5%"],
+)
+def test_vat_that_would_not_go_with_it_is_never_sent(
+    session: Session, xero: FakePosting, changes: dict[str, Any]
+) -> None:
+    """Decision 102, the safety net: the checks block approval, and sending refuses too."""
+    doc, _ = approved(session, **changes)
+
+    outcome = send(session, xero)
+
+    assert outcome is not None and outcome.result == "refused"
+    assert xero.bills == []  # nothing reached the accounting system
+    session.refresh(doc)
+    assert doc.failure_reason is not None
+    assert "VAT 50.00 is entered" in doc.failure_reason
 
 
 def test_the_summary_says_where_each_approved_document_is(
