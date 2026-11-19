@@ -10,7 +10,7 @@ import type {
   Issue,
   TaxType,
 } from '@/api/client'
-import { withCents } from '@/lib/money'
+import { formatScaled, parseAmount, sumAmounts, withCents, withinTolerance } from '@/lib/money'
 
 export interface LineValues {
   description: string
@@ -192,4 +192,95 @@ export function linesForVatType(
   if (next === 'NO_TAX' && before !== 'NO_TAX') return swap('STANDARD_5', 'NONE')
   if (before === 'NO_TAX' && (next === 'EXCLUSIVE' || next === 'INCLUSIVE')) return swap('NONE', 'STANDARD_5')
   return taxTypes
+}
+
+export type VatLine = Pick<LineValues, 'qty' | 'unit_price' | 'amount' | 'tax_type'>
+
+export interface VatState {
+  vat: string
+  total: string
+  lines: VatLine[]
+}
+
+const CENT = parseAmount('0.01') ?? 1n
+
+const plain = (value: bigint) => formatScaled(value).replace(/,/g, '')
+
+/** `value` rounded to whole cents (positive values only). */
+function toCents(value: bigint): bigint {
+  return ((value + CENT / 2n) / CENT) * CENT
+}
+
+/**
+ * `extra` shared over the lines at `indexes` by their size, in whole cents, the rounding cent on
+ * the biggest line, so the lines move by exactly `extra`. A unit price follows its amount. Null
+ * (nothing changed) when a line is not a plain positive amount.
+ */
+function spread(lines: VatLine[], indexes: number[], extra: bigint): VatLine[] | null {
+  const amounts = indexes.map((index) => parseAmount(lines[index]?.amount ?? ''))
+  if (amounts.some((amount) => amount === null || amount <= 0n)) return null
+  const sizes = amounts as bigint[]
+  const base = sizes.reduce((a, b) => a + b, 0n)
+  const negative = extra < 0n
+  const whole = negative ? -extra : extra
+  const shares = sizes.map((size) => toCents((whole * size) / base))
+  const biggest = sizes.indexOf(sizes.reduce((a, b) => (b > a ? b : a)))
+  shares[biggest] = (shares[biggest] ?? 0n) + whole - shares.reduce((a, b) => a + b, 0n)
+  const next = lines.map((line) => ({ ...line }))
+  for (const [position, index] of indexes.entries()) {
+    const line = next[index]
+    const share = shares[position] ?? 0n
+    const amount = (sizes[position] ?? 0n) + (negative ? -share : share)
+    if (!line || amount <= 0n) return null
+    line.amount = plain(amount)
+    const qty = parseAmount(line.qty)
+    if (qty !== null && qty > 0n && line.unit_price !== '') {
+      const factor = parseAmount('1') ?? 1n
+      line.unit_price = plain((2n * amount * factor + qty) / (2n * qty))
+    }
+  }
+  return next
+}
+
+/**
+ * Decision 106: everything "Amounts are" carries, worked out on the click (the accountant's
+ * choice, so nothing changes by itself). The lines' VAT codes as in `linesForVatType`; then:
+ * - to No VAT: the VAT box empties. If the printed VAT is still missing from the lines (lines +
+ *   VAT = total), it is added into the lines that went to No VAT: unclaimed VAT is part of the
+ *   cost, and the total never changes.
+ * - back to VAT: the VAT box gets `vatBack` (the VAT before, or the one the AI read) when empty.
+ *   Added on top, with lines that add up to the total (VAT inside them): that VAT comes out of
+ *   the lines that went back to 5%.
+ * Amounts only move when the numbers prove it; otherwise they stay and the checks say so.
+ */
+export function followVatType(
+  state: VatState,
+  before: AmountType | '',
+  next: AmountType | '',
+  available: TaxType[],
+  vatBack: string,
+): VatState {
+  const taxes = linesForVatType(state.lines.map((line) => line.tax_type), before, next, available)
+  const switched = taxes.flatMap((tax, index) => (tax !== state.lines[index]?.tax_type ? [index] : []))
+  let lines = state.lines.map((line, index) => ({ ...line, tax_type: taxes[index] ?? line.tax_type }))
+  let vat = state.vat
+  const total = parseAmount(state.total)
+  const sum = sumAmounts(lines.map((line) => line.amount))
+
+  if (next === 'NO_TAX' && before !== 'NO_TAX') {
+    const printed = parseAmount(vat)
+    vat = ''
+    if (printed !== null && printed > 0n && total !== null && sum !== null && switched.length) {
+      const missing = total - sum
+      if (missing > 0n && withinTolerance(missing, printed)) lines = spread(lines, switched, missing) ?? lines
+    }
+  } else if (before === 'NO_TAX' && (next === 'EXCLUSIVE' || next === 'INCLUSIVE')) {
+    if (vat.trim() === '') vat = vatBack
+    const restored = parseAmount(vat)
+    if (next === 'EXCLUSIVE' && restored !== null && restored > 0n && total !== null && sum !== null
+      && switched.length && withinTolerance(sum, total)) {
+      lines = spread(lines, switched, total - restored - sum) ?? lines
+    }
+  }
+  return { vat, total: state.total, lines }
 }

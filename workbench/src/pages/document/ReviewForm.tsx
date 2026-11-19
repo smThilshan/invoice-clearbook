@@ -1,5 +1,5 @@
 import { Check, CircleAlert, Plus, Save, Trash2, TriangleAlert } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import {
   Controller,
   type Control,
@@ -49,7 +49,7 @@ import {
   type FormValues,
   type HeaderField,
   type IssueMap,
-  linesForVatType,
+  followVatType,
   mapIssues,
   TAX_TYPE_LABELS,
   toFormValues,
@@ -181,17 +181,31 @@ export function ReviewForm({
     onTarget?.(active ? { label: active.label, kind: active.kind, value: activeValue } : null)
   }, [active, activeValue, onTarget])
 
-  /** "Amounts are" chosen: the lines' VAT and the VAT box follow it on screen (decision 105). */
+  // The VAT in the box before "No VAT" emptied it, to put back on the way out (decision 106).
+  const vatBefore = useRef('')
+
+  /** "Amounts are" chosen: the lines and the VAT box follow it, then Save & re-check runs, so
+   * the checks shown are the new ones (decisions 105, 106). */
   function chooseVatType(next: AmountType | '') {
     const before = getValues('amount_type')
-    setValue('amount_type', next, { shouldDirty: true })
+    const values = getValues()
+    if (next === 'NO_TAX' && before !== 'NO_TAX') vatBefore.current = values.vat
+    const aiRead = document.cleared_vat === null ? corrected.get('vat')?.model_value : undefined
+    const vatBack = vatBefore.current || (typeof aiRead === 'string' || typeof aiRead === 'number' ? String(aiRead) : '')
     const available = (options?.tax_types ?? []).map((t) => t.tax_type)
-    const lines = getValues('lines')
-    linesForVatType(lines.map((line) => line.tax_type), before, next, available).forEach((tax, index) => {
-      if (tax !== lines[index]?.tax_type) setValue(`lines.${index}.tax_type`, tax, { shouldDirty: true })
+    const after = followVatType(values, before, next, available, vatBack)
+    setValue('amount_type', next, { shouldDirty: true })
+    if (after.vat !== values.vat) setValue('vat', after.vat, { shouldDirty: true })
+    after.lines.forEach((line, index) => {
+      const was = values.lines[index]
+      for (const key of ['tax_type', 'amount', 'unit_price'] as const) {
+        if (was && line[key] !== was[key]) setValue(`lines.${index}.${key}`, line[key], { shouldDirty: true })
+      }
     })
-    if (next === 'NO_TAX' && before !== 'NO_TAX') setValue('vat', '', { shouldDirty: true })
+    if (editable && !saving && next !== before) void handleSubmit(submit)()
   }
+
+  const submit = (values: FormValues) => onSave({ values, confirmed: [...confirmed] })
 
   function toggleConfirmed(field: string, on: boolean) {
     const next = new Set(confirmed)
@@ -250,7 +264,7 @@ export function ReviewForm({
     <form
       aria-label="Review"
       className="space-y-6 rounded-xl border bg-background p-4 shadow-sm sm:p-5"
-      onSubmit={handleSubmit((values) => onSave({ values, confirmed: [...confirmed] }))}
+      onSubmit={handleSubmit(submit)}
     >
       {document.invoice === null && (
         <p className="rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm text-warning">

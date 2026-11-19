@@ -621,15 +621,45 @@ describe('review screen', () => {
     expect(screen.getByRole('combobox', { name: 'VAT for line 2' })).toHaveTextContent('Zero rated')  // its own meaning
     expect(screen.getByLabelText('VAT')).toHaveValue('')
     expect(screen.getByLabelText('Subtotal')).toHaveValue('1050.00')  // = the total, unchanged
-    await user.click(screen.getByRole('button', { name: /Save/ }))
+    // Decision 106: the printed VAT goes into the line that left 5%, and the click saves.
+    expect(within(screen.getByRole('listitem', { name: 'Line 1' })).getByLabelText('Amount')).toHaveValue('650.00')
+    expect(within(screen.getByRole('listitem', { name: 'Line 1' })).getByLabelText('Unit price')).toHaveValue('65.00')
     await waitFor(() => expect(sent(api).invoice).toMatchObject({ amount_type: 'NO_TAX', vat: null, total: '1050.00' }))
-    expect((sent(api).invoice.lines as { tax_type: string }[]).map((l) => l.tax_type)).toEqual(['NONE', 'ZERO'])
+    const lines = sent(api).invoice.lines as { tax_type: string; amount: string }[]
+    expect(lines.map((l) => [l.tax_type, l.amount])).toEqual([['NONE', '650.00'], ['ZERO', '400.00']])
 
     await user.click(screen.getByRole('combobox', { name: 'Amounts are' }))
     await user.click(await screen.findByRole('option', { name: 'VAT added on top' }))
 
     expect(screen.getByRole('combobox', { name: 'VAT for line 1' })).toHaveTextContent('Standard 5%')
     expect(screen.getByRole('combobox', { name: 'VAT for line 2' })).toHaveTextContent('Zero rated')
+    expect(screen.getByLabelText('VAT')).toHaveValue('50.00')  // back, without typing
+    expect(within(screen.getByRole('listitem', { name: 'Line 1' })).getByLabelText('Amount')).toHaveValue('600.00')
+    await waitFor(() => expect(sent(api).invoice).toMatchObject({ amount_type: 'EXCLUSIVE', vat: '50.00' }))
+  })
+
+  it('back from No VAT puts the VAT the AI read in the empty VAT box (decision 106)', async () => {
+    const withNone: CodingOptions = { ...OPTIONS, tax_types: [...OPTIONS.tax_types, { tax_type: 'NONE', code: 'NO_VAT' }] }
+    const doc = detail({
+      invoice: { ...detail().invoice!, amount_type: 'NO_TAX', vat: null, lines: [
+        { description: 'Milk', qty: '10', unit_price: '60.00', amount: '600.00', account_code: '5000', tax_type: 'NONE' },
+        { description: 'Cheese', qty: null, unit_price: null, amount: '400.00', account_code: '5000', tax_type: 'NONE' },
+      ] },
+      corrections: [{ field: 'vat', model_value: '50.00', final_value: null }],
+    })  // prettier-ignore
+    const api = mockApi({
+      '/health/ready': READY, '/clients/cafe/coding-options': withNone,
+      [`/documents/${ID}`]: doc, [`PATCH /documents/${ID}`]: doc,
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    await open(api)
+
+    await user.click(screen.getByRole('combobox', { name: 'Amounts are' }))
+    await user.click(await screen.findByRole('option', { name: 'VAT added on top' }))
+
+    expect(screen.getByLabelText('VAT')).toHaveValue('50.00')
+    expect(within(screen.getByRole('listitem', { name: 'Line 1' })).getByLabelText('Amount')).toHaveValue('600.00')  // lines 1000 + 50 = 1050: no change
+    await waitFor(() => expect(sent(api).invoice).toMatchObject({ amount_type: 'EXCLUSIVE', vat: '50.00' }))
   })
 
   it('leaves the lines alone when the company has no No VAT code', async () => {
