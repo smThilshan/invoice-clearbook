@@ -49,6 +49,7 @@ import {
   type FormValues,
   type HeaderField,
   type IssueMap,
+  linesForVatType,
   mapIssues,
   TAX_TYPE_LABELS,
   toFormValues,
@@ -152,7 +153,7 @@ export function ReviewForm({
   expensesTo?: string  // the system expenses are sent to as expenses (decision 89); else unset
   actions?: ReactNode
 }) {
-  const { register, control, handleSubmit, setValue, formState } = useForm<FormValues>({
+  const { register, control, handleSubmit, setValue, getValues, formState } = useForm<FormValues>({
     defaultValues: toFormValues(document.invoice),
   })
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
@@ -179,6 +180,18 @@ export function ReviewForm({
   useEffect(() => {
     onTarget?.(active ? { label: active.label, kind: active.kind, value: activeValue } : null)
   }, [active, activeValue, onTarget])
+
+  /** "Amounts are" chosen: the lines' VAT and the VAT box follow it on screen (decision 105). */
+  function chooseVatType(next: AmountType | '') {
+    const before = getValues('amount_type')
+    setValue('amount_type', next, { shouldDirty: true })
+    const available = (options?.tax_types ?? []).map((t) => t.tax_type)
+    const lines = getValues('lines')
+    linesForVatType(lines.map((line) => line.tax_type), before, next, available).forEach((tax, index) => {
+      if (tax !== lines[index]?.tax_type) setValue(`lines.${index}.tax_type`, tax, { shouldDirty: true })
+    })
+    if (next === 'NO_TAX' && before !== 'NO_TAX') setValue('vat', '', { shouldDirty: true })
+  }
 
   function toggleConfirmed(field: string, on: boolean) {
     const next = new Set(confirmed)
@@ -283,7 +296,7 @@ export function ReviewForm({
             } : undefined}
             suggest={editable ? {
               label: (value) => AMOUNT_TYPE_LABELS[value as AmountType] ?? value,
-              apply: (value) => setValue('amount_type', value as AmountType, { shouldDirty: true }),
+              apply: (value) => chooseVatType(value as AmountType),
             } : undefined}
           >
             <Controller
@@ -291,7 +304,7 @@ export function ReviewForm({
               name="amount_type"
               render={({ field }) => (
                 <Select value={field.value || NONE} disabled={!editable}
-                  onValueChange={(v) => field.onChange(v === NONE ? '' : v)}>
+                  onValueChange={(v) => chooseVatType(v === NONE ? '' : (v as AmountType))}>
                   <SelectTrigger aria-label="Amounts are" className="w-full">
                     <SelectValue />
                   </SelectTrigger>

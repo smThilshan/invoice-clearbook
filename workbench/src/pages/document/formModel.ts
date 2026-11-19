@@ -176,3 +176,20 @@ export function worst(issues: Issue[] | undefined): 'ERROR' | 'WARNING' | null {
   if (!issues?.length) return null
   return issues.some((issue) => issue.severity === 'ERROR') ? 'ERROR' : 'WARNING'
 }
+
+/** Decision 105: the lines' VAT codes once "Amounts are" changes from `before` to `next`. No VAT:
+ * lines on Standard 5% go to No VAT. Back from No VAT to VAT added on top or included: lines on
+ * No VAT go to Standard 5%. Zero rated, exempt and reverse charge lines are never touched, nor
+ * any line when the company has no such code (`available`, from its synced VAT rates). */
+export function linesForVatType(
+  taxTypes: (TaxType | '')[],
+  before: AmountType | '',
+  next: AmountType | '',
+  available: TaxType[],
+): (TaxType | '')[] {
+  const swap = (from: TaxType, to: TaxType) =>
+    available.includes(to) ? taxTypes.map((tax) => (tax === from ? to : tax)) : taxTypes
+  if (next === 'NO_TAX' && before !== 'NO_TAX') return swap('STANDARD_5', 'NONE')
+  if (before === 'NO_TAX' && (next === 'EXCLUSIVE' || next === 'INCLUSIVE')) return swap('NONE', 'STANDARD_5')
+  return taxTypes
+}

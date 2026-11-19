@@ -601,6 +601,47 @@ describe('review screen', () => {
     expect(await screen.findByText('Sent back after it could not be sent: made-up error')).toBeInTheDocument()
   })
 
+  it('No VAT puts the 5% lines on No VAT and empties the VAT; back again restores them (decision 105)', async () => {
+    const withNone: CodingOptions = { ...OPTIONS, tax_types: [...OPTIONS.tax_types, { tax_type: 'NONE', code: 'NO_VAT' }] }
+    const doc = detail({ invoice: { ...detail().invoice!, lines: [
+      { description: 'Milk', qty: '10', unit_price: '60.00', amount: '600.00', account_code: '5000', tax_type: 'STANDARD_5' },
+      { description: 'Bread', qty: null, unit_price: null, amount: '400.00', account_code: '5000', tax_type: 'ZERO' },
+    ] } })  // prettier-ignore
+    const api = mockApi({
+      '/health/ready': READY, '/clients/cafe/coding-options': withNone,
+      [`/documents/${ID}`]: doc, [`PATCH /documents/${ID}`]: doc,
+    })  // prettier-ignore
+    const user = userEvent.setup()
+    await open(api)
+
+    await user.click(screen.getByRole('combobox', { name: 'Amounts are' }))
+    await user.click(await screen.findByRole('option', { name: 'No VAT' }))
+
+    expect(screen.getByRole('combobox', { name: 'VAT for line 1' })).toHaveTextContent('No VAT')
+    expect(screen.getByRole('combobox', { name: 'VAT for line 2' })).toHaveTextContent('Zero rated')  // its own meaning
+    expect(screen.getByLabelText('VAT')).toHaveValue('')
+    expect(screen.getByLabelText('Subtotal')).toHaveValue('1050.00')  // = the total, unchanged
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+    await waitFor(() => expect(sent(api).invoice).toMatchObject({ amount_type: 'NO_TAX', vat: null, total: '1050.00' }))
+    expect((sent(api).invoice.lines as { tax_type: string }[]).map((l) => l.tax_type)).toEqual(['NONE', 'ZERO'])
+
+    await user.click(screen.getByRole('combobox', { name: 'Amounts are' }))
+    await user.click(await screen.findByRole('option', { name: 'VAT added on top' }))
+
+    expect(screen.getByRole('combobox', { name: 'VAT for line 1' })).toHaveTextContent('Standard 5%')
+    expect(screen.getByRole('combobox', { name: 'VAT for line 2' })).toHaveTextContent('Zero rated')
+  })
+
+  it('leaves the lines alone when the company has no No VAT code', async () => {
+    const user = userEvent.setup()
+    await open(mockApi({ '/health/ready': READY, '/clients/cafe/coding-options': OPTIONS, [`/documents/${ID}`]: detail() }))
+
+    await user.click(screen.getByRole('combobox', { name: 'Amounts are' }))
+    await user.click(await screen.findByRole('option', { name: 'No VAT' }))
+
+    expect(screen.getByRole('combobox', { name: 'VAT for line 1' })).toHaveTextContent('Standard 5%')
+  })
+
   it('says how the lines will be sent to the connected accounting system', async () => {
     await open(mockApi({
       '/health/ready': READY, '/clients/cafe/coding-options': OPTIONS, [`/documents/${ID}`]: detail(),
