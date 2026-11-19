@@ -12,15 +12,14 @@ import {
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
-import type { Client, ExpensesSentAs, LineGrouping, PostingSummary, SendMode, SyncResult } from '@/api/client'
+import type { Client, PostingSummary, SendMode, SyncResult } from '@/api/client'
 import {
   useAccounting,
   useClients,
   useCodingOptions,
   useMe,
   useDisconnectAccounting,
-  useSetExpenseSending,
-  useSetLineGrouping,
+  useSetPaidThrough,
   useSetSendMode,
   useSetOwnTrns,
   useSyncAccounting,
@@ -42,7 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { EXPENSES_SENT_AS_LABELS, formatDateTime, LINE_GROUPING_LABELS, SEND_MODE_LABELS } from '@/lib/labels'
+import { formatDateTime, SEND_MODE_LABELS } from '@/lib/labels'
 import { TAX_TYPE_LABELS } from '@/pages/document/formModel'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { RemoveCompanyDialog, RemovedCompanies } from '@/pages/clients/RemoveCompany'
@@ -173,7 +172,6 @@ function ClientRow({ client }: { client: Client }) {
                   ? `${system}: ${status.data.organisation}${status.data.connected_at ? ` · since ${formatDateTime(status.data.connected_at)}` : ''}${synced ? ` · coding uses ${system} accounts` : ' · not synced yet'}`
                   : 'No accounting system connected (CSV master data, export file)'}
           </p>
-          <LinesSent client={client} system={system} admin={admin} />
           <WhenSent client={client} system={system} admin={admin} />
           <OwnTrns client={client} admin={admin} />
           {connected && (
@@ -284,41 +282,6 @@ function ClientRow({ client }: { client: Client }) {
   )
 }
 
-/** Decision 73: how approved lines are sent. Documents approved from now on are sent this way;
- * ones already approved keep the way they were approved with. */
-function LinesSent({ client, system, admin }: { client: Client; system: string; admin: boolean }) {
-  const change = useSetLineGrouping()
-  const label = `Lines sent to ${system}`
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-muted-foreground">{label}:</span>
-      {admin ? (
-        <Select
-          value={client.line_grouping}
-          disabled={change.isPending}
-          onValueChange={(value) =>
-            change.mutate({ clientId: client.client_id, lineGrouping: value as LineGrouping })
-          }
-        >
-          <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={label}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(LINE_GROUPING_LABELS).map(([value, text]) => (
-              <SelectItem key={value} value={value}>
-                {text}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <span>{LINE_GROUPING_LABELS[client.line_grouping]}</span>
-      )}
-      {change.isError && <ErrorAlert title="Not changed" error={change.error} />}
-    </div>
-  )
-}
-
 /** Decision 98: approved documents go straight away, or wait for someone to press Send in the
  * review queue. Documents approved from now on; ones already approved keep theirs. */
 function WhenSent({ client, system, admin }: { client: Client; system: string; admin: boolean }) {
@@ -412,8 +375,8 @@ function OwnTrns({ client, admin }: { client: Client; admin: boolean }) {
 
 const EACH_TIME = 'each-time' // no default: the account is chosen on each expense
 
-/** Decision 89: expenses (paid when bought) go as expenses, paid through an account, or as
- * bills as before. `blocked`: why they cannot go as expenses now (the system cannot take them,
+/** Decisions 89 and 101: expenses (paid when bought) always go as expenses, paid through an
+ * account; not a choice. `blocked`: why they go as bills for now (the system cannot take them,
  * or its connection must be made again). */
 function ExpensesSent({
   client,
@@ -428,41 +391,20 @@ function ExpensesSent({
   blocked: string | null
   reconnectUrl: string | null // signing in again would allow expenses (an admin's)
 }) {
-  const change = useSetExpenseSending()
+  const change = useSetPaidThrough()
   const options = useCodingOptions(client.client_id)
   const accounts = options.data?.paid_through ?? []
   const groups = [...new Set(accounts.map((a) => a.group))]
-  const label = `Expenses sent to ${system}`
   const payLabel = 'Usually paid through'
-  const asExpenses = client.expenses_sent_as === 'EXPENSE'
+  const asExpenses = !blocked
   const paidThrough = accounts.find((a) => a.code === client.paid_through)?.label ?? 'Chosen on each expense'
   return (
     <div className="flex flex-col gap-1 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-muted-foreground">{label}:</span>
-        {admin ? (
-          <Select
-            value={client.expenses_sent_as}
-            disabled={change.isPending || (Boolean(blocked) && !asExpenses)}
-            onValueChange={(value) =>
-              change.mutate({ clientId: client.client_id, settings: { expenses_sent_as: value as ExpensesSentAs } })
-            }
-          >
-            <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={label}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(EXPENSES_SENT_AS_LABELS).map(([value, text]) => (
-                <SelectItem key={value} value={value}>
-                  {text(system)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <span>{EXPENSES_SENT_AS_LABELS[client.expenses_sent_as](system)}</span>
-        )}
-      </div>
+      {asExpenses && (
+        <p className="text-muted-foreground">
+          Expenses go to {system} as expenses: final there once sent. Bills go as bills.
+        </p>
+      )}
       {blocked && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-muted-foreground">Expenses go as bills: {blocked}.</p>
@@ -485,10 +427,7 @@ function ExpensesSent({
               value={client.paid_through ?? EACH_TIME}
               disabled={change.isPending}
               onValueChange={(value) =>
-                change.mutate({
-                  clientId: client.client_id,
-                  settings: { paid_through: value === EACH_TIME ? null : value },
-                })
+                change.mutate({ clientId: client.client_id, paidThrough: value === EACH_TIME ? null : value })
               }
             >
               <SelectTrigger size="sm" className="w-auto max-w-full" aria-label={payLabel}>

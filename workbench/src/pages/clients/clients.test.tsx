@@ -65,22 +65,13 @@ function backend() {
 }
 
 describe('clients', () => {
-  it('lets an admin choose how lines are sent', async () => {
-    const api = mockApi({
-      '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
-      'PATCH /clients/cafe-al-noor': { ...CLIENTS[0], line_grouping: 'BY_ITEM' },
-    })  // prettier-ignore
-    const user = userEvent.setup()
+  it('offers no choice of how lines are sent: always item by item (decision 99)', async () => {
+    mockApi({ '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED })
     renderApp('/clients')
 
-    const setting = await screen.findByRole('combobox', { name: 'Lines sent to Xero' })
-    expect(setting).toHaveTextContent('By account: all products with the same account and VAT in one line')
-    await user.click(setting)
-    await user.click(await screen.findByRole('option', { name: /^By item/ }))
-
-    await waitFor(() =>
-      expect(api.bodies['PATCH /clients/cafe-al-noor']).toEqual({ line_grouping: 'BY_ITEM' }),
-    )
+    expect(await screen.findByRole('combobox', { name: 'Sent to Xero' })).toBeInTheDocument()
+    expect(screen.queryByText(/Lines sent to/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Lines sent to/ })).not.toBeInTheDocument()
   })
 
   it('lets an admin enter the organization\'s own TRNs', async () => {
@@ -121,7 +112,7 @@ describe('clients', () => {
     expect(within(row).getByLabelText(/Own TRNs/)).toHaveValue('1002356143')
   })
 
-  it('lets an admin send expenses as expenses, usually paid through a Zoho account', async () => {
+  it('sends expenses as expenses with no choice, usually paid through a Zoho account (decision 101)', async () => {
     const zoho: AccountingStatus = {
       ...CONNECTED, provider: 'ZOHO', provider_name: 'Zoho Books', expenses_blocked: null,
     }  // prettier-ignore
@@ -140,8 +131,8 @@ describe('clients', () => {
     const user = userEvent.setup()
     renderApp('/clients')
 
-    const sent = await screen.findByRole('combobox', { name: 'Expenses sent to Zoho Books' })
-    expect(sent).toHaveTextContent('As expenses: paid through an account, final in Zoho Books once approved here')
+    expect(await screen.findByText('Expenses go to Zoho Books as expenses: final there once sent. Bills go as bills.')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Expenses sent to/ })).not.toBeInTheDocument()
     const paid = screen.getByRole('combobox', { name: 'Usually paid through' })
     expect(paid).toHaveTextContent('Chosen on each expense')
     expect(await screen.findByText('No usual account: Paid through is chosen on each expense before it is approved.')).toBeInTheDocument()
@@ -212,14 +203,14 @@ describe('clients', () => {
     })  // prettier-ignore
     renderApp('/clients')
 
-    const sent = await screen.findByRole('combobox', { name: 'Expenses sent to Xero' })
-    expect(sent).toBeDisabled()
-    expect(screen.getByText('Expenses go as bills: Xero cannot take expenses yet: they are sent as bills.')).toBeInTheDocument()
+    expect(await screen.findByText('Expenses go as bills: Xero cannot take expenses yet: they are sent as bills.')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Expenses sent to/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/as expenses: final there/)).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: 'Usually paid through' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Connect Xero again' })).not.toBeInTheDocument()  // would not help
   })
 
-  it('shows an accountant how lines are sent, without letting them change it', async () => {
+  it('shows an accountant the company settings, without letting them change them', async () => {
     mockApi({
       '/health/ready': READY, '/clients': CLIENTS.slice(0, 1), '/clients/cafe-al-noor/accounting': CONNECTED,
       '/auth/me': { email: 'a@missan.test', name: 'Made-up Accountant', role: 'ACCOUNTANT', must_change_password: false },
@@ -227,7 +218,7 @@ describe('clients', () => {
     renderApp('/clients')
 
     const row = await screen.findByRole('listitem', { name: 'Cafe Al Noor' })
-    expect(await within(row).findByText('By account: all products with the same account and VAT in one line')).toBeInTheDocument()
+    expect(await within(row).findByText('Right after approval')).toBeInTheDocument()
     expect(within(row).queryByRole('combobox')).not.toBeInTheDocument()
     expect(within(row).getByText('none entered')).toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()

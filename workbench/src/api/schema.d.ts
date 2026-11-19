@@ -1287,11 +1287,10 @@ export interface components {
         };
         /**
          * ClientSettings
-         * @description Only the settings sent are changed.
+         * @description Only the settings sent are changed. Anything else is refused, never ignored: lines always go
+         *     by item (decision 99) and expenses always as expenses (decision 101), no longer settings.
          */
         ClientSettings: {
-            expenses_sent_as?: components["schemas"]["ExpensesSentAs"] | null;
-            line_grouping?: components["schemas"]["LineGrouping"] | null;
             /** Own Trns */
             own_trns?: string[] | null;
             /** Paid Through */

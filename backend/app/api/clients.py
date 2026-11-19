@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.adapters.accounting.base import MasterDataError
@@ -44,8 +44,8 @@ from app.services.clients import (
     new_client_id,
     remove_client,
     restore_client,
-    set_expense_sending,
     set_own_trns,
+    set_paid_through,
 )
 from app.services.company_deletion import delete_company, preview, removed_client
 from app.services.master_data import Counts, import_master_data
@@ -61,7 +61,7 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 class ClientOut(BaseModel):
     client_id: str
     name: str
-    line_grouping: LineGrouping  # how approved lines are sent (decision 73)
+    line_grouping: LineGrouping  # always BY_ITEM now, no longer a setting (decisions 73, 75, 99)
     expenses_sent_as: ExpensesSentAs  # decision 89
     paid_through: str | None  # the account expenses are usually paid through; None = each time
     own_trns: list[str]  # its own TRNs, 15 digits each (decision 92)
@@ -91,10 +91,11 @@ def get_company_storage(settings: Annotated[Settings, Depends(get_settings)]) ->
 
 
 class ClientSettings(BaseModel):
-    """Only the settings sent are changed."""
+    """Only the settings sent are changed. Anything else is refused, never ignored: lines always go
+    by item (decision 99) and expenses always as expenses (decision 101), no longer settings."""
 
-    line_grouping: LineGrouping | None = None
-    expenses_sent_as: ExpensesSentAs | None = None
+    model_config = ConfigDict(extra="forbid")
+
     paid_through: str | None = None  # send null to choose on each expense
     own_trns: list[str] | None = None  # the whole list; [] = none known (decision 92)
     send_mode: SendMode | None = None  # decision 98: documents approved from now on
@@ -242,20 +243,13 @@ def update_client(
     client_id: str,
     body: ClientSettings,
     session: Annotated[Session, Depends(get_session)],
-    registry: RegistryDep,
 ) -> ClientOut:
     """Documents approved from now on are sent this way; ones already approved keep theirs."""
     client = _found(session, client_id)
     sent = body.model_fields_set
-    if sent & {"expenses_sent_as", "paid_through"}:
+    if "paid_through" in sent:
         try:  # checked before anything changes
-            set_expense_sending(
-                session,
-                registry,
-                client,
-                sent_as=body.expenses_sent_as or client.expenses_sent_as,
-                paid_through=body.paid_through if "paid_through" in sent else client.paid_through,
-            )
+            set_paid_through(session, client, body.paid_through)
         except ClientError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     if body.own_trns is not None:
@@ -263,8 +257,6 @@ def update_client(
             set_own_trns(client, body.own_trns)
         except ClientError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    if body.line_grouping is not None:
-        client.line_grouping = body.line_grouping
     if body.send_mode is not None:
         client.send_mode = body.send_mode
     session.commit()

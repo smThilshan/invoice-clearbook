@@ -176,18 +176,15 @@ export const api = {
   /** Cannot be undone; `name` is the company's name, typed to confirm. */
   deleteClient: (clientId: string, name: string) =>
     sendJson<CompanyDeleted>('POST', `/clients/${encodeURIComponent(clientId)}/delete`, { name }),
-  /** Decision 73: how approved lines are sent; documents approved from now on (admin only). */
-  setLineGrouping: (clientId: string, lineGrouping: LineGrouping) =>
-    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { line_grouping: lineGrouping }),
   /** Decision 98: sent straight away, or held until Send; documents approved from now on (admin only). */
   setSendMode: (clientId: string, sendMode: SendMode) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { send_mode: sendMode }),
   /** Decision 92: the client's own TRNs, the whole list (admin only). */
   setOwnTrns: (clientId: string, ownTrns: string[]) =>
     sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { own_trns: ownTrns }),
-  /** Decision 89: how expenses are sent and the account usually paid through (admin only). */
-  setExpenseSending: (clientId: string, settings: Pick<ClientSettings, 'expenses_sent_as' | 'paid_through'>) =>
-    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, settings),
+  /** Decision 89: the account expenses are usually paid through; null = chosen on each (admin only). */
+  setPaidThrough: (clientId: string, paidThrough: string | null) =>
+    sendJson<Client>('PATCH', `/clients/${encodeURIComponent(clientId)}`, { paid_through: paidThrough }),
   /** Missan's SharePoint sign-in (decision 83): read only, made once by an admin. */
   sharePointStatus: () => request<SharePointStatus>('/sharepoint/status'),
   disconnectSharePoint: () => sendJson<SharePointStatus>('POST', '/sharepoint/disconnect', {}),

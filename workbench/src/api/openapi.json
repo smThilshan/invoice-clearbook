@@ -400,28 +400,9 @@
         "type": "object"
       },
       "ClientSettings": {
-        "description": "Only the settings sent are changed.",
+        "additionalProperties": false,
+        "description": "Only the settings sent are changed. Anything else is refused, never ignored: lines always go\nby item (decision 99) and expenses always as expenses (decision 101), no longer settings.",
         "properties": {
-          "expenses_sent_as": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ExpensesSentAs"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "line_grouping": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LineGrouping"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "own_trns": {
             "anyOf": [
               {

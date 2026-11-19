@@ -207,7 +207,7 @@ def test_a_client_is_created_from_a_name(anywhere: TestClient) -> None:
 
     assert first.status_code == 201
     assert first.json() == {"client_id": "blue-sky-trading-llc", "name": "Blue Sky Trading LLC",
-                            "line_grouping": "BY_ITEM", "expenses_sent_as": "BILL",
+                            "line_grouping": "BY_ITEM", "expenses_sent_as": "EXPENSE",
                             "paid_through": None, "own_trns": [],
                             "send_mode": "ON_SEND"}  # fmt: skip  # new: held until Send (98)
     assert second.json()["client_id"] == "blue-sky-trading-llc-2"

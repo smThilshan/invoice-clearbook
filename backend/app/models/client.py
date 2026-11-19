@@ -28,12 +28,13 @@ class Client(UuidPk, ClientScoped, Timestamps, Base):
         default=LineGrouping.BY_ITEM,
         server_default=LineGrouping.BY_ITEM.value,
     )
-    # How expenses are sent (decision 89), and the account they are usually paid through: a
-    # ledger account code marked `PAYS`; null = chosen on each expense.
+    # How expenses are sent (decision 89): always as expenses since decision 101, no longer a
+    # setting (as bills only while the connection cannot take them). The account they are
+    # usually paid through: a ledger account code marked `PAYS`; null = chosen on each expense.
     expenses_sent_as: Mapped[ExpensesSentAs] = mapped_column(
         str_enum(ExpensesSentAs, "expenses_sent_as"),
-        default=ExpensesSentAs.BILL,
-        server_default=ExpensesSentAs.BILL.value,
+        default=ExpensesSentAs.EXPENSE,
+        server_default=ExpensesSentAs.EXPENSE.value,
     )
     paid_through: Mapped[str | None] = mapped_column(String(64))
     # Decision 98: approved documents are sent straight away, or held until someone presses

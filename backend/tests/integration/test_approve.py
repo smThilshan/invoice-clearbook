@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.adapters.storage.local import LocalStorage
 from app.domain.enums import DocumentStatus as S
 from app.domain.enums import DocumentType as T
-from app.domain.enums import ExpensesSentAs, LineGrouping, Role, TaxType
+from app.domain.enums import ExpensesSentAs, LineGrouping, TaxType
 from app.models import AuditLog, Document, Outbox, OutboxStatus, VendorMapping
 from tests.integration.factories import CLIENT
 from tests.integration.test_review_api import (  # noqa: F401  (fixtures)
@@ -27,7 +27,6 @@ from tests.integration.test_verify import (  # noqa: F401
     sends_expenses,
     storage,
 )
-from tests.login import log_in
 
 pytestmark = pytest.mark.integration
 
@@ -194,29 +193,30 @@ def test_a_suppliers_first_approval_starts_its_memory(
     )  # fmt: skip
 
 
-def test_approval_keeps_the_clients_way_of_sending_lines_on_the_outbox_row(
+def test_approval_sends_lines_by_item(
     api: TestClient,  # noqa: F811
     session: Session,
     storage: LocalStorage,  # noqa: F811
 ) -> None:
-    ok(api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ACCOUNT"}))
     doc = in_review(session, storage)
 
     ok(approve(api, doc))
 
     [row] = outbox_rows(session, doc)
-    assert row.line_grouping is LineGrouping.BY_ACCOUNT
+    assert row.line_grouping is LineGrouping.BY_ITEM  # decisions 75 and 99
 
 
-def test_only_an_admin_changes_how_lines_are_sent(api: TestClient) -> None:  # noqa: F811
+def test_how_lines_are_sent_is_no_longer_a_setting(api: TestClient) -> None:  # noqa: F811
+    """Decision 99: always by item. A request to change it is refused, never silently ignored."""
     clients = ok(api.get("/clients"))
-    assert [c["line_grouping"] for c in clients] == ["BY_ITEM"]  # the default (decision 75)
-    log_in(api.app, Role.ACCOUNTANT)  # type: ignore[arg-type]
+    assert [c["line_grouping"] for c in clients] == ["BY_ITEM"]
 
-    refused = api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ITEM"})
+    refused = api.patch(f"/clients/{CLIENT}", json={"line_grouping": "BY_ACCOUNT"})
 
-    assert refused.status_code == 403
-    assert api.patch("/clients/nobody", json={"line_grouping": "BY_ITEM"}).status_code == 403
+    assert refused.status_code == 422
+    assert [c["line_grouping"] for c in ok(api.get("/clients"))] == ["BY_ITEM"]
+    others = ok(api.patch(f"/clients/{CLIENT}", json={"send_mode": "ON_SEND"}))
+    assert others["send_mode"] == "ON_SEND"  # the other settings still change
 
 
 # --- bill or expense (decision 88) ------------------------------------------------------
