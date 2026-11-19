@@ -8,7 +8,7 @@ from app.domain.enums import DocumentType
 from app.domain.invoice import Invoice
 from app.pipeline.read import PageText, TextSpan
 from app.pipeline.verify.grounding import check_grounding
-from app.pipeline.verify.issues import Severity
+from app.pipeline.verify.issues import Issue, Severity
 from app.pipeline.verify.trn_finder import PrintedTrns, find_printed_trns
 
 SUPPLIER = "100111222333003"
@@ -217,3 +217,78 @@ def test_supplier_trn_misread_gets_the_printed_one_as_one_click() -> None:
             if i.field == "vendor_trn"] == [
         ("trn_differs_from_printed", "vendor_trn", SUPPLIER, Severity.ERROR)
     ]  # fmt: skip
+
+
+# --- decision 96: one character unclear, and whose TRN when the finder missed a label -------
+
+# CRS/17933: the supplier's "TRN" read as "[RN", and a 7 of its number as "/".
+SUPPLIER_UNCLEAR = f"{SUPPLIER[:8]}/{SUPPLIER[9:]}"
+CRS_HEADER = (0.16, 0.43, f"[RN : {SUPPLIER_UNCLEAR}")
+
+
+def vendor_trn_issues(
+    lines: tuple[tuple[float, float, str], ...],
+    source: Literal["text_layer", "ocr"] = "ocr",
+    **trns: str,
+) -> list[Issue]:
+    invoice = Invoice(document_type=DocumentType.BILL, **trns)
+    return [i for i in check_grounding(invoice, [page(*lines, source=source)])
+            if i.field == "vendor_trn"]  # fmt: skip
+
+
+def test_a_supplier_trn_with_one_unclear_character_is_a_warning_quoting_it() -> None:
+    [issue] = vendor_trn_issues((CRS_HEADER,), vendor_trn=SUPPLIER)
+
+    assert (issue.code, issue.severity) == ("not_on_document", Severity.WARNING)
+    assert SUPPLIER_UNCLEAR in issue.message
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        f"{SUPPLIER[:8]}/{SUPPLIER[9:-1]}",  # one character unclear and one missing
+        f"{SUPPLIER[:8]}//{SUPPLIER[10:]}",  # two unclear
+        SUPPLIER.replace("1", "7", 2),  # two different digits
+        SUPPLIER.replace("2", "8", 1),  # one different digit: another TRN
+    ],
+)
+def test_more_than_one_character_off_stays_an_error(printed: str) -> None:
+    [issue] = vendor_trn_issues(((0.16, 0.43, f"TRM : {printed}"),), vendor_trn=SUPPLIER)
+
+    assert issue.severity is Severity.ERROR
+
+
+def test_one_unclear_character_is_no_excuse_on_a_digital_pdf() -> None:
+    [issue] = vendor_trn_issues((CRS_HEADER,), source="text_layer", vendor_trn=SUPPLIER)
+
+    assert issue.severity is Severity.ERROR
+
+
+def test_the_buyers_trn_with_one_unclear_character_is_not_the_suppliers() -> None:
+    """KSGN: the model took the customer's TRN, printed (one character unclear) under "Buyer"."""
+    lines = ((0.22, 0.06, "Buyer"), (0.29, 0.10, f"{CUSTOMER[:10]}c{CUSTOMER[11:]}"))
+
+    [issue] = vendor_trn_issues(lines, vendor_trn=CUSTOMER)
+
+    assert (issue.code, issue.severity) == ("not_on_document", Severity.ERROR)
+
+
+def test_the_customers_trn_is_not_offered_when_the_suppliers_label_was_misread() -> None:
+    """CRS/17933: the finder missed "[RN" and took the customer's TRN below for the supplier's;
+    the model read both. Neither is suggested: a warning asks which is whose."""
+    lines = (CRS_HEADER, (0.18, 0.06, "M/S ROAST PASTRIES"), (0.22, 0.05, f"TRN : {CUSTOMER}"))
+
+    [issue] = vendor_trn_issues(lines, vendor_trn=SUPPLIER, recipient_trn=CUSTOMER)
+
+    assert (issue.code, issue.severity, issue.suggestion) == ("trn_whose", Severity.WARNING,
+                                                              None)  # fmt: skip
+
+
+def test_a_model_that_swapped_the_trns_is_still_corrected() -> None:
+    """The supplier's TRN on top, the customer's below: the model read them the other way."""
+    lines = ((0.14, 0.17, f"VAT REGISTRATION NO:{SUPPLIER}"), (0.30, 0.07, f"TRN : {CUSTOMER}"))
+
+    [issue] = vendor_trn_issues(lines, vendor_trn=CUSTOMER, recipient_trn=SUPPLIER)
+
+    assert (issue.code, issue.severity, issue.suggestion) == ("trn_differs_from_printed",
+                                                              Severity.ERROR, SUPPLIER)  # fmt: skip

@@ -9,9 +9,15 @@ price is worked out in code, only when the document itself proves it, and never 
   by the worked-out one (decision 81), and only an exact match proves anything;
 - amount / quantity is exact to the fils.
 
-Otherwise the line stays as read and the line check keeps warning. Only the unit price changes,
-never an amount: the money that reaches the books is what was printed. The model's own answer
-stays in `extractions.raw_output`; settings.repair_unit_prices turns this off.
+Otherwise the line stays as read and the line check keeps warning, unless the line totals
+alone are proven (decision 90): a handwritten pad has an empty Rate column, and the model
+copies each amount into it ("500g" capsicum, 2.00 x 2.00 = 2.00). With the lines adding up to
+the total, a unit price equal to its amount while the quantity is not 1 cannot be right, and
+nothing on the page says what it is: it is cleared (null over invented).
+
+Only the unit price changes, never an amount: the money that reaches the books is what was
+printed. The model's own answer stays in `extractions.raw_output`; settings.repair_unit_prices
+turns the first repair off.
 """
 
 import json
@@ -22,6 +28,7 @@ from app.domain.enums import AmountType
 from app.domain.invoice import Invoice, Line
 from app.pipeline.descriptions import QTY_PREFIX
 from app.pipeline.verify.rules import CENT
+from app.pipeline.verify.vat_type import vat_type_from_amounts
 
 
 def repair_unit_prices(invoice: Invoice) -> tuple[Invoice, int]:
@@ -36,6 +43,23 @@ def repair_unit_prices(invoice: Invoice) -> tuple[Invoice, int]:
     if not changed:
         return invoice, 0
     return invoice.model_copy(update={"lines": lines}), changed
+
+
+def clear_copied_unit_prices(invoice: Invoice) -> Invoice:
+    """Unit prices copied from the amount, cleared once the line totals add up (decision 90)."""
+    if vat_type_from_amounts(invoice) is None:
+        return invoice
+    lines = [line.model_copy(update={"unit_price": None}) if _copied(line) else line
+             for line in invoice.lines]  # fmt: skip
+    if lines == invoice.lines:
+        return invoice
+    return invoice.model_copy(update={"lines": lines})
+
+
+def _copied(line: Line) -> bool:
+    qty = line.qty
+    return (qty is not None and qty != 1 and line.unit_price == line.amount
+            and qty * line.amount != line.amount)  # fmt: skip
 
 
 def _printed_items(invoice: Invoice) -> Decimal | None:

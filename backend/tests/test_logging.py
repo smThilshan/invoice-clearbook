@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from app.core.logging import JsonFormatter, RedactingFormatter, redact
+from app.core.logging import JsonFormatter, RedactingFormatter, configure_logging, redact
 
 
 @pytest.mark.parametrize(
@@ -49,3 +49,11 @@ def test_json_formatter_emits_masked_json() -> None:
     assert entry["msg"] == "trn=[TRN]"
     assert entry["level"] == "INFO"
     assert entry["ts"].endswith("+00:00")
+
+
+def test_request_urls_are_not_logged() -> None:
+    """SharePoint download URLs carry a temporary access token."""
+    configure_logging("INFO", json_output=True)
+
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+    assert logging.getLogger("httpx").isEnabledFor(logging.WARNING)

@@ -338,3 +338,63 @@ def test_the_usual_tax_invoice_passes() -> None:
 
 def test_confirmed_vat_is_not_questioned() -> None:
     assert check_grounding(app_order(), [screen(APP_ORDER)], verified={"vat"}) == []
+
+
+# --- decision 96: a document number OCR read with one character unclear ----------------------
+
+
+def number_issues(
+    number: str, text: str, source: Literal["text_layer", "ocr"] = "ocr"
+) -> list[Issue]:
+    found = issues_for(invoice(invoice_number=number), page(text, source=source))
+    return [issue for issue in found if issue.field == "invoice_number"]
+
+
+@pytest.mark.parametrize(
+    ("number", "printed"),
+    [
+        ("CRS/17933", "CRS/17S33"),  # 9 read as S (folded to 5)
+        ("AE14GGRX4-IAJB252820", "AE14GGRX4-lAJB252820"),  # I read as l
+        ("1367262000411", "1367262000.11"),  # 4 read as a dot
+        ("PSCIPCV", "PSC*PCV"),
+    ],
+)
+def test_a_number_with_one_unclear_character_is_a_warning(number: str, printed: str) -> None:
+    [issue] = number_issues(number, PRINTED.replace("INV-00291", printed))
+
+    assert issue.severity is Severity.WARNING
+    assert f"'{printed}'" in issue.message
+
+
+def test_one_unclear_character_is_no_excuse_on_a_digital_pdf() -> None:
+    [issue] = number_issues("CRS/17933", PRINTED.replace("INV-00291", "CRS/17S33"), "text_layer")
+
+    assert issue.severity is Severity.ERROR
+
+
+@pytest.mark.parametrize(
+    ("number", "printed"),
+    [
+        ("INV-00292", "INV-00291"),  # a digit read as another digit: another number
+        ("CRS/17933", "CRS/17S88"),  # two characters off
+        ("CR/933", "CR/9S3"),  # too short to excuse
+    ],
+)
+def test_other_numbers_stay_errors(number: str, printed: str) -> None:
+    [issue] = number_issues(number, PRINTED.replace("INV-00291", printed))
+
+    assert issue.severity is Severity.ERROR
+
+
+def test_a_number_on_a_scan_ocr_could_not_read_is_a_warning() -> None:
+    """CRS/18113: OCR read the supplier's address but no amount and no date."""
+    [issue] = number_issues("CRS/18113", "MOHAMMED ABU RASHED\nCentral Fruits Market Al Aweer")
+
+    assert issue.severity is Severity.WARNING
+    assert "could not read this scan" in issue.message
+
+
+def test_a_number_not_on_a_well_read_scan_stays_an_error() -> None:
+    [issue] = number_issues("CRS/18113", PRINTED)
+
+    assert issue.severity is Severity.ERROR

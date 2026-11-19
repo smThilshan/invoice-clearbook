@@ -54,6 +54,7 @@ from app.models import AccountingConnection, Client, Document, Extraction, Vendo
 from app.pipeline import coding
 from app.pipeline.dates import DateLimits, folder_for, photo_date, resolve_date
 from app.pipeline.folders import folder_year_known
+from app.pipeline.missing_total import quoted_total
 from app.pipeline.page_quality import quality_issues
 from app.pipeline.payment import PURCHASES, decide_payment, payment_issue
 from app.pipeline.read import PageText, decode_image, load_page_texts
@@ -345,6 +346,8 @@ def assess(
         if payment is not None and not types.issues:
             issues += payment_issue(payment, _model_type(raw))
         issues += _repeated_rows_removed(raw, invoice)
+        if "total" not in verified:
+            issues = _total_from_evidence(raw, invoice, issues)
 
     if invoice is not None:
         issues = _explain_total(storage, document, invoice, pages, issues, settings, context)
@@ -537,6 +540,30 @@ def _repeated_rows_removed(answer: dict[str, Any] | None, invoice: Invoice) -> l
             "was removed: check the lines against the page.",
         )
     ]
+
+
+def _total_from_evidence(
+    answer: dict[str, Any] | None, invoice: Invoice, issues: list[Issue]
+) -> list[Issue]:
+    """Decision 96: extraction took the total the model quoted but left empty. A total the page
+    shows needs no word; one the scan could not confirm (a grounding warning) is said with where
+    it came from. A total missing from a well-read page stays the grounding error."""
+    total = invoice.total
+    if not answer or answer.get("total", 0) is not None or total is None:
+        return issues
+    if total != quoted_total(invoice):
+        return issues  # not filled here, or the accountant changed the total since
+    unconfirmed = [i for i in issues if i.field == "total" and i.code == "not_on_document"]
+    if not unconfirmed or any(i.severity is Severity.ERROR for i in unconfirmed):
+        return issues
+    note = Issue(
+        "total_from_evidence",
+        Severity.WARNING,
+        "total",
+        f"The total {total} is the total the model read on the image (the lines and the VAT "
+        "add up to it); the text reader could not read it to confirm. Check it on the image.",
+    )
+    return [i for i in issues if i not in unconfirmed] + [note]
 
 
 def _money(answer: dict[str, Any], field: str) -> Decimal | None:

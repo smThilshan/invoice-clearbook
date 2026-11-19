@@ -70,7 +70,7 @@ def find_printed_trns(pages: Sequence[PageText], own: Collection[str] = ()) -> P
         for match in _LABEL.finditer(line.text):
             digits = _number_after(line.text[match.end() :], ocr=line.ocr)
             if digits is None or all(label.digits != digits for label in labels):
-                block = _in_customer_block(lines, index, match.start())
+                block = in_customer_block(lines, index, match.start())
                 labels.append(_Label(digits, line, block))
     return _with_own(labels, own) if own else _by_position(labels)
 
@@ -110,7 +110,7 @@ def _number_after(text: str, *, ocr: bool) -> str | None:
     return digits if len(digits) == TRN_DIGITS else None
 
 
-def _in_customer_block(lines: Sequence[Line], index: int, label_at: int) -> bool:
+def in_customer_block(lines: Sequence[Line], index: int, label_at: int) -> bool:
     line = lines[index]
     if _CUSTOMER.search(line.text[:label_at]):
         return True

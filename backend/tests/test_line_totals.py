@@ -8,7 +8,7 @@ import pytest
 
 from app.domain.enums import AmountType, DocumentType
 from app.domain.invoice import Invoice, Line
-from app.pipeline.line_totals import repair_unit_prices, repaired_count
+from app.pipeline.line_totals import clear_copied_unit_prices, repair_unit_prices, repaired_count
 
 D = Decimal
 
@@ -90,3 +90,29 @@ def test_the_review_screen_count_compares_the_models_answer_with_what_was_kept()
 
     assert repaired_count(raw, data) == 1
     assert repaired_count("not json", data) == 0
+
+
+def pad(*lines: Line, total: str) -> Invoice:
+    """A handwritten pad: an empty Rate column, no VAT."""
+    return Invoice(document_type=DocumentType.RECEIPT, vat=D(0), total=D(total), lines=list(lines))
+
+
+def test_a_unit_price_copied_from_the_amount_is_cleared_once_the_lines_add_up() -> None:
+    """Vegetable pad (decision 90): 25 eggs 28, 2 blueberries 16, 1 kg avocado 38 = 82; the
+    model copied each amount into the empty Rate column. 1 x 38 = 38 is right and stays."""
+    inv = pad(line("Egg", "25", "28", "28"), line("Blueberry", "2", "16", "16"),
+              line("Avocado", "1", "38", "38"), total="82")  # fmt: skip
+
+    assert [x.unit_price for x in clear_copied_unit_prices(inv).lines] == [None, None, D("38")]
+
+
+@pytest.mark.parametrize(
+    ("inv", "why"),
+    [
+        (pad(line("Egg", "25", "28", "28"), total="59"), "the lines do not add up"),
+        (pad(line("Egg", "2", "14", "28"), total="28"), "2 x 14 = 28: right"),
+        (pad(line("Egg", None, "28", "28"), total="28"), "no quantity"),
+    ],
+)
+def test_unit_prices_stay_unless_proven_copied(inv: Invoice, why: str) -> None:
+    assert clear_copied_unit_prices(inv) == inv, why

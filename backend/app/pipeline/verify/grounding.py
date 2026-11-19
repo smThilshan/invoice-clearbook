@@ -9,6 +9,11 @@ may correctly answer 1050.10. So on OCR pages letters that OCR confuses with dig
 l/I 1, S 5, B 8) next to digits are also read as digits. The exact text layer of digital PDFs
 gets no such tolerance.
 
+Decision 96, scans only: a document number or supplier TRN that OCR read with one character
+unclear ("CRS/17S33", "10412603/100003") is a warning that quotes the reading, and so is a
+number on a scan where OCR read no amount and no date at all. A supplier TRN with one character
+unclear counts only outside a customer block (the buyer's TRN is not the supplier's).
+
 A value not found is an error (architecture §8), except the due date (often printed as terms
 like "Net 30"): a warning. Also a warning when OCR read no money amount at all (for an amount)
 or no date at all (for a date) on a scan (decision 60): handwritten values, which OCR does not
@@ -34,6 +39,7 @@ from app.domain.invoice import Invoice
 from app.pipeline.read import PageText
 from app.pipeline.verify.charges import labelled_amounts
 from app.pipeline.verify.issues import Issue, Severity
+from app.pipeline.verify.layout import Line, page_lines
 from app.pipeline.verify.normalize import (
     OCR_DIGITS,
     find_amounts,
@@ -42,7 +48,12 @@ from app.pipeline.verify.normalize import (
     normalize_trn,
     to_ascii_digits,
 )
-from app.pipeline.verify.trn_finder import PrintedTrns, find_printed_trns
+from app.pipeline.verify.trn_finder import (
+    TRN_DIGITS,
+    PrintedTrns,
+    find_printed_trns,
+    in_customer_block,
+)
 
 # Not the subtotal: it is worked out from these two (decision 81).
 _AMOUNT_FIELDS = {"total": "total", "vat": "VAT amount"}
@@ -80,6 +91,7 @@ class _Witness:
     raw: str
     unread_money: bool  # a scan on which OCR read no money amount ("75.00")
     unread_dates: bool  # a scan on which OCR read no date
+    ocr_words: tuple[str, ...]  # OCR pages' words as read, for values with one unclear character
 
 
 def check_grounding(
@@ -98,7 +110,7 @@ def check_grounding(
         *_vat_printed(invoice, pages),
         *_dates(invoice, witness),
         *_number(invoice, witness),
-        *_trn(invoice, witness, find_printed_trns(pages, own_trns)),
+        *_trn(invoice, witness, find_printed_trns(pages, own_trns), pages),
     ]
     return [issue for issue in issues if issue.field not in verified]
 
@@ -118,6 +130,9 @@ def _witness(pages: Sequence[PageText]) -> _Witness:
         raw=exact,
         unread_money=scan and not _MONEY.search(both),
         unread_dates=scan and not dates,
+        ocr_words=tuple(
+            word for page in pages if page.source == "ocr" for word in page.text.split()
+        ),
     )
 
 
@@ -190,30 +205,95 @@ def _number(invoice: Invoice, witness: _Witness) -> list[Issue]:
     found = bool(wanted) and (
         wanted in witness.compact or wanted.translate(OCR_DIGITS) in witness.compact_ocr
     )
-    return (
-        [] if found else [_not_found("invoice_number", "document number", number, Severity.ERROR)]
-    )
+    if found:
+        return []
+    reading = _one_unclear(wanted, witness.ocr_words, min_length=_NUMBER_MIN_UNCLEAR)
+    if reading is not None:
+        return [_unclear("invoice_number", "document number", number, reading)]
+    if witness.unread_money and witness.unread_dates:  # OCR missed the header and the totals
+        return [
+            Issue(
+                "not_on_document",
+                Severity.WARNING,
+                "invoice_number",
+                f"The document number {number} could not be checked: the text reader could not "
+                "read this scan (no amounts or dates). Check the number on the image.",
+            )
+        ]
+    return [_not_found("invoice_number", "document number", number, Severity.ERROR)]
 
 
-def _trn(invoice: Invoice, witness: _Witness, printed: PrintedTrns) -> list[Issue]:
+def _trn(
+    invoice: Invoice, witness: _Witness, printed: PrintedTrns, pages: Sequence[PageText]
+) -> list[Issue]:
     """Against the TRNs our own finder read next to their labels (decision 29) when it found
-    them; otherwise the value must at least appear somewhere on the document."""
+    them; otherwise the value must at least appear somewhere on the document: exactly, or on a
+    scan with one character unclear, outside any customer block (decision 96)."""
     issues = []
-    if printed.supplier is not None:
+    label = "supplier VAT registration no"
+    if printed.supplier is not None and _finder_took_customer(invoice, printed.supplier, pages):
+        issues.append(_whose(invoice.vendor_trn, printed.supplier))
+    elif printed.supplier is not None:
         issues += _against_printed(invoice.vendor_trn, printed.supplier, "vendor_trn",
-                                   "supplier VAT registration no", Severity.ERROR)  # fmt: skip
+                                   label, Severity.ERROR)  # fmt: skip
     elif invoice.vendor_trn is not None:
         digits = normalize_trn(invoice.vendor_trn)
         if not (digits and digits in witness.digit_runs):
-            issues.append(
-                _not_found(
-                    "vendor_trn", "supplier VAT registration no", invoice.vendor_trn, Severity.ERROR
-                )
-            )
+            lines = [line for page in pages for line in page_lines(page)]
+            reading = _supplier_reading(lines, digits)
+            if reading is not None and reading[1] is not None:
+                issues.append(_unclear("vendor_trn", label, invoice.vendor_trn, reading[1]))
+            else:
+                issues.append(_not_found("vendor_trn", label, invoice.vendor_trn, Severity.ERROR))
     if printed.customer is not None:
         issues += _against_printed(invoice.recipient_trn, printed.customer, "recipient_trn",
                                    "customer TRN", Severity.WARNING)  # fmt: skip
     return issues
+
+
+def _finder_took_customer(invoice: Invoice, supplier: str, pages: Sequence[PageText]) -> bool:
+    """Decision 96: the TRN our finder took for the supplier's is the one the model read as the
+    customer's, and the model's supplier TRN is printed above it on the first page, outside any
+    customer block (its label misread: "[RN"). Then the finder missed the header's TRN, and
+    neither reading is suggested."""
+    vendor, recipient = invoice.vendor_trn, invoice.recipient_trn
+    if not vendor or not recipient or normalize_trn(recipient) != supplier:
+        return False
+    if normalize_trn(vendor) == supplier or not pages:
+        return False
+    lines = page_lines(pages[0])
+    reading = _supplier_reading(lines, normalize_trn(vendor))
+    below = next((line.y for line in lines if supplier in _digit_runs(line)), None)
+    return reading is not None and below is not None and reading[0] < below
+
+
+def _supplier_reading(lines: Sequence[Line], digits: str) -> tuple[float, str | None] | None:
+    """The first line outside a customer block printing these 15 digits: its height, and the
+    word as read when (OCR) one character is unclear (None: printed exactly)."""
+    if len(digits) != TRN_DIGITS:
+        return None
+    for index, line in enumerate(lines):
+        words = line.text.split() if line.ocr else []
+        unclear = _one_unclear(digits, words, min_length=TRN_DIGITS)
+        exact = digits in _digit_runs(line)
+        if (exact or unclear) and not in_customer_block(lines, index, len(line.text)):
+            return line.y, None if exact else unclear
+    return None
+
+
+def _digit_runs(line: Line) -> set[str]:
+    text = fold_ocr_digits(line.text) if line.ocr else line.text
+    return {re.sub(r"\D", "", run) for run in _DIGIT_RUN.findall(text)}
+
+
+def _whose(value: str | None, printed: str) -> Issue:
+    return Issue(
+        "trn_whose",
+        Severity.WARNING,
+        "vendor_trn",
+        f"Two TRNs are printed: {value} above, and {printed}, the customer's. The text reader "
+        f"could not read the label of the first: check that {value} is the supplier's.",
+    )
 
 
 def _against_printed(
@@ -250,4 +330,43 @@ def _unread(field: str, label: str, value: object, kind: str) -> Issue:
         field,
         f"The {label} {value} could not be checked: OCR read no {kind} on this document "
         "(handwritten or unclear). Check it on the image.",
+    )
+
+
+# Below this, one unclear character could make any number look like another.
+_NUMBER_MIN_UNCLEAR = 6
+
+
+def _one_unclear(wanted: str, words: Sequence[str], *, min_length: int) -> str | None:
+    """A scanned word that reads as `wanted` (compacted) but for one character OCR did not
+    read as a digit: "CRS/17S33" for CRS17933, "10412603/100003" for 104126037100003. A digit
+    read as another digit is another number. The caller passes OCR words only. Returns the
+    word as read."""
+    if len(wanted) < min_length:
+        return None
+    for word in words:
+        whole = to_ascii_digits(word).upper().strip(".,:;()[]")
+        if _one_apart(_compact(word), wanted) or _one_apart(whole, wanted):
+            return word
+    return None
+
+
+def _one_apart(read: str, wanted: str) -> bool:
+    if len(read) != len(wanted):
+        return False
+    off = [
+        r
+        for r, w in zip(read, wanted, strict=True)
+        if r != w and r.translate(OCR_DIGITS) != w.translate(OCR_DIGITS)
+    ]
+    return len(off) == 1 and not off[0].isdigit()
+
+
+def _unclear(field: str, label: str, value: object, reading: str) -> Issue:
+    return Issue(
+        "not_on_document",
+        Severity.WARNING,
+        field,
+        f"The {label} {value} could not be confirmed: the text reader read it as "
+        f"'{reading}' (one character unclear on the scan). Check it on the image.",
     )

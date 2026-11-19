@@ -187,6 +187,33 @@ def test_a_removed_copy_of_the_table_is_said(session: Session, storage: LocalSto
     assert "lines_repeated" not in codes(doc)
 
 
+def test_a_total_taken_from_the_models_quote_is_said(
+    session: Session, storage: LocalStorage
+) -> None:
+    """Decision 96: the model left the total empty but quoted it; the scan's OCR read no amount
+    to confirm it. One warning says where the total came from, instead of the plain one."""
+    faint = "TAX INVOICE\nAl Waha Hypermarket LLC   TRN 100-9990-0000-0001\nInvoice No: INV-00291"
+    doc = extracted(session, storage, bill(evidence={"total": "1,050.00"}), faint)
+    scanned = PageText.from_json(storage.get(ocr_key(CLIENT, doc.id, 1)))
+    scanned.source = "ocr"
+    storage.put(ocr_key(CLIENT, doc.id, 1), scanned.to_json())
+    answer = {"document_type": "BILL", "total": None, "subtotal": 1000.0, "vat": 50.0}
+    session.add(Extraction(client_id=CLIENT, document_id=doc.id, attempt=1, model="m",
+                           prompt_version="p", schema_version=1,
+                           raw_output=json.dumps(answer)))  # fmt: skip
+    session.flush()
+
+    verify(session, storage, doc)
+
+    totals = [issue for issue in doc.issues or [] if issue["field"] == "total"]
+    assert [(i["code"], i["severity"]) for i in totals] == [("total_from_evidence", "WARNING")]
+
+    doc.invoice = json.loads(bill(total=Decimal("1060.00")).model_dump_json())  # the accountant's
+    recheck_document(session, storage, doc, settings=SETTINGS, today=TODAY)
+
+    assert "total_from_evidence" not in codes(doc)
+
+
 def test_unreadable_extraction_still_reaches_review(
     session: Session, storage: LocalStorage
 ) -> None:

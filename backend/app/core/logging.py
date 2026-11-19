@@ -57,3 +57,8 @@ def configure_logging(level: str, *, json_output: bool) -> None:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+
+    # httpx logs every request URL at INFO; SharePoint download URLs carry a temporary access
+    # token (tempauth) that opens the file to anyone holding it. Warnings and errors still show.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)

@@ -38,7 +38,7 @@ def remove_vat_line(invoice: Invoice) -> Invoice:
         return invoice
     copies = [i for i, line in enumerate(invoice.lines) if _names_vat(line.description)
               and line.amount == vat]  # fmt: skip
-    total = invoice.total if invoice.total is not None else _evidence_total(invoice)
+    total = invoice.total if invoice.total is not None else evidence_total(invoice)
     if len(copies) != 1 or total is None or len(invoice.lines) < 2:
         return invoice
     lines = [line for i, line in enumerate(invoice.lines) if i != copies[0]]
@@ -56,6 +56,7 @@ def _names_vat(description: str | None) -> bool:
                 and not _OTHER_TAX.search(description))  # fmt: skip
 
 
-def _evidence_total(invoice: Invoice) -> Decimal | None:
+def evidence_total(invoice: Invoice) -> Decimal | None:
+    """The one amount in the text the model copied as the total's evidence."""
     amounts = find_amounts((invoice.evidence or {}).get("total", ""))
     return amounts.pop() if len(amounts) == 1 else None

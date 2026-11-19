@@ -32,9 +32,12 @@ from app.domain.enums import DocumentStatus
 from app.domain.invoice import INVOICE_SCHEMA_VERSION, Invoice
 from app.domain.state_machine import transition
 from app.models import Document, Extraction
+from app.pipeline.barcode_row import remove_barcode_rows
 from app.pipeline.descriptions import clean_descriptions
+from app.pipeline.header_fields import clear_false_header_fields
 from app.pipeline.item_codes import attach_item_codes
-from app.pipeline.line_totals import repair_unit_prices
+from app.pipeline.line_totals import clear_copied_unit_prices, repair_unit_prices
+from app.pipeline.missing_total import fill_total_from_evidence
 from app.pipeline.model_schema import build_model_schema
 from app.pipeline.no_vat import clear_unprinted_vat
 from app.pipeline.payment import decide_payment
@@ -43,6 +46,7 @@ from app.pipeline.read import PageText, load_page_texts
 from app.pipeline.reconcile_lines import reconcile_lines
 from app.pipeline.repeated_lines import remove_repeated_lines
 from app.pipeline.subtotal import with_worked_out_subtotal
+from app.pipeline.total_row import remove_total_row
 from app.pipeline.totals_block import apply_totals_block
 from app.pipeline.vat_line import remove_vat_line
 from app.pipeline.verify.normalize import parse_date
@@ -168,6 +172,8 @@ def clear_null_text(value: Any) -> Any:
 def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     """What the page proves about a valid answer, in order. Also run by the answer key
     (decision 63), so it measures exactly what extraction does."""
+    # Decision 90: a customer, title or label read as the supplier or the invoice number.
+    invoice = clear_false_header_fields(invoice, pages)
     # Decision 64: the totals and the items from the labelled totals block, when it proves them.
     invoice = apply_totals_block(invoice, pages)
     # Decision 56: summary rows copied as items, and the totals, from the printed summary.
@@ -176,12 +182,20 @@ def repair_answer(invoice: Invoice, pages: Sequence[PageText]) -> Invoice:
     invoice = clear_unprinted_vat(invoice, pages)
     # Decision 95: the whole table read twice (by description, then by item name).
     invoice = remove_repeated_lines(invoice)
+    # Decision 90: a handwritten total copied as the last line.
+    invoice = remove_total_row(invoice)
     # Decision 60: the VAT copied as a line, proven by the model's own amounts.
     invoice = remove_vat_line(invoice)
+    # Decision 90: a till's barcode row ("1 @ 3.50") read as another item.
+    invoice = remove_barcode_rows(invoice)
+    # Decision 96: a total the model left empty but quoted, proven by its own amounts.
+    invoice = fill_total_from_evidence(invoice)
     # Decision 88: bill or expense, from what the page proves (the supplier's memory: checks).
     invoice = with_payment_type(invoice, pages)
     # Decision 82: lines still not adding up to the proven total, readings tried together.
     invoice = reconcile_lines(invoice, pages)
+    # Decision 90: unit prices copied from the amounts, once the amounts add up.
+    invoice = clear_copied_unit_prices(invoice)
     # Decision 82: each item's printed barcode, once the lines are final.
     invoice = attach_item_codes(invoice, pages)
     # Decision 81: the subtotal is the total less the VAT, not the model's copy.
