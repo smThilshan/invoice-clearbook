@@ -173,14 +173,49 @@ def test_zoho_s_vat_is_worked_out_line_by_line() -> None:
     assert zoho_vat(on_top, AmountType.EXCLUSIVE, RATES) == Decimal("7.50")
 
 
-def test_an_expense_without_vat_goes_without_a_tax_treatment() -> None:
+NO_VAT_EXPENSE = replace(EXPENSE, lines=[line("20.00", tax=NO_VAT)], vat=Decimal(0),
+                         amount_type=AmountType.NO_TAX)  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("trn", "treatment"),
+    [
+        ("100000000000003", "vat_registered"),  # a registered supplier charging no VAT
+        (None, "vat_not_registered"),  # a small shop without a TRN
+        ("10000000000", "vat_not_registered"),  # not 15 digits: not a TRN
+    ],
+    ids=["supplier with a TRN", "no TRN", "not a TRN"],
+)
+def test_an_expense_without_vat_says_the_suppliers_tax_treatment(
+    trn: str | None, treatment: str
+) -> None:
+    """Decision 103: never left to Zoho, which chose "Non VAT"."""
     zoho = FakeZoho()
 
-    send(zoho, replace(EXPENSE, lines=[line("20.00", tax=NO_VAT)], vat=Decimal(0),
-                       amount_type=AmountType.NO_TAX))  # fmt: skip
+    send(zoho, replace(NO_VAT_EXPENSE, supplier_tax_number=trn))
 
     [body] = zoho.posted("expenses")
-    assert "tax_treatment" not in body and "tax_id" not in body["line_items"][0]
+    assert body["tax_treatment"] == treatment
+    assert "tax_id" not in body["line_items"][0]
+    [vendor] = zoho.posted("contacts")
+    assert vendor["tax_treatment"] == treatment  # the vendor says the same
+
+
+def test_an_expense_with_vat_is_vat_registered_even_without_a_trn_read() -> None:
+    """Zoho refuses VAT otherwise; the review already warns of VAT without a TRN."""
+    zoho = FakeZoho()
+
+    send(zoho, replace(EXPENSE, supplier_tax_number=None))
+
+    assert zoho.posted("expenses")[0]["tax_treatment"] == "vat_registered"
+
+
+def test_an_expense_naming_no_supplier_and_no_vat_is_not_registered() -> None:
+    zoho = FakeZoho()
+
+    send(zoho, replace(NO_VAT_EXPENSE, supplier_name=None, supplier_tax_number=None))
+
+    assert zoho.posted("expenses")[0]["tax_treatment"] == "vat_not_registered"
 
 
 def test_an_expense_naming_no_supplier_goes_without_one() -> None:

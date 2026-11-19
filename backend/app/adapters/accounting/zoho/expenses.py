@@ -43,7 +43,12 @@ from app.adapters.accounting.zoho.bills import (
 )
 from app.adapters.accounting.zoho.client import ZohoApiError, ZohoClient
 from app.adapters.accounting.zoho.master_data import NO_VAT
-from app.adapters.accounting.zoho.vendors import create_vendor, find_vendor
+from app.adapters.accounting.zoho.vendors import (
+    VAT_REGISTERED,
+    create_vendor,
+    find_vendor,
+    tax_treatment,
+)
 from app.domain.enums import AmountType
 
 CENT = Decimal("0.01")
@@ -51,7 +56,6 @@ HUNDRED = Decimal(100)
 MAX_TEXT = 100  # Zoho's limit on an expense's description and line description
 MAX_REFERENCE = 49  # "less than 50 characters", Zoho said in the test (its docs say 100)
 KEY_LENGTH = 32  # an outbox key without its dashes
-VAT_REGISTERED = "vat_registered"
 
 
 def post_expense(
@@ -262,8 +266,13 @@ def _expense(
     }
     if vendor_id is not None:
         body["vendor_id"] = vendor_id
-    if any("tax_id" in item for item in lines):
-        body["tax_treatment"] = VAT_REGISTERED  # Zoho refuses VAT without it
+    # Decision 103: always said, never left to Zoho (it chose "Non VAT"): VAT Registered when a
+    # line carries VAT (Zoho refuses VAT without it) or the supplier's TRN is known, else Non
+    # VAT Registered.
+    with_vat = any("tax_id" in item for item in lines)
+    body["tax_treatment"] = (
+        VAT_REGISTERED if with_vat else tax_treatment(expense.supplier_tax_number)
+    )
     return body
 
 

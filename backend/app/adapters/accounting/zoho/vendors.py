@@ -26,12 +26,23 @@ def find_vendor(
     return _by_name(zoho, name)
 
 
+VAT_REGISTERED = "vat_registered"
+VAT_NOT_REGISTERED = "vat_not_registered"
+
+
+def tax_treatment(trn: str | None) -> str:
+    """Zoho's VAT treatment of a supplier: registered when a 15-digit TRN is known (decision
+    103), for the vendor and for its expenses alike."""
+    return VAT_REGISTERED if trn and TRN.match(trn) else VAT_NOT_REGISTERED
+
+
 def create_vendor(zoho: ZohoClient, name: str, trn: str | None) -> str:
-    registered = bool(trn and TRN.match(trn))
+    treatment = tax_treatment(trn)
+    registered = treatment == VAT_REGISTERED
     new: dict[str, Any] = {
         "contact_name": name.strip(),
         "contact_type": "vendor",
-        "tax_treatment": "vat_registered" if registered else "vat_not_registered",
+        "tax_treatment": treatment,
     }
     if registered:
         new["tax_reg_no"] = trn
